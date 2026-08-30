@@ -115,76 +115,33 @@ CCCryptorStatus CCCrypt(
     size_t *dataOutMoved
 );
 
-typedef uint32_t CCMode;
 enum {
-    kCCModeECB = 1,
-    kCCModeCBC = 2,
-    kCCModeCFB = 3,
-    kCCModeOFB = 4,
-    kCCModeCFB8 = 5,
-    kCCModeCTR = 6,
-    kCCModeF8 = 7,
-    kCCModeLRW = 8,
-    kCCModeOFB8 = 9,
-    kCCModeXTS = 10,
-    kCCModeRC4 = 11,
-    kCCModeCFB128 = 12,
-    kCCModeGCM = 13,
-    kCCModeCCM = 14,
+    NUVIO_CRYPTO_SUCCESS = 0,
+    NUVIO_CRYPTO_INVALID_ARGUMENT = -1,
+    NUVIO_CRYPTO_BUFFER_TOO_SMALL = -2,
+    NUVIO_CRYPTO_OPERATION_FAILED = -3,
 };
 
-typedef uint32_t CCPadding;
-enum {
-    ccNoPadding = 0,
-    ccPKCS7Padding = 1,
-};
-
-typedef uint32_t CCModeOptions;
-
-typedef struct _CCCryptor *CCCryptorRef;
-
-CCCryptorStatus CCCryptorCreateWithMode(
-    CCOperation op,
-    CCMode mode,
-    CCAlgorithm alg,
-    CCPadding padding,
-    const void *iv,
+int32_t nuvio_aes_gcm_encrypt(
     const void *key,
     size_t keyLength,
-    const void *tweak,
-    size_t tweakLength,
-    int numRounds,
-    CCModeOptions options,
-    CCCryptorRef *cryptorRef
+    const void *nonce,
+    size_t nonceLength,
+    const void *plaintext,
+    size_t plaintextLength,
+    void *output,
+    size_t outputCapacity,
+    size_t *outputLength
 );
 
-CCCryptorStatus CCCryptorGCMAddAAD(
-    CCCryptorRef cryptorRef,
-    const void *aData,
-    size_t aDataLen
+int32_t nuvio_aes_gcm_decrypt(
+    const void *key,
+    size_t keyLength,
+    const void *nonce,
+    size_t nonceLength,
+    const void *ciphertextAndTag,
+    size_t ciphertextAndTagLength,
+    void *output,
+    size_t outputCapacity,
+    size_t *outputLength
 );
-
-CCCryptorStatus CCCryptorGCMEncrypt(
-    CCCryptorRef cryptorRef,
-    const void *dataIn,
-    size_t dataInLength,
-    void *dataOut
-);
-
-CCCryptorStatus CCCryptorGCMDecrypt(
-    CCCryptorRef cryptorRef,
-    const void *dataIn,
-    size_t dataInLength,
-    void *dataOut
-);
-
-CCCryptorStatus CCCryptorGCMFinal(
-    CCCryptorRef cryptorRef,
-    void *tag,
-    size_t *tagLength
-);
-
-CCCryptorStatus CCCryptorRelease(
-    CCCryptorRef cryptorRef
-);
-

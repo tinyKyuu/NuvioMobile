@@ -5,7 +5,7 @@
 NUVIO_DEVELOPMENT_TEAM=
 NUVIO_APP_BUNDLE_IDENTIFIER=com.tinykyuu.nuvio.internal
 NUVIO_WIDGET_BUNDLE_IDENTIFIER=$(NUVIO_APP_BUNDLE_IDENTIFIER).DownloadsWidgetExtension
-NUVIO_DISPLAY_NAME=Nuvio Internal
+NUVIO_DISPLAY_NAME=Nuvio
 
 #include? "Signing.local.xcconfig"
 

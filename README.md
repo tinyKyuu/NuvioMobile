@@ -73,6 +73,10 @@ run:
 The export is marked **TestFlight Internal Only**. It cannot be promoted to
 external testing or released on the App Store.
 
+See [Internal TestFlight notes](./IOS_INTERNAL_TESTFLIGHT.md) for the
+App Store compatibility check, AES-GCM bridge test, and guidance on what must
+stay out of the public repository.
+
 The shared app is built with Kotlin Multiplatform and Compose Multiplatform.
 
 ## License

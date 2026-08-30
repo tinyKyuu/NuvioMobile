@@ -3,9 +3,9 @@
 set -euo pipefail
 
 repository_root="$(cd "$(dirname "$0")/.." && pwd -P)"
-archive_path="${IOS_ARCHIVE_PATH:-${repository_root}/build/Nuvio-Internal.xcarchive}"
-export_path="${IOS_EXPORT_PATH:-${repository_root}/build/testflight-upload}"
-build_number="${IOS_BUILD_NUMBER:-116}"
+build_number="${IOS_BUILD_NUMBER:-117}"
+archive_path="${IOS_ARCHIVE_PATH:-${repository_root}/build/Nuvio-Internal-${build_number}.xcarchive}"
+export_path="${IOS_EXPORT_PATH:-${repository_root}/build/testflight-upload-${build_number}}"
 upload=false
 
 if [[ "${1:-}" == "--upload" ]]; then
@@ -36,6 +36,14 @@ env NUVIO_IOS_DISTRIBUTION=full \
     archive
 
 echo "Created ${archive_path}"
+
+app_bundle="$(find "${archive_path}/Products/Applications" -maxdepth 1 -type d -name '*.app' -print -quit)"
+if [[ -z "${app_bundle}" ]]; then
+    echo "Archived app bundle was not found." >&2
+    exit 1
+fi
+app_executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "${app_bundle}/Info.plist")"
+./scripts/verify-ios-app-store-symbols.sh "${app_bundle}/${app_executable_name}"
 
 if [[ "${upload}" == false ]]; then
     echo "Run $0 --upload to archive and upload an internal-only TestFlight build."

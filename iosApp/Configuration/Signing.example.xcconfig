@@ -1,0 +1,3 @@
+// Copy this file to Signing.local.xcconfig and use the Team ID shown by Xcode.
+// Signing.local.xcconfig is intentionally ignored by Git.
+NUVIO_DEVELOPMENT_TEAM=YOUR_TEAM_ID

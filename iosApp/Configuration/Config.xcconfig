@@ -1,6 +1,12 @@
 #include? "Version.xcconfig"
 
-TEAM_ID=
+// Public defaults for the internal TestFlight fork. Personal team selection lives
+// in the ignored Signing.local.xcconfig file.
+NUVIO_DEVELOPMENT_TEAM=
+NUVIO_APP_BUNDLE_IDENTIFIER=com.tinykyuu.nuvio.internal
+NUVIO_WIDGET_BUNDLE_IDENTIFIER=$(NUVIO_APP_BUNDLE_IDENTIFIER).DownloadsWidgetExtension
+NUVIO_DISPLAY_NAME=Nuvio
 
-PRODUCT_NAME=Nuvio
-PRODUCT_BUNDLE_IDENTIFIER=com.nuvio.app.Nuvio$(TEAM_ID)
+#include? "Signing.local.xcconfig"
+
+PRODUCT_NAME=$(NUVIO_DISPLAY_NAME)

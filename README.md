@@ -37,6 +37,15 @@ Android development requires Android Studio and the Android SDK.
 
 iOS development requires macOS and Xcode.
 
+For a full iOS build that can use the official Nuvio account service, configure
+the public server settings locally first. The generated `local.properties` file
+is ignored by Git.
+
+```bash
+./scripts/configure-official-nuvio-server.sh
+./scripts/prepare-ios-dependencies.sh
+```
+
 ```bash
 env NUVIO_IOS_DISTRIBUTION=full xcodebuild \
   -project iosApp/iosApp.xcodeproj \
@@ -47,6 +56,19 @@ env NUVIO_IOS_DISTRIBUTION=full xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   build
 ```
+
+For this fork's internal TestFlight build, copy
+`iosApp/Configuration/Signing.example.xcconfig` to the ignored
+`Signing.local.xcconfig`, enter the Apple Developer Team ID shown by Xcode, and
+run:
+
+```bash
+./scripts/archive-ios-testflight.sh
+./scripts/archive-ios-testflight.sh --upload
+```
+
+The export is marked **TestFlight Internal Only**. It cannot be promoted to
+external testing or released on the App Store.
 
 The shared app is built with Kotlin Multiplatform and Compose Multiplatform.
 

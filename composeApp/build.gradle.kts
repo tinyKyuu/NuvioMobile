@@ -226,7 +226,11 @@ val iosDistributionSourceDir = if (iosDistribution == "full") {
     "src/iosAppStore/kotlin"
 }
 val iosFrameworkBundleId = "com.nuvio.media"
-val nuvioEngineAppleFramework = rootProject.file("../nuvio-engine/platform/apple/NuvioEngine.xcframework")
+val nuvioEngineRoot = providers.gradleProperty("nuvio.engine.root").orNull
+    ?: System.getenv("NUVIO_ENGINE_ROOT")
+    ?: "build/nuvio-engine"
+val nuvioEngineAppleFramework = rootProject.file(nuvioEngineRoot)
+    .resolve("platform/apple/NuvioEngine.xcframework")
 val fullCommonSourceDir = project.file("src/fullCommonMain/kotlin")
 val generatedRuntimeConfigDir = layout.buildDirectory.dir("generated/runtime-config/kotlin")
 val requestedGradleTasks = gradle.startParameter.taskNames.map { taskName ->

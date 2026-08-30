@@ -1,27 +1,30 @@
 <div align="center">
 
-  <img src="https://nuvio.tv/assets/nuvio-app-logo-wordmark.webp" alt="Nuvio" width="320" />
+  <h1>Nuvio Internal</h1>
 
   <p>
-    A free, open-source media app for your phone, your desktop, and the TV you already own.
-    <br />
-    Bring your own sources. Nuvio turns them into a library with artwork, ratings, subtitles, and your place saved on every screen.
+    An unofficial personal iOS TestFlight fork of NuvioMobile.
   </p>
 
-  [Website](https://nuvio.tv) · [GitHub releases](https://github.com/NuvioMedia/NuvioMobile/releases/latest) · [Support Nuvio](https://nuvio.tv/support)
+  [Upstream project](https://github.com/NuvioMedia/NuvioMobile) · [Official website](https://nuvio.tv) · [Support upstream](https://nuvio.tv/support)
 
 </div>
 
-## Get Nuvio Mobile
+> [!IMPORTANT]
+> tinyKyuu modified this fork on August 30, 2026, for internal iOS testing.
+> It is not affiliated with or endorsed by NuvioMedia. The source and
+> modifications are released under the GNU General Public License v3.0.
+
+## Get the upstream Nuvio Mobile app
 
 - [Android on Google Play](https://play.google.com/store/apps/details?id=com.nuvio.app)
 - [Android APK](https://github.com/NuvioMedia/NuvioMobile/releases/latest)
-- iOS must be built from source.
+- The upstream iOS app must be built from source.
 
 ## Build from source
 
 ```bash
-git clone https://github.com/NuvioMedia/NuvioMobile.git
+git clone --branch codex/testflight-internal https://github.com/tinyKyuu/NuvioMobile.git
 cd NuvioMobile
 ```
 
@@ -74,4 +77,6 @@ The shared app is built with Kotlin Multiplatform and Compose Multiplatform.
 
 ## License
 
-[GNU General Public License v3.0](./LICENSE)
+This fork and its modifications are released under the
+[GNU General Public License v3.0](./LICENSE). Copyright and attribution notices
+from the upstream project remain in effect.

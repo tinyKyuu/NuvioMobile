@@ -23,17 +23,36 @@ fi
 
 temporary_properties="${temporary_directory}/local.properties"
 if [[ -f "${properties_file}" ]]; then
-    awk '!/^(NUVIO_IOS_DISTRIBUTION|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL)=/' \
-        "${properties_file}" > "${temporary_properties}"
+    awk '
+        /^(NUVIO_IOS_DISTRIBUTION|NUVIO_SUPABASE_URL|NUVIO_SUPABASE_ANON_KEY|NUVIO_SUPABASE_FALLBACK_URL)=/ { next }
+        { lines[++count] = $0 }
+        END {
+            while (count > 0 && lines[count] ~ /^[[:space:]]*$/) {
+                count--
+            }
+            for (line_number = 1; line_number <= count; line_number++) {
+                print lines[line_number]
+            }
+        }
+    ' "${properties_file}" > "${temporary_properties}"
+fi
+
+if [[ -s "${temporary_properties}" ]]; then
+    printf '\n' >> "${temporary_properties}"
 fi
 
 {
-    printf '\nNUVIO_IOS_DISTRIBUTION=full\n'
+    printf 'NUVIO_IOS_DISTRIBUTION=full\n'
     printf 'NUVIO_SUPABASE_URL=%s\n' "${backend_url}"
     printf 'NUVIO_SUPABASE_ANON_KEY=%s\n' "${publishable_key}"
     printf 'NUVIO_SUPABASE_FALLBACK_URL=\n'
 } >> "${temporary_properties}"
 
 chmod 600 "${temporary_properties}"
+if [[ -f "${properties_file}" ]] && cmp -s "${temporary_properties}" "${properties_file}"; then
+    echo "Official Nuvio server configuration is already current."
+    exit 0
+fi
+
 mv "${temporary_properties}" "${properties_file}"
 echo "Configured the full iOS build for the official Nuvio account service."

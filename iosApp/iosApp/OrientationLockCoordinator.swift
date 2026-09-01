@@ -12,6 +12,7 @@ final class OrientationLockAppDelegate: NSObject, UIApplicationDelegate, UNUserN
     ) -> Bool {
         OrientationLockCoordinator.shared.start()
         DownloadsLiveActivityManager.shared.start()
+        DownloadsPlatformDownloader_iosKt.initializeDownloadsBackgroundTransfers()
         UNUserNotificationCenter.current().delegate = self
         return true
     }
@@ -32,10 +33,6 @@ final class OrientationLockAppDelegate: NSObject, UIApplicationDelegate, UNUserN
             identifier: identifier,
             completionHandler: completionHandler
         )
-    }
-
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        DownloadsPlatformDownloader_iosKt.pauseDownloadsForAppBackground()
     }
 
     func userNotificationCenter(

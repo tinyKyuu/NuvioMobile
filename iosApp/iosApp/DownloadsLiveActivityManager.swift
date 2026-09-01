@@ -1,28 +1,67 @@
 import Foundation
+import UIKit
+import UserNotifications
 #if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
 import ActivityKit
 #endif
 
 private let downloadsLiveStatusUpdatedNotification = Notification.Name("NuvioDownloadsLiveStatusUpdated")
+private let downloadTerminalStatusUpdatedNotification = Notification.Name("NuvioDownloadTerminalStatusUpdated")
 private let downloadsLiveStatusPayloadKey = "nuvio.downloads.live_status.payload"
+private let downloadTerminalStatusPayloadKey = "nuvio.downloads.terminal_status.payload"
 
 final class DownloadsLiveActivityManager {
     static let shared = DownloadsLiveActivityManager()
 
-    private var observer: NSObjectProtocol?
+    private var observers: [NSObjectProtocol] = []
+    private var pendingSyncRequest: DownloadsLiveActivitySyncRequest?
+    private var syncTask: Task<Void, Never>?
 
     private init() {}
 
     func start() {
-        guard observer == nil else { return }
+        guard observers.isEmpty else { return }
 
-        observer = NotificationCenter.default.addObserver(
-            forName: downloadsLiveStatusUpdatedNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            self?.syncFromPayloadStore()
-        }
+        let center = NotificationCenter.default
+        observers.append(
+            center.addObserver(
+                forName: downloadsLiveStatusUpdatedNotification,
+                object: nil,
+                // Kotlin can post while holding its status lock. Observe on the
+                // posting thread so a progress callback never waits for main,
+                // which may be waiting for the same Kotlin lock.
+                queue: nil
+            ) { [weak self] _ in
+                self?.syncFromPayloadStore()
+            }
+        )
+        observers.append(
+            center.addObserver(
+                forName: downloadTerminalStatusUpdatedNotification,
+                object: nil,
+                queue: nil
+            ) { [weak self] _ in
+                self?.postTerminalNotification()
+            }
+        )
+        observers.append(
+            center.addObserver(
+                forName: UIApplication.didEnterBackgroundNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.syncFromPayloadStore()
+            }
+        )
+        observers.append(
+            center.addObserver(
+                forName: UIApplication.didBecomeActiveNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] _ in
+                self?.syncFromPayloadStore()
+            }
+        )
 
         syncFromPayloadStore()
     }
@@ -30,10 +69,20 @@ final class DownloadsLiveActivityManager {
     private func syncFromPayloadStore() {
 #if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
         guard #available(iOS 16.1, *) else { return }
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.syncFromPayloadStore()
+            }
+            return
+        }
 
-        let payload = loadPayload()
-        Task {
-            await apply(payload)
+        pendingSyncRequest = DownloadsLiveActivitySyncRequest(
+            payload: loadPayload(),
+            appIsActive: UIApplication.shared.applicationState == .active
+        )
+        guard syncTask == nil else { return }
+        syncTask = Task { @MainActor [weak self] in
+            await self?.drainSyncRequests()
         }
 #endif
     }
@@ -47,22 +96,50 @@ final class DownloadsLiveActivityManager {
     }
 
 #if canImport(ActivityKit) && os(iOS) && !targetEnvironment(macCatalyst)
+    @MainActor
     @available(iOS 16.1, *)
-    private func apply(_ payload: DownloadsLiveStatusPayload?) async {
-        let existing = Activity<DownloadsLiveActivityAttributes>.activities.first
+    private func drainSyncRequests() async {
+        while let request = pendingSyncRequest {
+            pendingSyncRequest = nil
+            await apply(request.payload, appIsActive: request.appIsActive)
+        }
+        syncTask = nil
+    }
+
+    @available(iOS 16.1, *)
+    private func apply(_ payload: DownloadsLiveStatusPayload?, appIsActive: Bool) async {
+        let activities = Activity<DownloadsLiveActivityAttributes>.activities
 
         guard let payload else {
-            if let existing {
-                await existing.end(dismissalPolicy: .immediate)
+            for activity in activities {
+                await activity.end(dismissalPolicy: .immediate)
             }
             return
         }
 
-        let state = DownloadsLiveActivityAttributes.ContentState(
-            status: payload.status,
-            progressPercent: payload.progressPercent,
-            transferredText: transferredText(payload)
-        )
+        let existing = activities.first { activity in
+            activity.attributes.downloadId == payload.id
+        }
+        for activity in activities where activity.id != existing?.id {
+            await activity.end(dismissalPolicy: .immediate)
+        }
+
+        let state: DownloadsLiveActivityAttributes.ContentState
+        if !appIsActive && payload.status.lowercased() == "downloading" {
+            state = DownloadsLiveActivityAttributes.ContentState(
+                status: "Background",
+                progressPercent: -1,
+                transferredText: "Open Nuvio for current progress",
+                queuedCount: payload.queuedCount
+            )
+        } else {
+            state = DownloadsLiveActivityAttributes.ContentState(
+                status: payload.status,
+                progressPercent: payload.progressPercent,
+                transferredText: transferredText(payload),
+                queuedCount: payload.queuedCount
+            )
+        }
 
         if let existing, existing.attributes.downloadId == payload.id {
             await existing.update(using: state)
@@ -87,6 +164,45 @@ final class DownloadsLiveActivityManager {
     }
 #endif
 
+    private func postTerminalNotification() {
+        guard
+            let encoded = UserDefaults.standard.string(forKey: downloadTerminalStatusPayloadKey),
+            let payload = try? JSONDecoder().decode(
+                DownloadsTerminalStatusPayload.self,
+                from: Data(encoded.utf8)
+            )
+        else { return }
+
+        let center = UNUserNotificationCenter.current()
+        center.getNotificationSettings { settings in
+            let allowed = settings.authorizationStatus == .authorized ||
+                settings.authorizationStatus == .provisional ||
+                settings.authorizationStatus == .ephemeral
+            guard allowed else { return }
+
+            let content = UNMutableNotificationContent()
+            content.title = payload.status.lowercased() == "completed"
+                ? "Download completed"
+                : "Download failed"
+            if let message = payload.message, !message.isEmpty {
+                content.body = message
+            } else {
+                content.body = [payload.title, payload.subtitle]
+                    .filter { !$0.isEmpty }
+                    .joined(separator: " • ")
+            }
+            content.sound = .default
+            content.userInfo = ["deeplink": "nuvio://downloads"]
+            center.add(
+                UNNotificationRequest(
+                    identifier: "nuvio.download.terminal.\(payload.id).\(payload.status)",
+                    content: content,
+                    trigger: nil
+                )
+            )
+        }
+    }
+
     private func transferredText(_ payload: DownloadsLiveStatusPayload) -> String {
         let downloaded = formatBytes(payload.downloadedBytes)
         if let total = payload.totalBytes {
@@ -110,6 +226,7 @@ struct DownloadsLiveActivityAttributes: ActivityAttributes {
         let status: String
         let progressPercent: Int
         let transferredText: String
+        let queuedCount: Int
     }
 
     let downloadId: String
@@ -125,5 +242,19 @@ private struct DownloadsLiveStatusPayload: Decodable {
     let status: String
     let downloadedBytes: Int64
     let totalBytes: Int64?
+    let queuedCount: Int
     let progressPercent: Int
+}
+
+private struct DownloadsLiveActivitySyncRequest {
+    let payload: DownloadsLiveStatusPayload?
+    let appIsActive: Bool
+}
+
+private struct DownloadsTerminalStatusPayload: Decodable {
+    let id: String
+    let title: String
+    let subtitle: String
+    let status: String
+    let message: String?
 }

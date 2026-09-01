@@ -3,6 +3,7 @@ package com.nuvio.app.features.downloads
 import android.content.Context
 import android.content.Intent
 import androidx.core.content.FileProvider
+import co.touchlab.kermit.Logger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,6 +22,7 @@ import java.io.FileOutputStream
 import java.net.URI
 import java.util.concurrent.TimeUnit
 
+private val downloadsTransportLog = Logger.withTag("DownloadsTransport")
 private val downloadHttpClient = OkHttpClient.Builder()
     .connectTimeout(60, TimeUnit.SECONDS)
     .readTimeout(60, TimeUnit.SECONDS)
@@ -30,7 +32,11 @@ private val downloadHttpClient = OkHttpClient.Builder()
     .build()
 
 internal actual object DownloadsPlatformDownloader {
+    actual val supportsPersistentBackgroundTransfers: Boolean = false
+
     private var appContext: Context? = null
+
+    actual fun initialize() = Unit
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -38,8 +44,11 @@ internal actual object DownloadsPlatformDownloader {
 
     actual fun start(
         request: DownloadPlatformRequest,
+        onTaskCreated: (sessionIdentifier: String?, taskIdentifier: Long?) -> Unit,
+        onWaitingForConnectivity: () -> Unit,
         onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
-        onSuccess: (localFileUri: String, totalBytes: Long?) -> Unit,
+        onFinalizing: () -> Unit,
+        onSuccess: (localFileUri: String, relativeMediaPath: String, totalBytes: Long?) -> Unit,
         onFailure: (message: String) -> Unit,
     ): DownloadsTaskHandle {
         val job = SupervisorJob()
@@ -47,6 +56,10 @@ internal actual object DownloadsPlatformDownloader {
         var call: Call? = null
 
         scope.launch {
+            downloadsTransportLog.i {
+                "event=task_created download_id=${request.downloadId} task_id=okhttp"
+            }
+            onTaskCreated(null, null)
             val context = appContext
             if (context == null) {
                 onFailure(runBlocking { getString(Res.string.downloads_error_not_initialized) })
@@ -79,6 +92,9 @@ internal actual object DownloadsPlatformDownloader {
                 )
 
                 if (attemptedRangeRequest && response.code == 416) {
+                    downloadsTransportLog.i {
+                        "event=response download_id=${request.downloadId} task_id=okhttp status_code=416 action=restart"
+                    }
                     response.close()
                     tempFile.delete()
                     resumeFromBytes = 0L
@@ -91,6 +107,9 @@ internal actual object DownloadsPlatformDownloader {
                 }
 
                 response.use { response ->
+                    downloadsTransportLog.i {
+                        "event=response download_id=${request.downloadId} task_id=okhttp status_code=${response.code}"
+                    }
                     if (!response.isSuccessful) {
                         error(
                             runBlocking {
@@ -134,6 +153,7 @@ internal actual object DownloadsPlatformDownloader {
                         }
                     }
 
+                    onFinalizing()
                     if (destination.exists()) {
                         destination.delete()
                     }
@@ -143,9 +163,19 @@ internal actual object DownloadsPlatformDownloader {
                     }
 
                     val finalSize = destination.length()
-                    onSuccess(destination.toURI().toString(), totalBytes ?: finalSize)
+                    downloadsTransportLog.i {
+                        "event=task_completed download_id=${request.downloadId} task_id=okhttp result=success downloaded_bytes=$finalSize total_bytes=${totalBytes ?: "unknown"}"
+                    }
+                    onSuccess(
+                        destination.toURI().toString(),
+                        request.destinationFileName,
+                        totalBytes ?: finalSize,
+                    )
                 }
             } catch (error: Throwable) {
+                downloadsTransportLog.e {
+                    "event=task_completed download_id=${request.downloadId} task_id=okhttp result=error error_type=${error::class.simpleName ?: "unknown"}"
+                }
                 onFailure(error.message ?: runBlocking { getString(Res.string.download_failed) })
             }
         }
@@ -157,13 +187,17 @@ internal actual object DownloadsPlatformDownloader {
         return AndroidDownloadsTaskHandle(job)
     }
 
+    actual fun pause(downloadId: String) = Unit
+
+    actual fun cancel(downloadId: String) = Unit
+
     actual fun removeFile(localFileUri: String?): Boolean {
         if (localFileUri.isNullOrBlank()) return false
         val file = localFileUri.toLocalFileOrNull() ?: return false
         return runCatching { file.delete() }.getOrDefault(false)
     }
 
-    actual fun removePartialFile(destinationFileName: String): Boolean {
+    actual fun removePartialFile(downloadId: String, destinationFileName: String): Boolean {
         val context = appContext ?: return false
         val downloadsDir = File(context.filesDir, "downloads")
         val tempFile = File(downloadsDir, "$destinationFileName.part")
@@ -171,14 +205,14 @@ internal actual object DownloadsPlatformDownloader {
         return runCatching { tempFile.delete() }.getOrDefault(false)
     }
 
-    actual fun resolveLocalFileUri(localFileUri: String?, destinationFileName: String): String? {
+    actual fun resolveLocalFileUri(localFileUri: String?, relativeMediaPath: String): String? {
         localFileUri
             ?.toLocalFileOrNull()
             ?.takeIf { it.exists() }
             ?.let { return it.toURI().toString() }
 
         val context = appContext ?: return null
-        val fileName = destinationFileName.trim().takeIf { it.isNotBlank() }
+        val fileName = relativeMediaPath.trim().substringAfterLast('/').takeIf { it.isNotBlank() }
             ?: localFileUri
                 ?.toLocalFileOrNull()
                 ?.name
@@ -224,11 +258,40 @@ internal actual object DownloadsPlatformDownloader {
             }.getOrDefault(false)
         }
     }
+
+    actual fun exportFile(localFileUri: String): Boolean {
+        val context = appContext ?: return false
+        val file = localFileUri.toLocalFileOrNull()?.takeIf { it.exists() } ?: return false
+        val uri = runCatching {
+            FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file,
+            )
+        }.getOrNull() ?: return false
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "video/*"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            clipData = android.content.ClipData.newRawUri(file.name, uri)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        return runCatching {
+            context.startActivity(Intent.createChooser(intent, null).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+            true
+        }.getOrDefault(false)
+    }
 }
 
 private class AndroidDownloadsTaskHandle(
     private val job: Job,
 ) : DownloadsTaskHandle {
+    override fun pause() {
+        job.cancel()
+    }
+
     override fun cancel() {
         job.cancel()
     }

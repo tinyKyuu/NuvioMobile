@@ -7,6 +7,7 @@ struct DownloadsLiveActivityAttributes: ActivityAttributes {
         let status: String
         let progressPercent: Int
         let transferredText: String
+        let queuedCount: Int
     }
 
     let downloadId: String
@@ -32,9 +33,11 @@ struct DownloadsLiveActivityWidget: Widget {
                         .lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(progressLabel(context.state.progressPercent))
-                        .font(.title3.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.white)
+                    if let progress = progressLabel(context.state.progressPercent) {
+                        Text(progress)
+                            .font(.title3.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.white)
+                    }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -49,9 +52,7 @@ struct DownloadsLiveActivityWidget: Widget {
                             .lineLimit(1)
                             .minimumScaleFactor(0.9)
                             .truncationMode(.tail)
-                        ProgressView(value: normalizedProgress(context.state.progressPercent))
-                            .progressViewStyle(.linear)
-                            .tint(appBlue)
+                        progressView(context.state.progressPercent)
                         HStack {
                             Text(context.state.transferredText)
                                 .font(.caption.monospacedDigit())
@@ -60,6 +61,11 @@ struct DownloadsLiveActivityWidget: Widget {
                             Label(statusLabel(context.state.status), systemImage: "arrow.down")
                                 .font(.caption)
                                 .foregroundStyle(.white.opacity(0.86))
+                            if context.state.queuedCount > 0 {
+                                Text("+\(context.state.queuedCount) more")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(0.76))
+                            }
                         }
                     }
                     .padding(.top, 4)
@@ -68,9 +74,15 @@ struct DownloadsLiveActivityWidget: Widget {
             } compactLeading: {
                 AccentGlyphView()
             } compactTrailing: {
-                Text(progressLabel(context.state.progressPercent))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(appBlue)
+                if let progress = progressLabel(context.state.progressPercent) {
+                    Text(progress)
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(appBlue)
+                } else {
+                    Image(systemName: "arrow.down")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(appBlue)
+                }
             } minimal: {
                 AccentGlyphView()
             }
@@ -79,8 +91,8 @@ struct DownloadsLiveActivityWidget: Widget {
         }
     }
 
-    private func progressLabel(_ progressPercent: Int) -> String {
-        if progressPercent < 0 { return "--%" }
+    private func progressLabel(_ progressPercent: Int) -> String? {
+        guard progressPercent >= 0 else { return nil }
         return "\(max(0, min(100, progressPercent)))%"
     }
 
@@ -89,10 +101,27 @@ struct DownloadsLiveActivityWidget: Widget {
         return min(max(Double(progressPercent) / 100.0, 0), 1)
     }
 
+    @ViewBuilder
+    private func progressView(_ progressPercent: Int) -> some View {
+        if progressPercent >= 0 {
+            ProgressView(value: normalizedProgress(progressPercent))
+                .progressViewStyle(.linear)
+                .tint(appBlue)
+        } else {
+            ProgressView()
+                .progressViewStyle(.linear)
+                .tint(appBlue)
+        }
+    }
+
     private func statusLabel(_ status: String) -> String {
         switch status.lowercased() {
         case "downloading": return "Downloading"
+        case "queued": return "Queued"
+        case "waitingfornetwork": return "Waiting for network"
         case "paused": return "Paused"
+        case "finalizing": return "Finalizing"
+        case "background": return "Downloading in background"
         case "failed": return "Failed"
         default: return "Active"
         }
@@ -126,15 +155,15 @@ private struct DownloadActivityLockScreenView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 10)
-                    Text(progressLabel(context.state.progressPercent))
-                        .font(.title3.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.top, 1)
+                    if let progress = progressLabel(context.state.progressPercent) {
+                        Text(progress)
+                            .font(.title3.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.top, 1)
+                    }
                 }
 
-                ProgressView(value: normalizedProgress(context.state.progressPercent))
-                    .progressViewStyle(.linear)
-                    .tint(.white)
+                progressView(context.state.progressPercent)
 
                 HStack {
                     Label(statusLabel(context.state.status), systemImage: "arrow.down")
@@ -144,6 +173,11 @@ private struct DownloadActivityLockScreenView: View {
                     Text(context.state.transferredText)
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.white.opacity(0.86))
+                    if context.state.queuedCount > 0 {
+                        Text("+\(context.state.queuedCount) more")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.76))
+                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -160,8 +194,8 @@ private struct DownloadActivityLockScreenView: View {
         .activitySystemActionForegroundColor(.white)
     }
 
-    private func progressLabel(_ progressPercent: Int) -> String {
-        if progressPercent < 0 { return "--%" }
+    private func progressLabel(_ progressPercent: Int) -> String? {
+        guard progressPercent >= 0 else { return nil }
         return "\(max(0, min(100, progressPercent)))%"
     }
 
@@ -170,10 +204,27 @@ private struct DownloadActivityLockScreenView: View {
         return min(max(Double(progressPercent) / 100.0, 0), 1)
     }
 
+    @ViewBuilder
+    private func progressView(_ progressPercent: Int) -> some View {
+        if progressPercent >= 0 {
+            ProgressView(value: normalizedProgress(progressPercent))
+                .progressViewStyle(.linear)
+                .tint(.white)
+        } else {
+            ProgressView()
+                .progressViewStyle(.linear)
+                .tint(.white)
+        }
+    }
+
     private func statusLabel(_ status: String) -> String {
         switch status.lowercased() {
         case "downloading": return "Downloading"
+        case "queued": return "Queued"
+        case "waitingfornetwork": return "Waiting for network"
         case "paused": return "Paused"
+        case "finalizing": return "Finalizing"
+        case "background": return "Downloading in background"
         case "failed": return "Failed"
         default: return "Active"
         }

@@ -12,15 +12,17 @@ internal actual object DownloadsStorage {
 
     fun initialize(context: Context) {
         preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
+        DownloadsDatabaseDriverFactory.initialize(context)
+        DownloadsRequestStorage.initialize(context)
     }
 
-    actual fun loadPayload(): String? =
-        preferences?.getString(ProfileScopedKey.of(payloadKey), null)
+    actual fun loadLegacyPayload(profileId: Int): String? =
+        preferences?.getString(ProfileScopedKey.of(payloadKey, profileId), null)
 
-    actual fun savePayload(payload: String) {
+    actual fun removeLegacyPayload(profileId: Int) {
         preferences
             ?.edit()
-            ?.putString(ProfileScopedKey.of(payloadKey), payload)
-            ?.apply()
+            ?.remove(ProfileScopedKey.of(payloadKey, profileId))
+            ?.commit()
     }
 }

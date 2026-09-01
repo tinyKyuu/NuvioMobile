@@ -1,49 +1,87 @@
 package com.nuvio.app.features.downloads
 
+import co.touchlab.kermit.Logger
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.streams.StreamItem
-import kotlinx.coroutines.runBlocking
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
-import nuvio.composeapp.generated.resources.*
+import kotlinx.coroutines.runBlocking
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.download_failed
 import org.jetbrains.compose.resources.getString
 
 object DownloadsRepository {
+    private val log = Logger.withTag("Downloads")
+    private val stateLock = SynchronizedObject()
     private val _uiState = MutableStateFlow(DownloadsUiState())
     val uiState: StateFlow<DownloadsUiState> = _uiState.asStateFlow()
 
+    private val store: DownloadsCatalogStore
+        get() = DownloadsCatalogStoreProvider.store
+
     private val activeHandles = mutableMapOf<String, DownloadsTaskHandle>()
-    private var hasLoaded = false
+    private val runtimeRecordsById = mutableMapOf<String, DownloadRecord>()
+    private val progressPersistencePolicy = DownloadProgressPersistencePolicy()
+    private var currentProfileRecords: List<DownloadRecord> = emptyList()
+    private var loadedProfileKey: String? = null
     private var nextDownloadOrdinal = 0L
+    private var nextEventOrdinal = 0L
 
     fun ensureLoaded() {
-        if (hasLoaded) return
-        loadFromDisk()
+        val ownerProfileKey = activeOwnerProfileKey()
+        val changed = synchronized(stateLock) {
+            if (loadedProfileKey == ownerProfileKey) {
+                false
+            } else {
+                loadProfileLocked(
+                    profileId = ProfileRepository.activeProfileId,
+                    ownerProfileKey = ownerProfileKey,
+                )
+                true
+            }
+        }
+        if (changed) {
+            notifyLiveStatusPlatform()
+            pumpScheduler()
+        }
     }
 
     fun onProfileChanged() {
-        loadFromDisk()
+        val profileId = ProfileRepository.activeProfileId
+        val ownerProfileKey = downloadOwnerProfileKey(profileId)
+        synchronized(stateLock) {
+            loadProfileLocked(profileId, ownerProfileKey)
+        }
+        notifyLiveStatusPlatform()
+        pumpScheduler()
     }
 
     fun clearLocalState() {
-        activeHandles.values.forEach(DownloadsTaskHandle::cancel)
-        activeHandles.clear()
-        hasLoaded = false
-        _uiState.value = DownloadsUiState()
+        val handles = synchronized(stateLock) {
+            val detached = activeHandles.values.toList()
+            activeHandles.clear()
+            runtimeRecordsById.clear()
+            progressPersistencePolicy.clear()
+            currentProfileRecords = emptyList()
+            loadedProfileKey = null
+            _uiState.value = DownloadsUiState()
+            detached
+        }
+        handles.forEach(DownloadsTaskHandle::cancel)
         notifyLiveStatusPlatform()
     }
 
     fun findPlayableDownloadByVideoId(videoId: String?): DownloadItem? {
         ensureLoaded()
-        val normalizedVideoId = videoId?.trim().orEmpty()
-        if (normalizedVideoId.isBlank()) return null
-        return _uiState.value.items.firstOrNull { item ->
-            item.videoId == normalizedVideoId && item.hasPlayableLocalFile()
+        return synchronized(stateLock) {
+            selectPlayableDownloadByVideoId(
+                items = _uiState.value.items,
+                videoId = videoId,
+                resolveLocalFileUri = DownloadsPlatformDownloader::resolveLocalFileUri,
+            )
         }
     }
 
@@ -54,25 +92,15 @@ object DownloadsRepository {
         videoId: String? = null,
     ): DownloadItem? {
         ensureLoaded()
-        val items = _uiState.value.items
-        val normalizedParentMetaId = parentMetaId.trim()
-
-        findPlayableDownloadByVideoId(videoId)?.let { return it }
-
-        return if (seasonNumber != null && episodeNumber != null) {
-            items.firstOrNull { item ->
-                item.parentMetaId == normalizedParentMetaId &&
-                    item.seasonNumber == seasonNumber &&
-                    item.episodeNumber == episodeNumber &&
-                    item.hasPlayableLocalFile()
-            }
-        } else {
-            items.firstOrNull { item ->
-                item.parentMetaId == normalizedParentMetaId &&
-                    item.seasonNumber == null &&
-                    item.episodeNumber == null &&
-                    item.hasPlayableLocalFile()
-            }
+        return synchronized(stateLock) {
+            selectPlayableDownload(
+                items = _uiState.value.items,
+                parentMetaId = parentMetaId,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+                videoId = videoId,
+                resolveLocalFileUri = DownloadsPlatformDownloader::resolveLocalFileUri,
+            )
         }
     }
 
@@ -81,20 +109,23 @@ object DownloadsRepository {
         if (item.status != DownloadStatus.Completed) return null
         val resolvedUri = DownloadsPlatformDownloader.resolveLocalFileUri(
             localFileUri = item.localFileUri,
-            destinationFileName = item.fileName,
+            relativeMediaPath = item.fileName,
         ) ?: return null
 
         if (resolvedUri != item.localFileUri) {
-            mutateItem(item.id) { current ->
-                if (current.fileName == item.fileName) {
-                    current.copy(
-                        localFileUri = resolvedUri,
-                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+            synchronized(stateLock) {
+                val current = runtimeRecordsById[item.id]
+                    ?: currentProfileRecords.firstOrNull { it.downloadId == item.id }
+                if (current != null && current.internalState == DownloadInternalState.Completed) {
+                    val updated = current.withRuntimeItem(
+                        current.item.copy(localFileUri = resolvedUri),
                     )
-                } else {
-                    current
+                    runtimeRecordsById[item.id] = updated
+                    replaceCurrentProfileRecordLocked(updated)
+                    publishCurrentProfileLocked()
                 }
             }
+            notifyLiveStatusPlatform()
         }
 
         return resolvedUri
@@ -127,24 +158,7 @@ object DownloadsRepository {
         }
 
         val now = DownloadsClock.nowEpochMs()
-        val logicalKey = buildLogicalKey(
-            parentMetaId = parentMetaId,
-            seasonNumber = seasonNumber,
-            episodeNumber = episodeNumber,
-        )
-
-        var replacedExisting = false
-        val currentItems = _uiState.value.items.toMutableList()
-        val existing = currentItems.firstOrNull { it.logicalContentKey == logicalKey }
-        if (existing != null) {
-            replacedExisting = true
-            activeHandles.remove(existing.id)?.cancel()
-            DownloadsPlatformDownloader.removeFile(playableLocalFileUri(existing) ?: existing.localFileUri)
-            DownloadsPlatformDownloader.removePartialFile(existing.fileName)
-            currentItems.removeAll { it.id == existing.id }
-        }
-
-        val downloadId = nextDownloadId(now)
+        val downloadId = synchronized(stateLock) { nextDownloadIdLocked(now) }
         val fileName = buildFileName(
             title = title,
             seasonNumber = seasonNumber,
@@ -154,7 +168,7 @@ object DownloadsRepository {
             sourceUrl = sourceUrl,
             nowEpochMs = now,
         )
-
+        val ownerProfileKey = activeOwnerProfileKey()
         val item = DownloadItem(
             id = downloadId,
             contentType = contentType,
@@ -178,20 +192,63 @@ object DownloadsRepository {
             sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
             localFileUri = null,
             fileName = fileName,
-            status = DownloadStatus.Downloading,
+            status = DownloadStatus.Queued,
             downloadedBytes = 0L,
             totalBytes = null,
             errorMessage = null,
             createdAtEpochMs = now,
             updatedAtEpochMs = now,
         )
+        val record = item.toDownloadRecord(
+            ownerProfileKey = ownerProfileKey,
+            nowEpochMs = now,
+        )
 
-        currentItems.add(0, item)
-        publish(currentItems)
-        persist()
-        startDownload(item)
+        val replacement = synchronized(stateLock) {
+            val replacedRecord = currentProfileRecords.firstOrNull {
+                it.logicalContentKey == record.logicalContentKey
+            }
+            saveRequestLocked(record)
+            try {
+                store.commit(
+                    recordsToUpsert = listOf(record),
+                    downloadIdsToDelete = listOfNotNull(replacedRecord?.downloadId),
+                )
+            } catch (error: Throwable) {
+                DownloadsRequestStorage.remove(record.downloadId)
+                throw error
+            }
+            replacedRecord?.let { old ->
+                DownloadsRequestStorage.remove(old.downloadId)
+                runtimeRecordsById.remove(old.downloadId)
+                progressPersistencePolicy.remove(old.downloadId)
+            }
+            runtimeRecordsById[record.downloadId] = record
+            progressPersistencePolicy.recordImmediate(record)
+            currentProfileRecords = buildList {
+                add(record)
+                currentProfileRecords.filterTo(this) { it.downloadId != replacedRecord?.downloadId }
+            }
+            publishCurrentProfileLocked()
+            EnqueueCommit(replacedRecord, replacedRecord?.let { activeHandles.remove(it.downloadId) })
+        }
 
-        return if (replacedExisting) {
+        replacement.detachedHandle?.cancel()
+            ?: replacement.replacedRecord?.let { DownloadsPlatformDownloader.cancel(it.downloadId) }
+        replacement.replacedRecord?.let { old ->
+            DownloadsPlatformDownloader.removeFile(resolveLocalUri(old))
+            DownloadsPlatformDownloader.removePartialFile(old.downloadId, old.item.fileName)
+            log.i {
+                "event=logical_replace download_id=$downloadId replaced_download_id=${old.downloadId}"
+            }
+        }
+        notifyLiveStatusPlatform()
+        log.i {
+            "event=record_created download_id=$downloadId owner_profile=$ownerProfileKey state=${record.internalState} downloaded_bytes=0 total_bytes=unknown"
+        }
+        pumpScheduler()
+
+        return if (replacement.replacedRecord != null) {
             DownloadEnqueueResult.Replaced
         } else {
             DownloadEnqueueResult.Started
@@ -200,42 +257,48 @@ object DownloadsRepository {
 
     fun pauseDownload(downloadId: String) {
         ensureLoaded()
-        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
-        if (item.status != DownloadStatus.Downloading) return
-
-        activeHandles.remove(downloadId)?.cancel()
-        mutateItem(downloadId) { current ->
-            current.copy(
-                status = DownloadStatus.Paused,
-                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                errorMessage = null,
-            )
-        }
+        val now = DownloadsClock.nowEpochMs()
+        val result = applyEvent(
+            downloadId = downloadId,
+            eventFactory = { eventId ->
+                DownloadRecordEvent.Pause(
+                    eventId = eventId,
+                    occurredAtEpochMs = now,
+                    reason = "user_pause",
+                )
+            },
+            eventName = "user_pause",
+            detachHandle = true,
+        )
+        result.detachedHandle?.pause() ?: DownloadsPlatformDownloader.pause(downloadId)
+        pumpScheduler()
     }
 
     fun pauseActiveDownloads() {
         ensureLoaded()
-        _uiState.value.items
-            .filter { it.status == DownloadStatus.Downloading }
-            .map { it.id }
-            .forEach(::pauseDownload)
+        val activeIds = synchronized(stateLock) {
+            currentProfileRecords
+                .filter { it.internalState == DownloadInternalState.Downloading }
+                .map { it.downloadId }
+        }
+        activeIds.forEach(::pauseDownload)
     }
 
     fun resumeDownload(downloadId: String) {
         ensureLoaded()
-        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
-        if (item.status != DownloadStatus.Paused && item.status != DownloadStatus.Failed) return
-
-        val reset = item.copy(
-            status = DownloadStatus.Downloading,
-            errorMessage = null,
-            localFileUri = null,
-            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+        val now = DownloadsClock.nowEpochMs()
+        val result = applyEvent(
+            downloadId = downloadId,
+            eventFactory = { eventId ->
+                DownloadRecordEvent.Resume(
+                    eventId = eventId,
+                    occurredAtEpochMs = now,
+                    reason = "user_resume",
+                )
+            },
+            eventName = "user_resume",
         )
-
-        replaceItem(reset)
-        persist()
-        startDownload(reset)
+        if (result.changed) pumpScheduler()
     }
 
     fun retryDownload(downloadId: String) {
@@ -244,139 +307,511 @@ object DownloadsRepository {
 
     fun cancelDownload(downloadId: String) {
         ensureLoaded()
-        val item = _uiState.value.items.firstOrNull { it.id == downloadId } ?: return
-
-        activeHandles.remove(downloadId)?.cancel()
-        DownloadsPlatformDownloader.removeFile(playableLocalFileUri(item) ?: item.localFileUri)
-        DownloadsPlatformDownloader.removePartialFile(item.fileName)
-
-        publish(_uiState.value.items.filterNot { it.id == downloadId })
-        persist()
+        val now = DownloadsClock.nowEpochMs()
+        val result = applyEvent(
+            downloadId = downloadId,
+            eventFactory = { eventId ->
+                DownloadRecordEvent.Delete(
+                    eventId = eventId,
+                    occurredAtEpochMs = now,
+                )
+            },
+            eventName = "user_delete",
+            detachHandle = true,
+        )
+        result.detachedHandle?.cancel() ?: DownloadsPlatformDownloader.cancel(downloadId)
+        result.recordBefore?.let { old ->
+            DownloadsPlatformDownloader.removeFile(resolveLocalUri(old))
+            DownloadsPlatformDownloader.removePartialFile(old.downloadId, old.item.fileName)
+            log.i {
+                "event=record_deleted download_id=$downloadId owner_profile=${old.ownerProfileKey} prior_state=${old.internalState} downloaded_bytes=${old.downloadedBytes} total_bytes=${old.expectedBytes ?: "unknown"}"
+            }
+        }
+        pumpScheduler()
     }
 
-    private fun loadFromDisk() {
-        hasLoaded = true
-        val payload = DownloadsStorage.loadPayload().orEmpty().trim()
-        if (payload.isEmpty()) {
-            _uiState.value = DownloadsUiState()
-            notifyLiveStatusPlatform()
+    private fun loadProfileLocked(
+        profileId: Int,
+        ownerProfileKey: String,
+    ) {
+        migrateLegacyPayloadLocked(profileId, ownerProfileKey)
+
+        val storedRecords = store.recordsForProfile(ownerProfileKey).map(::hydrateRequestLocked)
+        val normalizedRecords = storedRecords.map { stored ->
+            stored.normalizeForColdLaunch(
+                resolveLocalFileUri = DownloadsPlatformDownloader::resolveLocalFileUri,
+                preservePlatformActiveState = DownloadsPlatformDownloader.supportsPersistentBackgroundTransfers,
+            )
+        }
+        val changedRecords = normalizedRecords.filterIndexed { index, normalized ->
+            !normalized.hasSameDurableContents(storedRecords[index])
+        }
+        if (changedRecords.isNotEmpty()) {
+            store.commit(recordsToUpsert = changedRecords)
+            log.i {
+                "event=cold_launch_normalized owner_profile=$ownerProfileKey item_count=${changedRecords.size}"
+            }
+        }
+
+        normalizedRecords.forEach { stored ->
+            val runtime = runtimeRecordsById[stored.downloadId]
+                ?.takeIf { it.ownerProfileKey == ownerProfileKey && it.updatedAtEpochMs > stored.updatedAtEpochMs }
+                ?: stored
+            runtimeRecordsById[stored.downloadId] = runtime
+            progressPersistencePolicy.recordImmediate(runtime)
+        }
+        currentProfileRecords = normalizedRecords.map { stored ->
+            runtimeRecordsById[stored.downloadId] ?: stored
+        }
+        loadedProfileKey = ownerProfileKey
+        publishCurrentProfileLocked()
+    }
+
+    private fun migrateLegacyPayloadLocked(
+        profileId: Int,
+        ownerProfileKey: String,
+    ) {
+        val payload = DownloadsStorage.loadLegacyPayload(profileId)?.trim().orEmpty()
+        if (payload.isEmpty()) return
+
+        val legacyItems = DownloadsCodec.decodeItemsOrNull(payload)
+        if (legacyItems == null) {
+            log.w {
+                "event=legacy_migration_skipped owner_profile=$ownerProfileKey reason=invalid_payload"
+            }
             return
         }
 
-        var shouldPersistNormalized = false
-        val normalized = DownloadsCodec.decodeItems(payload)
-            .map { item ->
-                val statusNormalized = if (item.status == DownloadStatus.Downloading) {
-                    item.copy(
-                        status = DownloadStatus.Paused,
-                        errorMessage = null,
-                    )
-                } else {
-                    item
-                }
-
-                val localUriNormalized = normalizeCompletedLocalFileUri(statusNormalized)
-                if (localUriNormalized != item) {
-                    shouldPersistNormalized = true
-                }
-                localUriNormalized
+        val existingIds = store.recordsForProfile(ownerProfileKey)
+            .mapTo(mutableSetOf(), DownloadRecord::downloadId)
+        val recordsToMigrate = migrateLegacyDownloadItems(
+            items = legacyItems.filterNot { it.id in existingIds },
+            ownerProfileKey = ownerProfileKey,
+            resolveLocalFileUri = DownloadsPlatformDownloader::resolveLocalFileUri,
+        )
+        if (recordsToMigrate.isNotEmpty()) {
+            val resumableRecords = recordsToMigrate.filter {
+                it.internalState != DownloadInternalState.Completed && it.item.sourceUrl.isNotBlank()
             }
-
-        _uiState.value = DownloadsUiState(normalized)
-        notifyLiveStatusPlatform()
-        if (shouldPersistNormalized) {
-            persist()
+            val requestsSaved = resumableRecords.all(::saveRequestLocked)
+            if (!requestsSaved) {
+                log.w {
+                    "event=legacy_migration_skipped owner_profile=$ownerProfileKey reason=request_persistence_failed"
+                }
+                return
+            }
+            try {
+                store.commit(recordsToUpsert = recordsToMigrate)
+            } catch (error: Throwable) {
+                resumableRecords.forEach { DownloadsRequestStorage.remove(it.downloadId) }
+                throw error
+            }
+        }
+        DownloadsStorage.removeLegacyPayload(profileId)
+        log.i {
+            "event=legacy_migration_completed owner_profile=$ownerProfileKey migrated_count=${recordsToMigrate.size} legacy_count=${legacyItems.size}"
         }
     }
 
-    private fun startDownload(item: DownloadItem) {
+    private fun startDownload(record: DownloadRecord) {
+        if (record.internalState != DownloadInternalState.Downloading) return
         val request = DownloadPlatformRequest(
-            sourceUrl = item.sourceUrl,
-            sourceHeaders = item.sourceHeaders,
-            destinationFileName = item.fileName,
+            downloadId = record.downloadId,
+            ownerProfileKey = record.ownerProfileKey,
+            sourceUrl = record.item.sourceUrl,
+            sourceHeaders = record.item.sourceHeaders,
+            destinationFileName = record.item.fileName,
+            resumeDownloadedBytes = record.downloadedBytes,
+            networkPolicy = DownloadsNetworkPolicyRepository.policy.value,
         )
 
+        log.i {
+            "event=transfer_start download_id=${record.downloadId} owner_profile=${record.ownerProfileKey} state=${record.internalState} downloaded_bytes=${record.downloadedBytes} total_bytes=${record.expectedBytes ?: "unknown"}"
+        }
         val handle = DownloadsPlatformDownloader.start(
             request = request,
-            onProgress = { downloadedBytes, totalBytes ->
-                mutateItem(item.id) { current ->
-                    if (current.status != DownloadStatus.Downloading) {
-                        current
-                    } else {
-                        current.copy(
-                            downloadedBytes = downloadedBytes.coerceAtLeast(0L),
-                            totalBytes = totalBytes?.takeIf { it > 0L },
-                            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                            errorMessage = null,
-                        )
-                    }
-                }
+            onTaskCreated = { sessionIdentifier, taskIdentifier ->
+                onPlatformTaskCreated(
+                    downloadId = record.downloadId,
+                    sessionIdentifier = sessionIdentifier,
+                    taskIdentifier = taskIdentifier,
+                )
             },
-            onSuccess = { localFileUri, totalBytes ->
-                activeHandles.remove(item.id)
-                mutateItem(item.id) { current ->
-                    current.copy(
-                        status = DownloadStatus.Completed,
-                        localFileUri = localFileUri,
-                        downloadedBytes = if (totalBytes != null && totalBytes > 0L) {
-                            totalBytes
-                        } else {
-                            current.downloadedBytes
-                        },
-                        totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
-                        errorMessage = null,
-                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                    )
-                }
+            onWaitingForConnectivity = {
+                onPlatformWaitingForConnectivity(record.downloadId)
+            },
+            onProgress = { downloadedBytes, totalBytes ->
+                onPlatformProgress(
+                    downloadId = record.downloadId,
+                    downloadedBytes = downloadedBytes,
+                    totalBytes = totalBytes,
+                )
+            },
+            onFinalizing = {
+                onPlatformFinalizing(record.downloadId)
+            },
+            onSuccess = { localFileUri, relativeMediaPath, totalBytes ->
+                onPlatformSuccess(
+                    downloadId = record.downloadId,
+                    localFileUri = localFileUri,
+                    relativeMediaPath = relativeMediaPath,
+                    totalBytes = totalBytes,
+                )
             },
             onFailure = { message ->
-                activeHandles.remove(item.id)
-                mutateItem(item.id) { current ->
-                    if (current.status != DownloadStatus.Downloading) {
-                        current
-                    } else {
-                        current.copy(
-                            status = DownloadStatus.Failed,
-                            errorMessage = message.ifBlank { runBlocking { getString(Res.string.download_failed) } },
-                            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                        )
-                    }
-                }
+                onPlatformFailure(
+                    downloadId = record.downloadId,
+                    message = message,
+                )
             },
         )
 
-        activeHandles[item.id] = handle
-    }
-
-    private fun mutateItem(downloadId: String, transform: (DownloadItem) -> DownloadItem) {
-        var changed = false
-        val updated = _uiState.value.items.map { item ->
-            if (item.id == downloadId) {
-                changed = true
-                transform(item)
+        val shouldKeep = synchronized(stateLock) {
+            val current = runtimeRecordsById[record.downloadId]
+                ?: store.recordById(record.downloadId)
+            if (current?.internalState == DownloadInternalState.Downloading) {
+                activeHandles.put(record.downloadId, handle)?.cancel()
+                true
             } else {
-                item
+                false
             }
         }
-
-        if (changed) {
-            publish(updated)
-            persist()
-        }
+        if (!shouldKeep) handle.cancel()
     }
 
-    private fun replaceItem(item: DownloadItem) {
-        val updated = _uiState.value.items.map { existing ->
-            if (existing.id == item.id) item else existing
-        }
-        publish(updated)
-    }
-
-    private fun publish(items: List<DownloadItem>) {
-        _uiState.value = DownloadsUiState(
-            items = items,
+    internal fun onPlatformTaskCreated(
+        downloadId: String,
+        sessionIdentifier: String?,
+        taskIdentifier: Long?,
+    ) {
+        val now = DownloadsClock.nowEpochMs()
+        applyEvent(
+            downloadId = downloadId,
+            eventFactory = { eventId ->
+                DownloadRecordEvent.BindPlatformTask(
+                    eventId = eventId,
+                    occurredAtEpochMs = now,
+                    sessionIdentifier = sessionIdentifier,
+                    taskIdentifier = taskIdentifier,
+                )
+            },
+            eventName = "platform_task_created",
         )
-        notifyLiveStatusPlatform()
+    }
+
+    internal fun onPlatformProgress(
+        downloadId: String,
+        downloadedBytes: Long,
+        totalBytes: Long?,
+    ) {
+        val now = DownloadsClock.nowEpochMs()
+        applyEvent(
+            downloadId = downloadId,
+            eventFactory = { eventId ->
+                DownloadRecordEvent.Progress(
+                    eventId = eventId,
+                    occurredAtEpochMs = now,
+                    downloadedBytes = downloadedBytes,
+                    expectedBytes = totalBytes,
+                )
+            },
+            eventName = "platform_progress",
+        )
+    }
+
+    internal fun onPlatformWaitingForConnectivity(downloadId: String) {
+        val now = DownloadsClock.nowEpochMs()
+        applyEvent(
+            downloadId = downloadId,
+            eventFactory = { eventId ->
+                DownloadRecordEvent.WaitingForConnectivity(
+                    eventId = eventId,
+                    occurredAtEpochMs = now,
+                    reason = "network_policy",
+                )
+            },
+            eventName = "platform_waiting_for_connectivity",
+        )
+    }
+
+    internal fun onPlatformFinalizing(downloadId: String) {
+        val now = DownloadsClock.nowEpochMs()
+        applyEvent(
+            downloadId = downloadId,
+            eventFactory = { eventId ->
+                DownloadRecordEvent.Finalize(
+                    eventId = eventId,
+                    occurredAtEpochMs = now,
+                )
+            },
+            eventName = "platform_finalizing",
+        )
+    }
+
+    internal fun onPlatformSuccess(
+        downloadId: String,
+        localFileUri: String,
+        relativeMediaPath: String,
+        totalBytes: Long?,
+    ) {
+        val now = DownloadsClock.nowEpochMs()
+        applyEvent(
+            downloadId = downloadId,
+            eventFactory = { eventId ->
+                DownloadRecordEvent.Complete(
+                    eventId = eventId,
+                    occurredAtEpochMs = now,
+                    localFileUri = localFileUri,
+                    relativeMediaPath = relativeMediaPath,
+                    totalBytes = totalBytes,
+                )
+            },
+            eventName = "platform_complete",
+            detachHandle = true,
+        )
+        pumpScheduler()
+    }
+
+    internal fun onPlatformFailure(
+        downloadId: String,
+        message: String,
+    ) {
+        val now = DownloadsClock.nowEpochMs()
+        applyEvent(
+            downloadId = downloadId,
+            eventFactory = { eventId ->
+                DownloadRecordEvent.Failure(
+                    eventId = eventId,
+                    occurredAtEpochMs = now,
+                    message = message.ifBlank {
+                        runBlocking { getString(Res.string.download_failed) }
+                    },
+                )
+            },
+            eventName = "platform_failure",
+            detachHandle = true,
+        )
+        pumpScheduler()
+    }
+
+    internal fun shouldRetainPlatformTask(downloadId: String): Boolean = synchronized(stateLock) {
+        val record = runtimeRecordsById[downloadId] ?: store.recordById(downloadId)
+        record?.internalState == DownloadInternalState.Downloading ||
+            record?.internalState == DownloadInternalState.WaitingForNetwork ||
+            record?.internalState == DownloadInternalState.Finalizing
+    }
+
+    internal fun onPlatformReconciliation(
+        sessionIdentifier: String,
+        snapshots: List<DownloadPlatformTaskSnapshot>,
+    ) {
+        val records = synchronized(stateLock) { store.allRecords() }
+
+        snapshots.filter { it.state.canContinueAfterLaunch }.forEach { snapshot ->
+            onPlatformTaskCreated(
+                downloadId = snapshot.downloadId,
+                sessionIdentifier = snapshot.sessionIdentifier,
+                taskIdentifier = snapshot.taskIdentifier,
+            )
+            onPlatformProgress(
+                downloadId = snapshot.downloadId,
+                downloadedBytes = snapshot.downloadedBytes,
+                totalBytes = snapshot.totalBytes,
+            )
+        }
+
+        val missingRecords = findActiveRecordsMissingPlatformTasks(records, snapshots)
+        missingRecords
+            .forEach { record ->
+                onPlatformFailure(
+                    downloadId = record.downloadId,
+                    message = runBlocking { getString(Res.string.download_failed) },
+                )
+            }
+
+        log.i {
+            "event=platform_reconciled session_id=$sessionIdentifier task_count=${snapshots.size} missing_count=${missingRecords.size}"
+        }
+        pumpScheduler()
+    }
+
+    private fun pumpScheduler() {
+        var shouldNotify = false
+        val scheduled = synchronized(stateLock) {
+            val durableRecords = store.allRecords().map { stored ->
+                runtimeRecordsById[stored.downloadId]
+                    ?.takeIf { it.updatedAtEpochMs >= stored.updatedAtEpochMs }
+                    ?: hydrateRequestLocked(stored)
+            }
+            val queued = selectQueuedDownloadsToStart(durableRecords)
+            if (queued.isEmpty()) return@synchronized emptyList()
+
+            val now = DownloadsClock.nowEpochMs()
+            val nextRecords = queued.mapNotNull { queuedRecord ->
+                val current = runtimeRecordsById[queuedRecord.downloadId] ?: queuedRecord
+                val reduction = reduceDownloadRecord(
+                    current = current,
+                    event = DownloadRecordEvent.ScheduleStart(
+                        eventId = nextEventIdLocked("scheduler_start", current.downloadId),
+                        occurredAtEpochMs = now,
+                    ),
+                )
+                reduction.record?.takeIf { reduction.changed }
+            }
+            if (nextRecords.isEmpty()) return@synchronized emptyList()
+
+            store.commit(recordsToUpsert = nextRecords)
+            nextRecords.forEach { next ->
+                runtimeRecordsById[next.downloadId] = next
+                progressPersistencePolicy.recordImmediate(next)
+                if (loadedProfileKey == next.ownerProfileKey) {
+                    replaceCurrentProfileRecordLocked(next)
+                    shouldNotify = true
+                }
+                log.i {
+                    "event=scheduler_start download_id=${next.downloadId} owner_profile=${next.ownerProfileKey} max_concurrent=$MAX_CONCURRENT_DOWNLOADS"
+                }
+            }
+            if (shouldNotify) publishCurrentProfileLocked()
+            nextRecords
+        }
+
+        if (shouldNotify) notifyLiveStatusPlatform()
+        scheduled.forEach(::startDownload)
+    }
+
+    private fun applyEvent(
+        downloadId: String,
+        eventFactory: (eventId: String) -> DownloadRecordEvent,
+        eventName: String,
+        detachHandle: Boolean = false,
+    ): AppliedEventResult {
+        var shouldNotify = false
+        val result = synchronized(stateLock) {
+            val current = runtimeRecordsById[downloadId]
+                ?: currentProfileRecords.firstOrNull { it.downloadId == downloadId }
+                ?: store.recordById(downloadId)?.let(::hydrateRequestLocked)
+                ?: return@synchronized AppliedEventResult()
+            val event = eventFactory(nextEventIdLocked(eventName, downloadId))
+            val reduction = reduceDownloadRecord(current, event)
+            if (!reduction.changed) {
+                return@synchronized AppliedEventResult(recordBefore = current, recordAfter = current)
+            }
+
+            val next = reduction.record
+            if (next == null) {
+                store.commit(downloadIdsToDelete = listOf(downloadId))
+                DownloadsRequestStorage.remove(downloadId)
+                runtimeRecordsById.remove(downloadId)
+                progressPersistencePolicy.remove(downloadId)
+                if (loadedProfileKey == current.ownerProfileKey) {
+                    currentProfileRecords = currentProfileRecords.filterNot { it.downloadId == downloadId }
+                    publishCurrentProfileLocked()
+                    shouldNotify = true
+                }
+            } else {
+                runtimeRecordsById[downloadId] = next
+                val shouldPersist = reduction.persistImmediately || progressPersistencePolicy.shouldPersist(next)
+                if (shouldPersist) {
+                    store.commit(recordsToUpsert = listOf(next))
+                    if (reduction.persistImmediately) {
+                        progressPersistencePolicy.recordImmediate(next)
+                    }
+                }
+                if (next.internalState == DownloadInternalState.Completed) {
+                    DownloadsRequestStorage.remove(downloadId)
+                }
+                if (loadedProfileKey == next.ownerProfileKey) {
+                    replaceCurrentProfileRecordLocked(next)
+                    publishCurrentProfileLocked()
+                    shouldNotify = true
+                }
+                logStateTransition(current, next, reason = eventName)
+            }
+
+            val handle = if (detachHandle || next?.internalState?.isTerminal == true) {
+                activeHandles.remove(downloadId)
+            } else {
+                null
+            }
+            AppliedEventResult(
+                recordBefore = current,
+                recordAfter = next,
+                detachedHandle = handle,
+                changed = true,
+            )
+        }
+        if (shouldNotify) notifyLiveStatusPlatform()
+        return result
+    }
+
+    private fun replaceCurrentProfileRecordLocked(record: DownloadRecord) {
+        currentProfileRecords = currentProfileRecords.map { existing ->
+            if (existing.downloadId == record.downloadId) record else existing
+        }
+    }
+
+    private fun saveRequestLocked(record: DownloadRecord): Boolean {
+        val request = record.item.toStoredDownloadRequest()
+        if (request.sourceUrl.isBlank()) return true
+        val saved = DownloadsRequestStorage.savePayload(
+            downloadId = record.downloadId,
+            payload = DownloadsRequestCodec.encode(request),
+        )
+        if (!saved) {
+            log.w {
+                "event=request_persistence_failed download_id=${record.downloadId} owner_profile=${record.ownerProfileKey}"
+            }
+        }
+        return saved
+    }
+
+    private fun hydrateRequestLocked(record: DownloadRecord): DownloadRecord {
+        if (record.internalState == DownloadInternalState.Completed) {
+            DownloadsRequestStorage.remove(record.downloadId)
+            return record
+        }
+        if (record.item.sourceUrl.isNotBlank()) {
+            saveRequestLocked(record)
+            return record
+        }
+        val request = DownloadsRequestStorage.loadPayload(record.downloadId)
+            ?.let(DownloadsRequestCodec::decodeOrNull)
+            ?: return record
+        return record.withStoredDownloadRequest(request)
+    }
+
+    private fun publishCurrentProfileLocked() {
+        _uiState.value = DownloadsUiState(
+            items = currentProfileRecords.map(::runtimeItemFor),
+        )
+    }
+
+    private fun runtimeItemFor(record: DownloadRecord): DownloadItem {
+        val localFileUri = if (record.internalState == DownloadInternalState.Completed) {
+            resolveLocalUri(record)
+        } else {
+            null
+        }
+        return record.item.copy(
+            status = record.internalState.toVisibleStatus(),
+            localFileUri = localFileUri,
+            downloadedBytes = record.downloadedBytes,
+            totalBytes = record.expectedBytes,
+            errorMessage = record.stateReason,
+            createdAtEpochMs = record.createdAtEpochMs,
+            updatedAtEpochMs = record.updatedAtEpochMs,
+        )
+    }
+
+    private fun resolveLocalUri(record: DownloadRecord): String? {
+        val relativeMediaPath = record.relativeMediaPath
+            ?.takeIf { it.isNotBlank() }
+            ?: record.item.fileName
+        return DownloadsPlatformDownloader.resolveLocalFileUri(
+            localFileUri = record.item.localFileUri,
+            relativeMediaPath = relativeMediaPath,
+        )
     }
 
     private fun notifyLiveStatusPlatform() {
@@ -385,13 +820,10 @@ object DownloadsRepository {
         }
     }
 
-    private fun persist() {
-        DownloadsStorage.savePayload(
-            DownloadsCodec.encodeItems(_uiState.value.items),
-        )
-    }
+    private fun activeOwnerProfileKey(): String =
+        downloadOwnerProfileKey(ProfileRepository.activeProfileId)
 
-    private fun nextDownloadId(nowEpochMs: Long): String {
+    private fun nextDownloadIdLocked(nowEpochMs: Long): String {
         nextDownloadOrdinal += 1L
         return buildString {
             append(nowEpochMs.toString(36))
@@ -400,50 +832,39 @@ object DownloadsRepository {
         }
     }
 
-    private fun normalizeCompletedLocalFileUri(item: DownloadItem): DownloadItem {
-        if (item.status != DownloadStatus.Completed) return item
-        val resolvedUri = DownloadsPlatformDownloader.resolveLocalFileUri(
-            localFileUri = item.localFileUri,
-            destinationFileName = item.fileName,
-        ) ?: return item
-        return if (resolvedUri != item.localFileUri) {
-            item.copy(localFileUri = resolvedUri)
-        } else {
-            item
+    private fun nextEventIdLocked(eventName: String, downloadId: String): String {
+        nextEventOrdinal += 1L
+        return "$eventName:$downloadId:${nextEventOrdinal.toString(36)}"
+    }
+
+    private fun logStateTransition(
+        before: DownloadRecord,
+        after: DownloadRecord,
+        reason: String,
+    ) {
+        if (before.internalState == after.internalState) return
+        log.i {
+            "event=state_transition download_id=${after.downloadId} owner_profile=${after.ownerProfileKey} from=${before.internalState} to=${after.internalState} reason=$reason downloaded_bytes=${after.downloadedBytes} total_bytes=${after.expectedBytes ?: "unknown"}"
         }
     }
-
-    private fun DownloadItem.hasPlayableLocalFile(): Boolean =
-        status == DownloadStatus.Completed &&
-            DownloadsPlatformDownloader.resolveLocalFileUri(
-                localFileUri = localFileUri,
-                destinationFileName = fileName,
-            ) != null
 }
 
-@Serializable
-private data class StoredDownloadsPayload(
-    val items: List<DownloadItem> = emptyList(),
+private val DownloadInternalState.isTerminal: Boolean
+    get() = this == DownloadInternalState.Completed ||
+        this == DownloadInternalState.FailedRecoverable ||
+        this == DownloadInternalState.FailedPermanent
+
+private data class EnqueueCommit(
+    val replacedRecord: DownloadRecord?,
+    val detachedHandle: DownloadsTaskHandle?,
 )
 
-private object DownloadsCodec {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
-
-    fun decodeItems(payload: String): List<DownloadItem> =
-        runCatching {
-            json.decodeFromString<StoredDownloadsPayload>(payload).items
-        }.getOrDefault(emptyList())
-
-    fun encodeItems(items: Collection<DownloadItem>): String =
-        json.encodeToString(
-            StoredDownloadsPayload(
-                items = items.toList(),
-            ),
-        )
-}
+private data class AppliedEventResult(
+    val recordBefore: DownloadRecord? = null,
+    val recordAfter: DownloadRecord? = null,
+    val detachedHandle: DownloadsTaskHandle? = null,
+    val changed: Boolean = false,
+)
 
 private fun sanitizeRequestHeaders(headers: Map<String, String>?): Map<String, String> =
     headers
@@ -477,16 +898,6 @@ private fun sanitizeResponseHeaders(headers: Map<String, String>?): Map<String, 
             }
         }
         .toMap()
-
-private fun buildLogicalKey(
-    parentMetaId: String,
-    seasonNumber: Int?,
-    episodeNumber: Int?,
-): String = if (seasonNumber != null && episodeNumber != null) {
-    "${parentMetaId.trim()}|$seasonNumber|$episodeNumber"
-} else {
-    "${parentMetaId.trim()}|movie"
-}
 
 private fun buildFileName(
     title: String,

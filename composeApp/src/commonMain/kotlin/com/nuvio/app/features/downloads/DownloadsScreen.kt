@@ -13,17 +13,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,6 +47,7 @@ import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.core.ui.nuvio
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -59,7 +66,14 @@ fun DownloadsScreen(
 
     var selectedShowId by rememberSaveable(initialShowId) { mutableStateOf(initialShowId) }
     var downloadPendingDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
-    val openDownloadsDirectoryFailedText = stringResource(Res.string.downloads_open_directory_failed)
+    var showManagement by rememberSaveable { mutableStateOf(false) }
+    var completedSortName by rememberSaveable {
+        mutableStateOf(CompletedDownloadSort.RecentlyAdded.name)
+    }
+    val completedSort = CompletedDownloadSort.entries.firstOrNull { it.name == completedSortName }
+        ?: CompletedDownloadSort.RecentlyAdded
+    val networkPolicy by DownloadsNetworkPolicyRepository.policy.collectAsStateWithLifecycle()
+    val exportFailedText = stringResource(Res.string.downloads_export_failed)
 
     val completedEpisodes = remember(uiState.items) {
         uiState.completedItems
@@ -89,17 +103,14 @@ fun DownloadsScreen(
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = {
-                            if (!DownloadsPlatformDownloader.openDownloadsDirectory()) {
-                                NuvioToastController.show(openDownloadsDirectoryFailedText)
-                            }
-                        },
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Folder,
-                            contentDescription = stringResource(Res.string.downloads_open_directory),
-                        )
+                    if (selectedShowId == null) {
+                        IconButton(onClick = { showManagement = !showManagement }) {
+                            Icon(
+                                imageVector = Icons.Rounded.Storage,
+                                contentDescription = stringResource(Res.string.downloads_manage_storage),
+                                tint = MaterialTheme.nuvio.colors.textPrimary,
+                            )
+                        }
                     }
                 },
             )
@@ -108,11 +119,22 @@ fun DownloadsScreen(
         if (selectedShowId == null) {
             downloadsRootContent(
                 uiState = uiState,
+                showManagement = showManagement,
+                networkPolicy = networkPolicy,
+                onNetworkPolicyChanged = DownloadsNetworkPolicyRepository::update,
+                completedSort = completedSort,
+                onCompletedSortChanged = { completedSortName = it.name },
                 onOpenDownload = onOpenDownload,
                 onOpenShow = { showId, title ->
                     onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
                 },
                 onDeleteDownload = { downloadPendingDeletionId = it },
+                onExportDownload = { item ->
+                    val localFileUri = DownloadsRepository.playableLocalFileUri(item)
+                    if (localFileUri == null || !DownloadsPlatformDownloader.exportFile(localFileUri)) {
+                        NuvioToastController.show(exportFailedText)
+                    }
+                },
             )
         } else {
             downloadsShowContent(
@@ -120,6 +142,12 @@ fun DownloadsScreen(
                 episodes = completedEpisodes,
                 onOpenDownload = onOpenDownload,
                 onDeleteDownload = { downloadPendingDeletionId = it },
+                onExportDownload = { item ->
+                    val localFileUri = DownloadsRepository.playableLocalFileUri(item)
+                    if (localFileUri == null || !DownloadsPlatformDownloader.exportFile(localFileUri)) {
+                        NuvioToastController.show(exportFailedText)
+                    }
+                },
             )
         }
     }
@@ -143,28 +171,36 @@ fun DownloadsScreen(
 
 private fun LazyListScope.downloadsRootContent(
     uiState: DownloadsUiState,
+    showManagement: Boolean,
+    networkPolicy: DownloadNetworkPolicy,
+    onNetworkPolicyChanged: (DownloadNetworkPolicy) -> Unit,
+    completedSort: CompletedDownloadSort,
+    onCompletedSortChanged: (CompletedDownloadSort) -> Unit,
     onOpenDownload: (DownloadItem) -> Unit,
     onOpenShow: (showId: String, title: String) -> Unit,
     onDeleteDownload: (String) -> Unit,
+    onExportDownload: (DownloadItem) -> Unit,
 ) {
-    val activeItems = uiState.activeItems
-    val completedMovies = uiState.completedItems.filterNot(DownloadItem::isEpisode)
-    val completedShows = uiState.completedItems
-        .filter(DownloadItem::isEpisode)
-        .groupBy { it.parentMetaId }
-        .mapNotNull { (_, episodes) ->
-            episodes.firstOrNull()?.let { first ->
-                first to episodes
-            }
-        }
-        .sortedBy { (item, _) -> item.title.lowercase() }
+    val currentDownloads = currentDownloadsForDisplay(uiState.items)
+    val movies = completedMoviesForDisplay(uiState.items, completedSort)
+    val shows = completedShowsForDisplay(uiState.items, completedSort)
 
-    if (activeItems.isNotEmpty()) {
+    if (showManagement) {
+        item {
+            DownloadsManagementCard(
+                items = uiState.items,
+                policy = networkPolicy,
+                onPolicyChanged = onNetworkPolicyChanged,
+            )
+        }
+    }
+
+    if (currentDownloads.isNotEmpty()) {
         item {
             SectionTitle(stringResource(Res.string.downloads_section_active))
         }
         items(
-            items = activeItems,
+            items = currentDownloads,
             key = { it.id },
         ) { item ->
             DownloadRow(
@@ -174,16 +210,26 @@ private fun LazyListScope.downloadsRootContent(
                 onResume = { DownloadsRepository.resumeDownload(item.id) },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
+                onExport = { onExportDownload(item) },
             )
         }
     }
 
-    if (completedMovies.isNotEmpty()) {
+    if (movies.isNotEmpty() || shows.isNotEmpty()) {
+        item {
+            DownloadedSectionHeader(
+                selectedSort = completedSort,
+                onSortChanged = onCompletedSortChanged,
+            )
+        }
+    }
+
+    if (movies.isNotEmpty()) {
         item {
             SectionTitle(stringResource(Res.string.downloads_section_movies))
         }
         items(
-            items = completedMovies,
+            items = movies,
             key = { it.id },
         ) { item ->
             DownloadRow(
@@ -193,18 +239,20 @@ private fun LazyListScope.downloadsRootContent(
                 onResume = { DownloadsRepository.resumeDownload(item.id) },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
+                onExport = { onExportDownload(item) },
             )
         }
     }
 
-    if (completedShows.isNotEmpty()) {
+    if (shows.isNotEmpty()) {
         item {
             SectionTitle(stringResource(Res.string.downloads_section_shows))
         }
         items(
-            items = completedShows,
-            key = { (item, _) -> item.parentMetaId },
-        ) { (item, episodes) ->
+            items = shows,
+            key = { it.representative.parentMetaId },
+        ) { group ->
+            val item = group.representative
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -232,7 +280,10 @@ private fun LazyListScope.downloadsRootContent(
                             overflow = TextOverflow.Ellipsis,
                         )
                         Text(
-                            text = stringResource(Res.string.downloads_episode_count, episodes.size),
+                            text = stringResource(
+                                Res.string.downloads_episode_count,
+                                group.episodes.size,
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -265,11 +316,71 @@ private fun LazyListScope.downloadsRootContent(
     }
 }
 
+@Composable
+private fun DownloadedSectionHeader(
+    selectedSort: CompletedDownloadSort,
+    onSortChanged: (CompletedDownloadSort) -> Unit,
+) {
+    var sortMenuExpanded by remember { mutableStateOf(false) }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(Res.string.downloads_section_downloaded),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.SemiBold,
+        )
+
+        Box {
+            TextButton(onClick = { sortMenuExpanded = true }) {
+                Text(
+                    text = completedSortLabel(selectedSort),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Icon(
+                    imageVector = Icons.Filled.ExpandMore,
+                    contentDescription = stringResource(Res.string.downloads_sort_content_description),
+                )
+            }
+            DropdownMenu(
+                expanded = sortMenuExpanded,
+                onDismissRequest = { sortMenuExpanded = false },
+            ) {
+                CompletedDownloadSort.entries.forEach { sort ->
+                    DropdownMenuItem(
+                        text = { Text(completedSortLabel(sort)) },
+                        onClick = {
+                            onSortChanged(sort)
+                            sortMenuExpanded = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun completedSortLabel(sort: CompletedDownloadSort): String = when (sort) {
+    CompletedDownloadSort.RecentlyAdded -> stringResource(Res.string.downloads_sort_recently_added)
+    CompletedDownloadSort.TitleAscending -> stringResource(Res.string.downloads_sort_title_ascending)
+    CompletedDownloadSort.LargestFirst -> stringResource(Res.string.downloads_sort_largest_first)
+    CompletedDownloadSort.SmallestFirst -> stringResource(Res.string.downloads_sort_smallest_first)
+}
+
 private fun LazyListScope.downloadsShowContent(
     showId: String,
     episodes: List<DownloadItem>,
     onOpenDownload: (DownloadItem) -> Unit,
     onDeleteDownload: (String) -> Unit,
+    onExportDownload: (DownloadItem) -> Unit,
 ) {
     val showEpisodes = episodes
         .filter { it.parentMetaId == showId }
@@ -326,6 +437,7 @@ private fun LazyListScope.downloadsShowContent(
                 onResume = { DownloadsRepository.resumeDownload(item.id) },
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
+                onExport = { onExportDownload(item) },
             )
         }
     }
@@ -339,6 +451,7 @@ private fun DownloadRow(
     onResume: () -> Unit,
     onRetry: () -> Unit,
     onDelete: () -> Unit,
+    onExport: () -> Unit,
 ) {
     val displayTitle = item.displayTitle()
     val displaySubtitle = downloadDisplaySubtitle(
@@ -393,7 +506,10 @@ private fun DownloadRow(
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     when (item.status) {
-                        DownloadStatus.Downloading -> {
+                        DownloadStatus.Queued,
+                        DownloadStatus.Downloading,
+                        DownloadStatus.WaitingForNetwork,
+                        -> {
                             IconButton(onClick = onPause) {
                                 Icon(
                                     imageVector = Icons.Rounded.Pause,
@@ -417,11 +533,18 @@ private fun DownloadRow(
                                 )
                             }
                         }
+                        DownloadStatus.Finalizing -> Unit
                         DownloadStatus.Completed -> {
                             IconButton(onClick = onOpen) {
                                 Icon(
                                     imageVector = Icons.Rounded.PlayArrow,
                                     contentDescription = stringResource(Res.string.action_play),
+                                )
+                            }
+                            IconButton(onClick = onExport) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Share,
+                                    contentDescription = stringResource(Res.string.downloads_export),
                                 )
                             }
                         }
@@ -435,7 +558,10 @@ private fun DownloadRow(
                 }
             }
 
-            if (item.status == DownloadStatus.Downloading) {
+            if (
+                item.status == DownloadStatus.Downloading ||
+                item.status == DownloadStatus.WaitingForNetwork
+            ) {
                 if (item.totalBytes != null && item.totalBytes > 0L) {
                     LinearProgressIndicator(
                         progress = item.progressFraction,
@@ -448,6 +574,112 @@ private fun DownloadRow(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DownloadsManagementCard(
+    items: List<DownloadItem>,
+    policy: DownloadNetworkPolicy,
+    onPolicyChanged: (DownloadNetworkPolicy) -> Unit,
+) {
+    val storedBytes = items.sumOf { it.downloadedBytes.coerceAtLeast(0L) }
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                text = stringResource(Res.string.downloads_manage_storage),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = stringResource(
+                    Res.string.downloads_manage_storage_description,
+                    items.size,
+                    formatBytes(storedBytes),
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            DownloadPolicySwitch(
+                title = stringResource(Res.string.downloads_network_wifi_only),
+                description = stringResource(Res.string.downloads_network_wifi_only_description),
+                checked = policy.wifiOnly,
+                onCheckedChange = { onPolicyChanged(policy.copy(wifiOnly = it)) },
+            )
+            DownloadPolicySwitch(
+                title = stringResource(Res.string.downloads_network_allow_cellular),
+                description = stringResource(Res.string.downloads_network_allow_cellular_description),
+                checked = policy.allowCellular,
+                enabled = !policy.wifiOnly,
+                onCheckedChange = { onPolicyChanged(policy.copy(allowCellular = it)) },
+            )
+            DownloadPolicySwitch(
+                title = stringResource(Res.string.downloads_network_allow_expensive),
+                description = stringResource(Res.string.downloads_network_allow_expensive_description),
+                checked = policy.allowExpensiveNetworks,
+                onCheckedChange = { onPolicyChanged(policy.copy(allowExpensiveNetworks = it)) },
+            )
+            DownloadPolicySwitch(
+                title = stringResource(Res.string.downloads_network_allow_constrained),
+                description = stringResource(Res.string.downloads_network_allow_constrained_description),
+                checked = policy.allowConstrainedNetworks,
+                onCheckedChange = { onPolicyChanged(policy.copy(allowConstrainedNetworks = it)) },
+            )
+            Text(
+                text = stringResource(Res.string.downloads_network_policy_note),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun DownloadPolicySwitch(
+    title: String,
+    description: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f).padding(end = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (enabled) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = checked,
+            enabled = enabled,
+            onCheckedChange = onCheckedChange,
+        )
     }
 }
 
@@ -495,14 +727,23 @@ private fun SectionTitle(title: String) {
 @Composable
 private fun statusText(item: DownloadItem): String {
     val size = if (item.totalBytes != null && item.totalBytes > 0L) {
-        "${formatBytes(item.downloadedBytes)} / ${formatBytes(item.totalBytes)}"
+        val progressPercent = ((item.downloadedBytes.toDouble() / item.totalBytes.toDouble()) * 100.0)
+            .toInt()
+            .coerceIn(0, 100)
+        "${formatBytes(item.downloadedBytes)} / ${formatBytes(item.totalBytes)} • $progressPercent%"
     } else {
         formatBytes(item.downloadedBytes)
     }
 
     return when (item.status) {
+        DownloadStatus.Queued -> stringResource(Res.string.downloads_status_queued)
         DownloadStatus.Downloading -> stringResource(Res.string.downloads_status_downloading, size)
+        DownloadStatus.WaitingForNetwork -> stringResource(
+            Res.string.downloads_status_waiting_for_network,
+            size,
+        )
         DownloadStatus.Paused -> stringResource(Res.string.downloads_status_paused, size)
+        DownloadStatus.Finalizing -> stringResource(Res.string.downloads_status_finalizing, size)
         DownloadStatus.Completed -> stringResource(
             Res.string.downloads_status_completed,
             formatBytes(item.totalBytes ?: item.downloadedBytes),

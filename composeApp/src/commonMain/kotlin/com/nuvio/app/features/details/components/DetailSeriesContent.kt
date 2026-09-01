@@ -80,6 +80,7 @@ import com.nuvio.app.features.details.metaVideoSeasonEpisodeComparator
 import com.nuvio.app.features.details.normalizeSeasonNumber
 import com.nuvio.app.features.details.preferredEpisodeNumberForSeason
 import com.nuvio.app.features.details.seasonSortKey
+import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
 import com.nuvio.app.features.watching.application.WatchingState
@@ -88,6 +89,7 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
@@ -112,6 +114,21 @@ fun DetailSeriesContent(
 ) {
     val hasVideos = meta.videos.isNotEmpty()
     if (meta.type != "series" && !hasVideos) return
+    val downloadsUiState by remember {
+        DownloadsRepository.ensureLoaded()
+        DownloadsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val downloadedEpisodeKeys = remember(downloadsUiState.completedItems, meta.id) {
+        downloadsUiState.completedItems
+            .asSequence()
+            .filter { it.isPlayable && it.parentMetaId == meta.id }
+            .mapNotNull { item ->
+                val season = item.seasonNumber ?: return@mapNotNull null
+                val episode = item.episodeNumber ?: return@mapNotNull null
+                season to episode
+            }
+            .toSet()
+    }
 
     if (meta.videos.isEmpty()) {
         DetailSection(
@@ -301,6 +318,7 @@ fun DetailSeriesContent(
                             fallbackImage = meta.background ?: meta.poster,
                             progressByVideoId = progressByVideoId,
                             episodeRatings = episodeRatings,
+                            downloadedEpisodeKeys = downloadedEpisodeKeys,
                             blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                             preferredEpisodeNumber = preferredEpisodeNumberForSeason(
                                 displayedSeasonNumber = seasonForContent,
@@ -334,6 +352,8 @@ fun DetailSeriesContent(
                                             episode = episode,
                                         ),
                                     blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+                                    isDownloaded = episode.seasonEpisodeKey()
+                                        ?.let(downloadedEpisodeKeys::contains) == true,
                                     sizing = sizing,
                                     onClick = { onEpisodeClick?.invoke(episode) },
                                     onLongPress = { onEpisodeLongPress?.invoke(episode) },
@@ -607,6 +627,7 @@ private fun EpisodeHorizontalRow(
     fallbackImage: String?,
     progressByVideoId: Map<String, WatchProgressEntry>,
     episodeRatings: Map<Pair<Int, Int>, Double>,
+    downloadedEpisodeKeys: Set<Pair<Int, Int>>,
     blurUnwatchedEpisodes: Boolean,
     preferredEpisodeNumber: Int? = null,
     onEpisodeClick: ((MetaVideo) -> Unit)?,
@@ -666,6 +687,8 @@ private fun EpisodeHorizontalRow(
                         episode = episode,
                     ),
                 blurUnwatchedEpisodes = blurUnwatchedEpisodes,
+                isDownloaded = episode.seasonEpisodeKey()
+                    ?.let(downloadedEpisodeKeys::contains) == true,
                 metrics = rowMetrics,
                 onClick = { onEpisodeClick?.invoke(episode) },
                 onLongPress = { onEpisodeLongPress?.invoke(episode) },
@@ -683,6 +706,7 @@ private fun EpisodeHorizontalCard(
     imdbRating: Double?,
     isWatched: Boolean,
     blurUnwatchedEpisodes: Boolean,
+    isDownloaded: Boolean,
     metrics: EpisodeHorizontalCardMetrics,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
@@ -746,12 +770,25 @@ private fun EpisodeHorizontalCard(
                 ),
         )
 
-        NuvioAnimatedWatchedBadge(
-            isVisible = isWatched,
+        Column(
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(metrics.contentPadding),
-        )
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            NuvioAnimatedWatchedBadge(isVisible = isWatched)
+            if (isDownloaded) {
+                EpisodeCodeBadge(
+                    text = stringResource(Res.string.compose_player_downloaded),
+                    textSize = metrics.badgeTextSize,
+                    radius = metrics.badgeRadius,
+                    horizontalPadding = metrics.badgeHorizontalPadding,
+                    verticalPadding = metrics.badgeVerticalPadding,
+                    backgroundAlpha = 0.85f,
+                )
+            }
+        }
 
         Column(
             modifier = Modifier
@@ -1065,6 +1102,7 @@ private fun EpisodeListCard(
     imdbRating: Double?,
     isWatched: Boolean,
     blurUnwatchedEpisodes: Boolean,
+    isDownloaded: Boolean,
     sizing: SeriesContentSizing,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
@@ -1131,12 +1169,25 @@ private fun EpisodeListCard(
                         .padding(start = 8.dp, top = 8.dp),
                 )
 
-                NuvioAnimatedWatchedBadge(
-                    isVisible = isWatched,
+                Column(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
-                )
+                    horizontalAlignment = Alignment.End,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    NuvioAnimatedWatchedBadge(isVisible = isWatched)
+                    if (isDownloaded) {
+                        EpisodeCodeBadge(
+                            text = stringResource(Res.string.compose_player_downloaded),
+                            textSize = sizing.badgeTextSize,
+                            radius = sizing.badgeRadius,
+                            horizontalPadding = sizing.badgeHorizontalPadding,
+                            verticalPadding = sizing.badgeVerticalPadding,
+                            backgroundAlpha = 0.85f,
+                        )
+                    }
+                }
             }
 
             Column(

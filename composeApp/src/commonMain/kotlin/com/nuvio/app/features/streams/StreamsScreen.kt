@@ -72,6 +72,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import com.nuvio.app.core.build.AppFeaturePolicy
+import com.nuvio.app.core.deeplink.buildDownloadsDeepLinkUrl
+import com.nuvio.app.core.deeplink.handleAppUrl
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
 import com.nuvio.app.core.ui.NuvioBottomSheetDivider
@@ -79,6 +81,7 @@ import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.DownloadEnqueueResult
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -426,7 +429,7 @@ fun StreamsScreen(
                                     episodeThumbnail = episodeThumbnail,
                                     stream = resolved.stream,
                                 )
-                                NuvioToastController.show(result.toastMessage())
+                                showDownloadEnqueueToast(result)
                             }
                             else -> {
                                 val message = resolved.toastMessage()
@@ -452,7 +455,7 @@ fun StreamsScreen(
                         episodeThumbnail = episodeThumbnail,
                         stream = stream,
                     )
-                    NuvioToastController.show(result.toastMessage())
+                    showDownloadEnqueueToast(result)
                 }
             },
             onOpen = { stream, openExternally ->
@@ -465,6 +468,19 @@ fun StreamsScreen(
             },
         )
     }
+}
+
+private fun showDownloadEnqueueToast(result: DownloadEnqueueResult) {
+    val opensDownloads = result == DownloadEnqueueResult.Started ||
+        result == DownloadEnqueueResult.Replaced
+    NuvioToastController.show(
+        message = result.toastMessage(),
+        onClick = if (opensDownloads) {
+            { handleAppUrl(buildDownloadsDeepLinkUrl()) }
+        } else {
+            null
+        },
+    )
 }
 
 @Composable

@@ -542,6 +542,12 @@ fun NuvioToastHost(
             contentAlignment = Alignment.TopCenter,
         ) {
             Surface(
+                modifier = currentToast.onClick?.let { onClick ->
+                    Modifier.clickable {
+                        NuvioToastController.dismiss(currentToast.id)
+                        onClick()
+                    }
+                } ?: Modifier,
                 shape = RoundedCornerShape(NuvioTokens.Radius.xl),
                 color = tokens.colors.surfacePopover,
                 tonalElevation = tokens.elevation.raised,
@@ -562,6 +568,7 @@ data class NuvioToastMessage(
     val id: Long,
     val message: String,
     val durationMillis: Long,
+    val onClick: (() -> Unit)? = null,
 )
 
 object NuvioToastController {
@@ -572,12 +579,14 @@ object NuvioToastController {
     fun show(
         message: String,
         durationMillis: Long = 2500L,
+        onClick: (() -> Unit)? = null,
     ) {
         nextToastId += 1L
         _currentToast.value = NuvioToastMessage(
             id = nextToastId,
             message = message,
             durationMillis = durationMillis,
+            onClick = onClick,
         )
     }
 

@@ -104,6 +104,7 @@ import com.nuvio.app.features.details.components.DetailTrailersSection
 import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.features.details.components.SeasonWatchedActionSheet
 import com.nuvio.app.features.details.components.TrailerPlayerPopup
+import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.library.PendingTrackingMembershipRemoval
@@ -1980,6 +1981,15 @@ private fun ConfiguredMetaSections(
     animatedVisibilityScope: AnimatedVisibilityScope?,
 ) {
     val enabledItems = settings.items.filter { it.enabled }
+    val downloadsUiState by remember {
+        DownloadsRepository.ensureLoaded()
+        DownloadsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val hasDownloadedMovie = remember(downloadsUiState.completedItems, meta.id) {
+        downloadsUiState.completedItems.any { item ->
+            !item.isEpisode && item.parentMetaId == meta.id && item.isPlayable
+        }
+    }
 
     // Helper to check if a section actually has content to show
     val sectionHasContent: (MetaScreenSectionKey) -> Boolean = { key ->
@@ -2004,6 +2014,13 @@ private fun ConfiguredMetaSections(
                 DetailActionButtons(
                     playLabel = playButtonLabel,
                     secondaryActions = buildList {
+                        if (hasDownloadedMovie) {
+                            add(DetailSecondaryAction(
+                                label = stringResource(Res.string.compose_player_downloaded),
+                                icon = Icons.Default.DoneAll,
+                                isActive = true,
+                            ))
+                        }
                         add(DetailSecondaryAction(
                             label = if (isWatched) {
                                 stringResource(Res.string.hero_mark_unwatched)

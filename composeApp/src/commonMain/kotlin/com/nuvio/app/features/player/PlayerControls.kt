@@ -441,7 +441,7 @@ private fun PlayerDownloadHeaderButton(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = Color.White,
-            modifier = Modifier.size(iconSize * 0.72f),
+            modifier = Modifier.size(iconSize),
         )
     }
 }

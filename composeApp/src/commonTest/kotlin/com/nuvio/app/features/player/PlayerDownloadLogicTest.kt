@@ -91,6 +91,28 @@ class PlayerDownloadLogicTest {
     }
 
     @Test
+    fun `paused indicator keeps known progress frozen around the pause icon`() {
+        val request = request()
+        val paused = assertIs<PlayerDownloadActionState.Existing>(
+            derivePlayerDownloadActionState(
+                request,
+                listOf(
+                    item(
+                        status = DownloadStatus.Paused,
+                        downloadedBytes = 40L,
+                        totalBytes = 100L,
+                        sourceFingerprint = request.sourceFingerprint(),
+                    ),
+                ),
+            ),
+        ).indicatorPresentation()
+
+        assertEquals(PlayerDownloadIndicatorIcon.Paused, paused?.icon)
+        assertEquals(0.4f, paused?.progressFraction)
+        assertFalse(paused?.showIndeterminateProgress ?: true)
+    }
+
+    @Test
     fun `every terminal and queued status maps to its intended icon`() {
         val request = request()
         val expected = mapOf(

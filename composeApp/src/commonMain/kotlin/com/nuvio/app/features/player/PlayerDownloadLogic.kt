@@ -88,6 +88,7 @@ private fun DownloadItem.indicatorPresentation(
     )
     DownloadStatus.Paused -> PlayerDownloadIndicatorPresentation(
         icon = PlayerDownloadIndicatorIcon.Paused,
+        progressFraction = totalBytes?.takeIf { it > 0L }?.let { progressFraction },
         isDifferentSource = isDifferentSource,
     )
     DownloadStatus.Failed -> PlayerDownloadIndicatorPresentation(

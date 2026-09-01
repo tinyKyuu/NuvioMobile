@@ -16,6 +16,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
+import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.watched.WatchedRepository
@@ -63,6 +64,10 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
         WatchProgressRepository.ensureLoaded()
         WatchProgressRepository.uiState
     }.collectAsStateWithLifecycle()
+    val downloadsUiState by remember {
+        DownloadsRepository.ensureLoaded()
+        DownloadsRepository.uiState
+    }.collectAsStateWithLifecycle()
     val sourceStreamsState by PlayerStreamsRepository.sourceState.collectAsStateWithLifecycle()
     val episodeStreamsRepoState by PlayerStreamsRepository.episodeStreamsState.collectAsStateWithLifecycle()
     val metaUiState by MetaDetailsRepository.uiState.collectAsStateWithLifecycle()
@@ -91,6 +96,7 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
         runtime.metaScreenSettingsUiState = metaScreenSettingsUiState
         runtime.watchedUiState = watchedUiState
         runtime.watchProgressUiState = watchProgressUiState
+        runtime.downloadsUiState = downloadsUiState
         runtime.sourceStreamsState = sourceStreamsState
         runtime.episodeStreamsRepoState = episodeStreamsRepoState
         runtime.metaUiState = metaUiState

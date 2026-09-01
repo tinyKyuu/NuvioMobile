@@ -78,10 +78,14 @@ import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
 import com.nuvio.app.core.ui.NuvioBottomSheetDivider
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
+import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
-import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.DownloadEnqueueDecision
+import com.nuvio.app.features.downloads.DownloadEnqueueRequest
 import com.nuvio.app.features.downloads.DownloadEnqueueResult
+import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -106,8 +110,14 @@ import org.jetbrains.compose.resources.stringResource
 // Streams Screen
 // ---------------------------------------------------------------------------
 
+private data class PendingDownloadReplacement(
+    val request: DownloadEnqueueRequest,
+    val existingItem: DownloadItem,
+)
+
 @Composable
 fun StreamsScreen(
+    profileId: Int,
     type: String,
     videoId: String,
     parentMetaId: String,
@@ -164,6 +174,9 @@ fun StreamsScreen(
     val streamLinkCopiedText = stringResource(Res.string.streams_link_copied)
     val noDirectStreamLinkText = stringResource(Res.string.streams_no_direct_link)
     var streamActionsTarget by remember(videoId) { mutableStateOf<StreamItem?>(null) }
+    var pendingDownloadReplacement by remember(videoId) {
+        mutableStateOf<PendingDownloadReplacement?>(null)
+    }
     val downloadScope = rememberCoroutineScope()
     var preferredFilterApplied by remember(videoId) { mutableStateOf(false) }
     var autoPlayOverlayLogoLoadError by remember(logo) { mutableStateOf(false) }
@@ -199,6 +212,41 @@ fun StreamsScreen(
             null
         } else {
             (resumePositionMs ?: storedProgress?.takeIf { it.isResumable }?.lastPositionMs)?.takeIf { it > 0L }
+        }
+    }
+
+    fun enqueueOrRequestReplacement(stream: StreamItem) {
+        val request = stream.toDownloadEnqueueRequest(
+            profileId = profileId,
+            contentType = type,
+            videoId = videoId,
+            parentMetaId = parentMetaId,
+            parentMetaType = parentMetaType,
+            title = title,
+            logo = logo,
+            poster = poster,
+            background = background,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            episodeTitle = episodeTitle,
+            episodeThumbnail = episodeThumbnail,
+        )
+        when (val decision = DownloadsRepository.evaluateEnqueue(request)) {
+            DownloadEnqueueDecision.Enqueue -> {
+                showDownloadEnqueueToast(DownloadsRepository.enqueue(request))
+            }
+            is DownloadEnqueueDecision.ExistingExact -> {
+                showDownloadEnqueueToast(DownloadEnqueueResult.AlreadyExists)
+            }
+            is DownloadEnqueueDecision.ConfirmReplacement -> {
+                pendingDownloadReplacement = PendingDownloadReplacement(
+                    request = request,
+                    existingItem = decision.item,
+                )
+            }
+            is DownloadEnqueueDecision.Ineligible,
+            DownloadEnqueueDecision.ProfileChanged,
+            -> showDownloadEnqueueToast(DownloadsRepository.enqueue(request))
         }
     }
 
@@ -414,22 +462,7 @@ fun StreamsScreen(
                         )
                         when (resolved) {
                             is DirectDebridPlayableResult.Success -> {
-                                val result = DownloadsRepository.enqueueFromStream(
-                                    contentType = type,
-                                    videoId = videoId,
-                                    parentMetaId = parentMetaId,
-                                    parentMetaType = parentMetaType,
-                                    title = title,
-                                    logo = logo,
-                                    poster = poster,
-                                    background = background,
-                                    seasonNumber = seasonNumber,
-                                    episodeNumber = episodeNumber,
-                                    episodeTitle = episodeTitle,
-                                    episodeThumbnail = episodeThumbnail,
-                                    stream = resolved.stream,
-                                )
-                                showDownloadEnqueueToast(result)
+                                enqueueOrRequestReplacement(resolved.stream)
                             }
                             else -> {
                                 val message = resolved.toastMessage()
@@ -440,22 +473,7 @@ fun StreamsScreen(
                         }
                     }
                 } else {
-                    val result = DownloadsRepository.enqueueFromStream(
-                        contentType = type,
-                        videoId = videoId,
-                        parentMetaId = parentMetaId,
-                        parentMetaType = parentMetaType,
-                        title = title,
-                        logo = logo,
-                        poster = poster,
-                        background = background,
-                        seasonNumber = seasonNumber,
-                        episodeNumber = episodeNumber,
-                        episodeTitle = episodeTitle,
-                        episodeThumbnail = episodeThumbnail,
-                        stream = stream,
-                    )
-                    showDownloadEnqueueToast(result)
+                    enqueueOrRequestReplacement(stream)
                 }
             },
             onOpen = { stream, openExternally ->
@@ -468,7 +486,69 @@ fun StreamsScreen(
             },
         )
     }
+
+    pendingDownloadReplacement?.let { pending ->
+        NuvioStatusModal(
+            title = stringResource(Res.string.downloads_replace_confirm_title),
+            message = stringResource(
+                Res.string.downloads_replace_confirm_message,
+                pending.existingItem.title,
+            ),
+            isVisible = true,
+            confirmText = stringResource(Res.string.downloads_replace_action),
+            dismissText = stringResource(Res.string.action_no),
+            onConfirm = {
+                val result = DownloadsRepository.enqueue(
+                    request = pending.request,
+                    replacingDownloadId = pending.existingItem.id,
+                )
+                pendingDownloadReplacement = null
+                showDownloadEnqueueToast(result)
+            },
+            onDismiss = { pendingDownloadReplacement = null },
+        )
+    }
 }
+
+private fun StreamItem.toDownloadEnqueueRequest(
+    profileId: Int,
+    contentType: String,
+    videoId: String,
+    parentMetaId: String,
+    parentMetaType: String,
+    title: String,
+    logo: String?,
+    poster: String?,
+    background: String?,
+    seasonNumber: Int?,
+    episodeNumber: Int?,
+    episodeTitle: String?,
+    episodeThumbnail: String?,
+): DownloadEnqueueRequest = DownloadEnqueueRequest(
+    profileId = profileId,
+    contentType = contentType,
+    videoId = videoId,
+    parentMetaId = parentMetaId,
+    parentMetaType = parentMetaType,
+    title = title,
+    logo = logo,
+    poster = poster,
+    background = background,
+    seasonNumber = seasonNumber,
+    episodeNumber = episodeNumber,
+    episodeTitle = episodeTitle,
+    episodeThumbnail = episodeThumbnail,
+    streamTitle = streamLabel,
+    streamSubtitle = streamSubtitle,
+    providerName = addonName,
+    providerAddonId = addonId,
+    sourceUrl = playableDirectUrl.orEmpty(),
+    sourceHeaders = behaviorHints.proxyHeaders?.request.orEmpty(),
+    sourceResponseHeaders = behaviorHints.proxyHeaders?.response.orEmpty(),
+    streamType = streamType,
+    isP2p = isTorrentStream || needsLocalDebridResolve,
+    isExternalOnly = shouldOpenExternally,
+)
 
 private fun showDownloadEnqueueToast(result: DownloadEnqueueResult) {
     val opensDownloads = result == DownloadEnqueueResult.Started ||

@@ -10,6 +10,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
+import com.nuvio.app.core.ui.NuvioStatusModal
+import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.features.downloads.DownloadStatus
+import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.p2p.formatP2pMegabytes
 import com.nuvio.app.features.p2p.formatP2pSpeed
@@ -238,6 +242,18 @@ private fun PlayerScreenRuntime.currentInitialPositionRequestKey(): String? {
 @Composable
 private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, isEpisode: Boolean) {
     val isInPip = rememberIsInPictureInPicture()
+    val downloadActionState = currentPlayerDownloadActionState()
+    val downloadMenuRequest = playerDownloadSheetRequest
+    val downloadMenuItem = playerDownloadSheetItemId?.let { itemId ->
+        downloadsUiState.items.firstOrNull { it.id == itemId }
+    }
+    val downloadMenuExactSource = downloadMenuRequest != null &&
+        downloadMenuItem != null &&
+        !downloadMenuItem.sourceFingerprint.isNullOrBlank() &&
+        downloadMenuItem.sourceFingerprint == downloadMenuRequest.sourceFingerprint()
+    val exportFailedText = org.jetbrains.compose.resources.stringResource(
+        Res.string.downloads_export_failed,
+    )
     AnimatedVisibility(
         visible = (controlsVisible || showParentalGuide) && !playerControlsLocked && !isInPip,
         enter = fadeIn(),
@@ -314,6 +330,64 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                         ),
                     )
                 }
+            },
+            downloadPresentation = downloadActionState.indicatorPresentation(),
+            onDownloadClick = if (downloadActionState is PlayerDownloadActionState.Hidden) {
+                null
+            } else {
+                {
+                    if (playerDownloadSheetItemId != null) {
+                        playerDownloadSheetRequest = null
+                        playerDownloadSheetItemId = null
+                    } else {
+                        handlePlayerDownloadActionTap()
+                    }
+                }
+            },
+            downloadMenuContent = if (downloadMenuRequest != null && downloadMenuItem != null) {
+                {
+                    PlayerDownloadActionMenu(
+                        item = downloadMenuItem,
+                        exactSource = downloadMenuExactSource,
+                        onDismiss = {
+                            playerDownloadSheetRequest = null
+                            playerDownloadSheetItemId = null
+                        },
+                        onPause = { DownloadsRepository.pauseDownload(downloadMenuItem.id) },
+                        onResume = { DownloadsRepository.resumeDownload(downloadMenuItem.id) },
+                        onRetry = { DownloadsRepository.retryDownload(downloadMenuItem.id) },
+                        onDelete = {
+                            playerDownloadPendingDeletionId = downloadMenuItem.id
+                            playerDownloadSheetRequest = null
+                            playerDownloadSheetItemId = null
+                        },
+                        onPlayDownloadedCopy = {
+                            downloadMenuItem.takeIf { it.status == DownloadStatus.Completed }
+                                ?.let(::switchToDownloadedCurrentItem)
+                        },
+                        onExport = {
+                            if (!DownloadsRepository.exportDownload(downloadMenuItem)) {
+                                NuvioToastController.show(exportFailedText)
+                            }
+                        },
+                        onReplace = {
+                            playerDownloadPendingReplacement = PendingPlayerDownloadReplacement(
+                                request = downloadMenuRequest,
+                                expectedDownloadId = downloadMenuItem.id,
+                            )
+                            playerDownloadSheetRequest = null
+                            playerDownloadSheetItemId = null
+                        },
+                        onOpenDownloads = args.onOpenDownloads?.let { openDownloads ->
+                            {
+                                flushWatchProgress()
+                                openDownloads()
+                            }
+                        },
+                    )
+                }
+            } else {
+                null
             },
             onSubmitIntroClick = if (
                 isSeries &&
@@ -587,4 +661,45 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             showSubmitIntroModal = false
         },
     )
+
+    playerDownloadPendingDeletionId?.let { pendingDeletionId ->
+        NuvioStatusModal(
+            title = org.jetbrains.compose.resources.stringResource(
+                Res.string.action_delete_confirm_title,
+            ),
+            message = org.jetbrains.compose.resources.stringResource(
+                Res.string.action_delete_confirm_message,
+            ),
+            isVisible = true,
+            confirmText = org.jetbrains.compose.resources.stringResource(Res.string.action_yes),
+            dismissText = org.jetbrains.compose.resources.stringResource(Res.string.action_no),
+            onConfirm = {
+                DownloadsRepository.cancelDownload(pendingDeletionId)
+                playerDownloadPendingDeletionId = null
+            },
+            onDismiss = { playerDownloadPendingDeletionId = null },
+        )
+    }
+
+    playerDownloadPendingReplacement?.let { replacement ->
+        val replacingItem = downloadsUiState.items.firstOrNull {
+            it.id == replacement.expectedDownloadId
+        }
+        NuvioStatusModal(
+            title = org.jetbrains.compose.resources.stringResource(
+                Res.string.downloads_replace_confirm_title,
+            ),
+            message = org.jetbrains.compose.resources.stringResource(
+                Res.string.downloads_replace_confirm_message,
+                replacingItem?.title ?: title,
+            ),
+            isVisible = true,
+            confirmText = org.jetbrains.compose.resources.stringResource(
+                Res.string.downloads_replace_action,
+            ),
+            dismissText = org.jetbrains.compose.resources.stringResource(Res.string.action_no),
+            onConfirm = { confirmPlayerDownloadReplacement(replacement) },
+            onDismiss = { playerDownloadPendingReplacement = null },
+        )
+    }
 }

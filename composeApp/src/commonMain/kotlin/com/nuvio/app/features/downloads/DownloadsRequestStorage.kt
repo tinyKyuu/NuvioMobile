@@ -10,12 +10,14 @@ internal data class StoredDownloadRequest(
     val sourceUrl: String,
     val sourceHeaders: Map<String, String> = emptyMap(),
     val sourceResponseHeaders: Map<String, String> = emptyMap(),
+    val providerAddonId: String? = null,
 )
 
 internal fun DownloadItem.toStoredDownloadRequest(): StoredDownloadRequest = StoredDownloadRequest(
     sourceUrl = sourceUrl,
     sourceHeaders = sourceHeaders,
     sourceResponseHeaders = sourceResponseHeaders,
+    providerAddonId = providerAddonId,
 )
 
 internal fun DownloadRecord.withStoredDownloadRequest(request: StoredDownloadRequest): DownloadRecord = copy(
@@ -23,6 +25,7 @@ internal fun DownloadRecord.withStoredDownloadRequest(request: StoredDownloadReq
         sourceUrl = request.sourceUrl,
         sourceHeaders = request.sourceHeaders,
         sourceResponseHeaders = request.sourceResponseHeaders,
+        providerAddonId = request.providerAddonId,
     ),
 )
 

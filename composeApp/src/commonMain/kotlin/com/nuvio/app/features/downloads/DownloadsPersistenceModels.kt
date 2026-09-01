@@ -5,7 +5,7 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
-internal const val DOWNLOAD_RECORD_VERSION = 2
+internal const val DOWNLOAD_RECORD_VERSION = 3
 
 internal fun downloadOwnerProfileKey(profileId: Int): String = "profile:$profileId"
 
@@ -125,6 +125,9 @@ internal fun DownloadRecord.migrateToCurrentVersion(): DownloadRecord {
             recordVersion = 2,
             item = migrated.item.copy(providerAddonId = null),
         )
+    }
+    if (migrated.recordVersion < 3) {
+        migrated = migrated.copy(recordVersion = 3)
     }
     return migrated
 }

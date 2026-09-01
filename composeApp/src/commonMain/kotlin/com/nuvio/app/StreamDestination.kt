@@ -612,6 +612,7 @@ internal fun StreamDestination(
 
     Box(modifier = Modifier.fillMaxSize()) {
         StreamsScreen(
+            profileId = launch.profileId,
             type = launch.type,
             videoId = effectiveVideoId,
             parentMetaId = launch.parentMetaId ?: effectiveVideoId,

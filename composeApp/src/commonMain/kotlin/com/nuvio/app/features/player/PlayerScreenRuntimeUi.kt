@@ -243,6 +243,17 @@ private fun PlayerScreenRuntime.currentInitialPositionRequestKey(): String? {
 private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, isEpisode: Boolean) {
     val isInPip = rememberIsInPictureInPicture()
     val downloadActionState = currentPlayerDownloadActionState()
+    val downloadMenuRequest = playerDownloadSheetRequest
+    val downloadMenuItem = playerDownloadSheetItemId?.let { itemId ->
+        downloadsUiState.items.firstOrNull { it.id == itemId }
+    }
+    val downloadMenuExactSource = downloadMenuRequest != null &&
+        downloadMenuItem != null &&
+        !downloadMenuItem.sourceFingerprint.isNullOrBlank() &&
+        downloadMenuItem.sourceFingerprint == downloadMenuRequest.sourceFingerprint()
+    val exportFailedText = org.jetbrains.compose.resources.stringResource(
+        Res.string.downloads_export_failed,
+    )
     AnimatedVisibility(
         visible = (controlsVisible || showParentalGuide) && !playerControlsLocked && !isInPip,
         enter = fadeIn(),
@@ -324,7 +335,59 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
             onDownloadClick = if (downloadActionState is PlayerDownloadActionState.Hidden) {
                 null
             } else {
-                { handlePlayerDownloadActionTap() }
+                {
+                    if (playerDownloadSheetItemId != null) {
+                        playerDownloadSheetRequest = null
+                        playerDownloadSheetItemId = null
+                    } else {
+                        handlePlayerDownloadActionTap()
+                    }
+                }
+            },
+            downloadMenuContent = if (downloadMenuRequest != null && downloadMenuItem != null) {
+                {
+                    PlayerDownloadActionMenu(
+                        item = downloadMenuItem,
+                        exactSource = downloadMenuExactSource,
+                        onDismiss = {
+                            playerDownloadSheetRequest = null
+                            playerDownloadSheetItemId = null
+                        },
+                        onPause = { DownloadsRepository.pauseDownload(downloadMenuItem.id) },
+                        onResume = { DownloadsRepository.resumeDownload(downloadMenuItem.id) },
+                        onRetry = { DownloadsRepository.retryDownload(downloadMenuItem.id) },
+                        onDelete = {
+                            playerDownloadPendingDeletionId = downloadMenuItem.id
+                            playerDownloadSheetRequest = null
+                            playerDownloadSheetItemId = null
+                        },
+                        onPlayDownloadedCopy = {
+                            downloadMenuItem.takeIf { it.status == DownloadStatus.Completed }
+                                ?.let(::switchToDownloadedCurrentItem)
+                        },
+                        onExport = {
+                            if (!DownloadsRepository.exportDownload(downloadMenuItem)) {
+                                NuvioToastController.show(exportFailedText)
+                            }
+                        },
+                        onReplace = {
+                            playerDownloadPendingReplacement = PendingPlayerDownloadReplacement(
+                                request = downloadMenuRequest,
+                                expectedDownloadId = downloadMenuItem.id,
+                            )
+                            playerDownloadSheetRequest = null
+                            playerDownloadSheetItemId = null
+                        },
+                        onOpenDownloads = args.onOpenDownloads?.let { openDownloads ->
+                            {
+                                flushWatchProgress()
+                                openDownloads()
+                            }
+                        },
+                    )
+                }
+            } else {
+                null
             },
             onSubmitIntroClick = if (
                 isSeries &&
@@ -596,58 +659,6 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             submitIntroEndTimeStr = "00:00"
             submitIntroSegmentType = "intro"
             showSubmitIntroModal = false
-        },
-    )
-
-    val sheetRequest = playerDownloadSheetRequest
-    val sheetItem = playerDownloadSheetItemId?.let { itemId ->
-        downloadsUiState.items.firstOrNull { it.id == itemId }
-    }
-    val exactSource = sheetRequest != null &&
-        sheetItem != null &&
-        !sheetItem.sourceFingerprint.isNullOrBlank() &&
-        sheetItem.sourceFingerprint == sheetRequest.sourceFingerprint()
-    val exportFailedText = org.jetbrains.compose.resources.stringResource(
-        Res.string.downloads_export_failed,
-    )
-    PlayerDownloadActionSheet(
-        item = sheetItem,
-        exactSource = exactSource,
-        onDismiss = {
-            playerDownloadSheetRequest = null
-            playerDownloadSheetItemId = null
-        },
-        onPause = { sheetItem?.let { DownloadsRepository.pauseDownload(it.id) } },
-        onResume = { sheetItem?.let { DownloadsRepository.resumeDownload(it.id) } },
-        onRetry = { sheetItem?.let { DownloadsRepository.retryDownload(it.id) } },
-        onDelete = {
-            playerDownloadPendingDeletionId = sheetItem?.id
-            playerDownloadSheetRequest = null
-            playerDownloadSheetItemId = null
-        },
-        onPlayDownloadedCopy = {
-            sheetItem?.takeIf { it.status == DownloadStatus.Completed }
-                ?.let(::switchToDownloadedCurrentItem)
-        },
-        onExport = {
-            val exported = sheetItem?.let(DownloadsRepository::exportDownload) == true
-            if (!exported) NuvioToastController.show(exportFailedText)
-        },
-        onReplace = {
-            if (sheetRequest != null && sheetItem != null) {
-                playerDownloadPendingReplacement = PendingPlayerDownloadReplacement(
-                    request = sheetRequest,
-                    expectedDownloadId = sheetItem.id,
-                )
-            }
-            playerDownloadSheetRequest = null
-            playerDownloadSheetItemId = null
-        },
-        onOpenDownloads = args.onOpenDownloads?.let { openDownloads ->
-            {
-                flushWatchProgress()
-                openDownloads()
-            }
         },
     )
 

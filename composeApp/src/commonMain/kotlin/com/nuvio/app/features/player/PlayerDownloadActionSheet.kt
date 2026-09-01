@@ -1,9 +1,16 @@
 package com.nuvio.app.features.player
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Pause
@@ -12,33 +19,36 @@ import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.VideoLibrary
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.i18n.localizedByteUnit
-import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
-import com.nuvio.app.core.ui.NuvioBottomSheetDivider
-import com.nuvio.app.core.ui.NuvioModalBottomSheet
-import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.nuvio
-import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
-import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
-@OptIn(ExperimentalMaterial3Api::class)
+private data class PlayerDownloadMenuAction(
+    val icon: ImageVector,
+    val label: String,
+    val isDestructive: Boolean = false,
+    val onClick: () -> Unit,
+)
+
 @Composable
-internal fun PlayerDownloadActionSheet(
-    item: DownloadItem?,
+internal fun PlayerDownloadActionMenu(
+    item: DownloadItem,
     exactSource: Boolean,
     onDismiss: () -> Unit,
     onPause: () -> Unit,
@@ -50,125 +60,103 @@ internal fun PlayerDownloadActionSheet(
     onReplace: () -> Unit,
     onOpenDownloads: (() -> Unit)?,
 ) {
-    if (item == null) return
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val coroutineScope = rememberCoroutineScope()
+    val actions = mutableListOf<PlayerDownloadMenuAction>()
 
-    fun dismissAfter(action: () -> Unit) {
-        action()
-        coroutineScope.launch {
-            dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
-        }
+    if (!exactSource) {
+        actions += PlayerDownloadMenuAction(
+            icon = Icons.Rounded.SwapHoriz,
+            label = stringResource(Res.string.downloads_replace_action),
+            onClick = onReplace,
+        )
     }
 
-    NuvioModalBottomSheet(
-        onDismissRequest = {
-            coroutineScope.launch {
-                dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
-            }
-        },
-        sheetState = sheetState,
+    when (item.status) {
+        DownloadStatus.Queued,
+        DownloadStatus.Downloading,
+        DownloadStatus.WaitingForNetwork,
+        -> actions += PlayerDownloadMenuAction(
+            icon = Icons.Rounded.Pause,
+            label = stringResource(Res.string.compose_action_pause),
+            onClick = onPause,
+        )
+        DownloadStatus.Paused -> actions += PlayerDownloadMenuAction(
+            icon = Icons.Rounded.PlayArrow,
+            label = stringResource(Res.string.action_resume),
+            onClick = onResume,
+        )
+        DownloadStatus.Failed -> actions += PlayerDownloadMenuAction(
+            icon = Icons.Rounded.Refresh,
+            label = stringResource(Res.string.action_retry),
+            onClick = onRetry,
+        )
+        DownloadStatus.Completed -> {
+            actions += PlayerDownloadMenuAction(
+                icon = Icons.Rounded.PlayArrow,
+                label = stringResource(Res.string.player_download_play_copy),
+                onClick = onPlayDownloadedCopy,
+            )
+            actions += PlayerDownloadMenuAction(
+                icon = Icons.Rounded.Share,
+                label = stringResource(Res.string.downloads_export),
+                onClick = onExport,
+            )
+        }
+        DownloadStatus.Finalizing -> Unit
+    }
+
+    actions += PlayerDownloadMenuAction(
+        icon = Icons.Rounded.Delete,
+        label = stringResource(
+            if (
+                item.status == DownloadStatus.Paused ||
+                item.status == DownloadStatus.Failed ||
+                item.status == DownloadStatus.Completed
+            ) {
+                Res.string.action_delete
+            } else {
+                Res.string.player_download_cancel
+            },
+        ),
+        isDestructive = true,
+        onClick = onDelete,
+    )
+
+    if (onOpenDownloads != null) {
+        actions += PlayerDownloadMenuAction(
+            icon = Icons.Rounded.VideoLibrary,
+            label = stringResource(Res.string.player_download_open_downloads),
+            onClick = onOpenDownloads,
+        )
+    }
+
+    DropdownMenu(
+        expanded = true,
+        onDismissRequest = onDismiss,
+        modifier = Modifier.width(320.dp),
+        containerColor = MaterialTheme.nuvio.colors.surfacePopover,
+        shape = MaterialTheme.nuvio.shapes.compactCard,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = nuvioSafeBottomPadding(MaterialTheme.nuvio.spacing.screenHorizontal)),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            PlayerDownloadSheetHeader(item = item, exactSource = exactSource)
-
-            if (!exactSource) {
-                NuvioBottomSheetDivider()
-                NuvioBottomSheetActionRow(
-                    icon = Icons.Rounded.SwapHoriz,
-                    title = stringResource(Res.string.downloads_replace_action),
-                    onClick = { dismissAfter(onReplace) },
-                )
-            }
-
-            when (item.status) {
-                DownloadStatus.Queued,
-                DownloadStatus.Downloading,
-                DownloadStatus.WaitingForNetwork,
-                -> {
-                    NuvioBottomSheetDivider()
-                    NuvioBottomSheetActionRow(
-                        icon = Icons.Rounded.Pause,
-                        title = stringResource(Res.string.compose_action_pause),
-                        onClick = { dismissAfter(onPause) },
-                    )
-                }
-                DownloadStatus.Paused -> {
-                    NuvioBottomSheetDivider()
-                    NuvioBottomSheetActionRow(
-                        icon = Icons.Rounded.PlayArrow,
-                        title = stringResource(Res.string.action_resume),
-                        onClick = { dismissAfter(onResume) },
-                    )
-                }
-                DownloadStatus.Failed -> {
-                    NuvioBottomSheetDivider()
-                    NuvioBottomSheetActionRow(
-                        icon = Icons.Rounded.Refresh,
-                        title = stringResource(Res.string.action_retry),
-                        onClick = { dismissAfter(onRetry) },
-                    )
-                }
-                DownloadStatus.Completed -> {
-                    NuvioBottomSheetDivider()
-                    NuvioBottomSheetActionRow(
-                        icon = Icons.Rounded.PlayArrow,
-                        title = stringResource(Res.string.player_download_play_copy),
-                        onClick = { dismissAfter(onPlayDownloadedCopy) },
-                    )
-                    NuvioBottomSheetDivider()
-                    NuvioBottomSheetActionRow(
-                        icon = Icons.Rounded.Share,
-                        title = stringResource(Res.string.downloads_export),
-                        onClick = { dismissAfter(onExport) },
-                    )
-                }
-                DownloadStatus.Finalizing -> Unit
-            }
-
-            NuvioBottomSheetDivider()
-            NuvioBottomSheetActionRow(
-                icon = Icons.Rounded.Delete,
-                title = stringResource(
-                    if (
-                        item.status == DownloadStatus.Paused ||
-                        item.status == DownloadStatus.Failed ||
-                        item.status == DownloadStatus.Completed
-                    ) {
-                        Res.string.action_delete
-                    } else {
-                        Res.string.player_download_cancel
-                    },
-                ),
-                onClick = { dismissAfter(onDelete) },
+            PlayerDownloadMenuHeader(item = item, exactSource = exactSource)
+            PlayerDownloadMenuActions(
+                actions = actions,
+                onDismiss = onDismiss,
             )
-
-            if (onOpenDownloads != null) {
-                NuvioBottomSheetDivider()
-                NuvioBottomSheetActionRow(
-                    icon = Icons.Rounded.VideoLibrary,
-                    title = stringResource(Res.string.player_download_open_downloads),
-                    onClick = { dismissAfter(onOpenDownloads) },
-                )
-            }
         }
     }
 }
 
 @Composable
-private fun PlayerDownloadSheetHeader(
+private fun PlayerDownloadMenuHeader(
     item: DownloadItem,
     exactSource: Boolean,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp),
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text(
             text = if (item.isEpisode) {
@@ -181,7 +169,7 @@ private fun PlayerDownloadSheetHeader(
             } else {
                 item.title
             },
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.nuvio.colors.textPrimary,
             fontWeight = FontWeight.SemiBold,
             maxLines = 2,
@@ -189,18 +177,21 @@ private fun PlayerDownloadSheetHeader(
         )
         Text(
             text = playerDownloadStatusText(item),
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.nuvio.colors.textSecondary,
         )
-        Text(
-            text = listOf(item.streamTitle, item.providerName)
-                .filter(String::isNotBlank)
-                .joinToString(" • "),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.nuvio.colors.textMuted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        val sourceLabel = listOf(item.streamTitle, item.providerName)
+            .filter(String::isNotBlank)
+            .joinToString(" • ")
+        if (sourceLabel.isNotBlank()) {
+            Text(
+                text = sourceLabel,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.nuvio.colors.textMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         if (!exactSource) {
             Text(
                 text = stringResource(Res.string.player_download_different_source),
@@ -208,6 +199,78 @@ private fun PlayerDownloadSheetHeader(
                 color = MaterialTheme.nuvio.colors.accent,
             )
         }
+    }
+}
+
+@Composable
+private fun PlayerDownloadMenuActions(
+    actions: List<PlayerDownloadMenuAction>,
+    onDismiss: () -> Unit,
+) {
+    val columnCount = when (actions.size) {
+        4 -> 2
+        else -> actions.size.coerceAtMost(3).coerceAtLeast(1)
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        actions.chunked(columnCount).forEach { rowActions ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                rowActions.forEach { action ->
+                    PlayerDownloadMenuActionButton(
+                        action = action,
+                        onClick = {
+                            action.onClick()
+                            onDismiss()
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                repeat(columnCount - rowActions.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerDownloadMenuActionButton(
+    action: PlayerDownloadMenuAction,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = MaterialTheme.nuvio
+    val contentColor = if (action.isDestructive) tokens.colors.danger else tokens.colors.textSecondary
+
+    Column(
+        modifier = modifier
+            .heightIn(min = 70.dp)
+            .clip(tokens.shapes.compactCard)
+            .background(tokens.colors.surfaceCard)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = action.icon,
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(22.dp),
+        )
+        Text(
+            text = action.label,
+            modifier = Modifier.padding(top = 6.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = contentColor,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 

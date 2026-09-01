@@ -104,6 +104,7 @@ internal fun PlayerControlsShell(
     onOpenInExternalPlayer: (() -> Unit)? = null,
     downloadPresentation: PlayerDownloadIndicatorPresentation? = null,
     onDownloadClick: (() -> Unit)? = null,
+    downloadMenuContent: (@Composable () -> Unit)? = null,
     onSubmitIntroClick: (() -> Unit)? = null,
     parentalWarnings: List<ParentalWarning> = emptyList(),
     showParentalGuide: Boolean = false,
@@ -167,6 +168,7 @@ internal fun PlayerControlsShell(
                 onVideoSettingsClick = onVideoSettingsClick,
                 downloadPresentation = downloadPresentation,
                 onDownloadClick = onDownloadClick,
+                downloadMenuContent = downloadMenuContent,
                 onOpenInExternalPlayer = onOpenInExternalPlayer,
                 onBack = onBack,
                 modifier = Modifier
@@ -237,6 +239,7 @@ private fun PlayerHeader(
     onVideoSettingsClick: (() -> Unit)?,
     downloadPresentation: PlayerDownloadIndicatorPresentation?,
     onDownloadClick: (() -> Unit)?,
+    downloadMenuContent: (@Composable () -> Unit)?,
     onOpenInExternalPlayer: (() -> Unit)?,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -353,6 +356,7 @@ private fun PlayerHeader(
                             buttonSize = metrics.headerIconSize + 16.dp,
                             iconSize = metrics.headerIconSize,
                             onClick = onDownloadClick,
+                            menuContent = downloadMenuContent,
                         )
                     }
                     if (onOpenInExternalPlayer != null) {
@@ -405,6 +409,7 @@ private fun PlayerDownloadHeaderButton(
     buttonSize: androidx.compose.ui.unit.Dp,
     iconSize: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit,
+    menuContent: (@Composable () -> Unit)?,
 ) {
     val showsProgressRing = presentation.progressFraction != null ||
         presentation.showIndeterminateProgress
@@ -461,6 +466,7 @@ private fun PlayerDownloadHeaderButton(
             tint = Color.White,
             modifier = iconModifier,
         )
+        menuContent?.invoke()
     }
 }
 

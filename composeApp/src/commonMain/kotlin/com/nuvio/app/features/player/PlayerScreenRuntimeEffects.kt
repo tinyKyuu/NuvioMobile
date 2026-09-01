@@ -343,6 +343,7 @@ private fun PlayerScreenRuntime.BindPlayerUiVisibilityEffects() {
         playbackSnapshot.isLoading,
         showParentalGuide,
         errorMessage,
+        playerDownloadSheetItemId,
     ) {
         if (
             !controlsVisible ||
@@ -350,7 +351,8 @@ private fun PlayerScreenRuntime.BindPlayerUiVisibilityEffects() {
             !playbackSnapshot.isPlaying ||
             playbackSnapshot.isLoading ||
             showParentalGuide ||
-            errorMessage != null
+            errorMessage != null ||
+            playerDownloadSheetItemId != null
         ) {
             return@LaunchedEffect
         }

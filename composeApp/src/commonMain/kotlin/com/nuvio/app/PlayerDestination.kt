@@ -7,6 +7,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.core.deeplink.buildDownloadsDeepLinkUrl
+import com.nuvio.app.core.deeplink.handleAppUrl
 import com.nuvio.app.features.player.ExternalPlayerIntentResult
 import com.nuvio.app.features.player.ExternalPlayerPlatform
 import com.nuvio.app.features.player.PlayerLaunch
@@ -120,6 +122,9 @@ internal fun PlayerDestination(
         },
         onOpenExternalUrl = { url ->
             openExternalStreamUrl(url)
+        },
+        onOpenDownloads = {
+            handleAppUrl(buildDownloadsDeepLinkUrl())
         },
         modifier = Modifier.fillMaxSize(),
     )

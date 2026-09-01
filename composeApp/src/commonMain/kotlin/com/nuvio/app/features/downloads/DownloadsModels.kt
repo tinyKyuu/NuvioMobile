@@ -4,7 +4,10 @@ import kotlinx.serialization.Serializable
 import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.downloads_enqueue_missing_url
+import nuvio.composeapp.generated.resources.downloads_enqueue_existing
+import nuvio.composeapp.generated.resources.downloads_enqueue_profile_changed
 import nuvio.composeapp.generated.resources.downloads_enqueue_replaced
+import nuvio.composeapp.generated.resources.downloads_enqueue_replacement_required
 import nuvio.composeapp.generated.resources.downloads_enqueue_started
 import nuvio.composeapp.generated.resources.downloads_enqueue_unsupported_format
 import org.jetbrains.compose.resources.getString
@@ -39,6 +42,7 @@ data class DownloadItem(
     val streamSubtitle: String? = null,
     val providerName: String,
     val providerAddonId: String? = null,
+    val sourceFingerprint: String? = null,
     val sourceUrl: String,
     val sourceHeaders: Map<String, String> = emptyMap(),
     val sourceResponseHeaders: Map<String, String> = emptyMap(),
@@ -89,15 +93,21 @@ data class DownloadsUiState(
 enum class DownloadEnqueueResult {
     Started,
     Replaced,
+    AlreadyExists,
+    ReplacementRequired,
     MissingUrl,
-    UnsupportedFormat;
+    UnsupportedFormat,
+    ProfileChanged;
 
     fun toastMessage(): String = runBlocking {
         when (this@DownloadEnqueueResult) {
             Started -> getString(Res.string.downloads_enqueue_started)
             Replaced -> getString(Res.string.downloads_enqueue_replaced)
+            AlreadyExists -> getString(Res.string.downloads_enqueue_existing)
+            ReplacementRequired -> getString(Res.string.downloads_enqueue_replacement_required)
             MissingUrl -> getString(Res.string.downloads_enqueue_missing_url)
             UnsupportedFormat -> getString(Res.string.downloads_enqueue_unsupported_format)
+            ProfileChanged -> getString(Res.string.downloads_enqueue_profile_changed)
         }
     }
 }

@@ -10,6 +10,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
+import com.nuvio.app.core.ui.NuvioStatusModal
+import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.features.downloads.DownloadStatus
+import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.p2p.formatP2pMegabytes
 import com.nuvio.app.features.p2p.formatP2pSpeed
@@ -238,6 +242,7 @@ private fun PlayerScreenRuntime.currentInitialPositionRequestKey(): String? {
 @Composable
 private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, isEpisode: Boolean) {
     val isInPip = rememberIsInPictureInPicture()
+    val downloadActionState = currentPlayerDownloadActionState()
     AnimatedVisibility(
         visible = (controlsVisible || showParentalGuide) && !playerControlsLocked && !isInPip,
         enter = fadeIn(),
@@ -314,6 +319,12 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
                         ),
                     )
                 }
+            },
+            downloadPresentation = downloadActionState.indicatorPresentation(),
+            onDownloadClick = if (downloadActionState is PlayerDownloadActionState.Hidden) {
+                null
+            } else {
+                { handlePlayerDownloadActionTap() }
             },
             onSubmitIntroClick = if (
                 isSeries &&
@@ -587,4 +598,97 @@ private fun PlayerScreenRuntime.RenderPlayerModals(displayedPositionMs: Long) {
             showSubmitIntroModal = false
         },
     )
+
+    val sheetRequest = playerDownloadSheetRequest
+    val sheetItem = playerDownloadSheetItemId?.let { itemId ->
+        downloadsUiState.items.firstOrNull { it.id == itemId }
+    }
+    val exactSource = sheetRequest != null &&
+        sheetItem != null &&
+        !sheetItem.sourceFingerprint.isNullOrBlank() &&
+        sheetItem.sourceFingerprint == sheetRequest.sourceFingerprint()
+    val exportFailedText = org.jetbrains.compose.resources.stringResource(
+        Res.string.downloads_export_failed,
+    )
+    PlayerDownloadActionSheet(
+        item = sheetItem,
+        exactSource = exactSource,
+        onDismiss = {
+            playerDownloadSheetRequest = null
+            playerDownloadSheetItemId = null
+        },
+        onPause = { sheetItem?.let { DownloadsRepository.pauseDownload(it.id) } },
+        onResume = { sheetItem?.let { DownloadsRepository.resumeDownload(it.id) } },
+        onRetry = { sheetItem?.let { DownloadsRepository.retryDownload(it.id) } },
+        onDelete = {
+            playerDownloadPendingDeletionId = sheetItem?.id
+            playerDownloadSheetRequest = null
+            playerDownloadSheetItemId = null
+        },
+        onPlayDownloadedCopy = {
+            sheetItem?.takeIf { it.status == DownloadStatus.Completed }
+                ?.let(::switchToDownloadedCurrentItem)
+        },
+        onExport = {
+            val exported = sheetItem?.let(DownloadsRepository::exportDownload) == true
+            if (!exported) NuvioToastController.show(exportFailedText)
+        },
+        onReplace = {
+            if (sheetRequest != null && sheetItem != null) {
+                playerDownloadPendingReplacement = PendingPlayerDownloadReplacement(
+                    request = sheetRequest,
+                    expectedDownloadId = sheetItem.id,
+                )
+            }
+            playerDownloadSheetRequest = null
+            playerDownloadSheetItemId = null
+        },
+        onOpenDownloads = args.onOpenDownloads?.let { openDownloads ->
+            {
+                flushWatchProgress()
+                openDownloads()
+            }
+        },
+    )
+
+    playerDownloadPendingDeletionId?.let { pendingDeletionId ->
+        NuvioStatusModal(
+            title = org.jetbrains.compose.resources.stringResource(
+                Res.string.action_delete_confirm_title,
+            ),
+            message = org.jetbrains.compose.resources.stringResource(
+                Res.string.action_delete_confirm_message,
+            ),
+            isVisible = true,
+            confirmText = org.jetbrains.compose.resources.stringResource(Res.string.action_yes),
+            dismissText = org.jetbrains.compose.resources.stringResource(Res.string.action_no),
+            onConfirm = {
+                DownloadsRepository.cancelDownload(pendingDeletionId)
+                playerDownloadPendingDeletionId = null
+            },
+            onDismiss = { playerDownloadPendingDeletionId = null },
+        )
+    }
+
+    playerDownloadPendingReplacement?.let { replacement ->
+        val replacingItem = downloadsUiState.items.firstOrNull {
+            it.id == replacement.expectedDownloadId
+        }
+        NuvioStatusModal(
+            title = org.jetbrains.compose.resources.stringResource(
+                Res.string.downloads_replace_confirm_title,
+            ),
+            message = org.jetbrains.compose.resources.stringResource(
+                Res.string.downloads_replace_confirm_message,
+                replacingItem?.title ?: title,
+            ),
+            isVisible = true,
+            confirmText = org.jetbrains.compose.resources.stringResource(
+                Res.string.downloads_replace_action,
+            ),
+            dismissText = org.jetbrains.compose.resources.stringResource(Res.string.action_no),
+            onConfirm = { confirmPlayerDownloadReplacement(replacement) },
+            onDismiss = { playerDownloadPendingReplacement = null },
+        )
+    }
 }

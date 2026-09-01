@@ -11,6 +11,8 @@ import com.nuvio.app.features.addons.AddonsUiState
 import com.nuvio.app.features.details.MetaDetailsUiState
 import com.nuvio.app.features.details.MetaScreenSettingsUiState
 import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.downloads.DownloadEnqueueRequest
+import com.nuvio.app.features.downloads.DownloadsUiState
 import com.nuvio.app.features.p2p.P2pSettingsUiState
 import com.nuvio.app.features.p2p.P2pStreamingState
 import com.nuvio.app.features.player.skip.NextEpisodeInfo
@@ -73,6 +75,7 @@ internal class PlayerScreenRuntime(
     var episodeStreamsRepoState by mutableStateOf(StreamsUiState())
     var metaUiState: MetaDetailsUiState = MetaDetailsUiState()
     var addonsUiState: AddonsUiState = AddonsUiState()
+    var downloadsUiState by mutableStateOf(DownloadsUiState())
     var addonSubtitles: List<AddonSubtitle> = emptyList()
     var isLoadingAddonSubtitles: Boolean = false
 
@@ -176,6 +179,10 @@ internal class PlayerScreenRuntime(
     var nextEpisodeAutoPlayCountdown by mutableStateOf<Int?>(null)
     var nextEpisodeAutoPlayJob by mutableStateOf<Job?>(null)
     var pendingP2pSwitch by mutableStateOf<PendingPlayerP2pSwitch?>(null)
+    var playerDownloadSheetRequest by mutableStateOf<DownloadEnqueueRequest?>(null)
+    var playerDownloadSheetItemId by mutableStateOf<String?>(null)
+    var playerDownloadPendingDeletionId by mutableStateOf<String?>(null)
+    var playerDownloadPendingReplacement by mutableStateOf<PendingPlayerDownloadReplacement?>(null)
     var credentialRefreshJob by mutableStateOf<Job?>(null)
     var credentialRefreshAttemptedSourceUrl by mutableStateOf<String?>(null)
 
@@ -201,3 +208,8 @@ internal class PlayerScreenRuntime(
     var lastResetPlaybackIdentity: String? = null
     var lastResetVideoIdentity: String? = null
 }
+
+internal data class PendingPlayerDownloadReplacement(
+    val request: DownloadEnqueueRequest,
+    val expectedDownloadId: String,
+)

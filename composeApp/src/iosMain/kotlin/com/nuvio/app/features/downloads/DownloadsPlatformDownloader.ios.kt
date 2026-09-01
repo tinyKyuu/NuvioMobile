@@ -1,7 +1,7 @@
 package com.nuvio.app.features.downloads
 
 import co.touchlab.kermit.Logger
-import com.nuvio.app.features.streams.StreamItem
+import com.nuvio.app.features.profiles.ProfileRepository
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.cinterop.ExperimentalForeignApi
@@ -228,24 +228,18 @@ private object IosBackgroundDownloadSmokeHarness {
         }
         repeat(smokeCount) { index ->
             val indexedId = if (smokeCount == 1) smokeId else "$smokeId-${index + 1}"
-            val result = DownloadsRepository.enqueueFromStream(
-                contentType = "movie",
-                videoId = indexedId,
-                parentMetaId = indexedId,
-                parentMetaType = "movie",
-                title = "Phase 3 Queue Smoke Test ${index + 1}",
-                logo = null,
-                poster = null,
-                background = null,
-                seasonNumber = null,
-                episodeNumber = null,
-                episodeTitle = null,
-                episodeThumbnail = null,
-                stream = StreamItem(
-                    name = "Local direct-file fixture",
-                    url = sourceUrl,
-                    addonName = "Nuvio test fixture",
-                    addonId = "test:phase3-queue",
+            val result = DownloadsRepository.enqueue(
+                DownloadEnqueueRequest(
+                    profileId = ProfileRepository.activeProfileId,
+                    contentType = "movie",
+                    videoId = indexedId,
+                    parentMetaId = indexedId,
+                    parentMetaType = "movie",
+                    title = "Phase 3 Queue Smoke Test ${index + 1}",
+                    streamTitle = "Local direct-file fixture",
+                    providerName = "Nuvio test fixture",
+                    providerAddonId = "test:phase3-queue",
+                    sourceUrl = sourceUrl,
                 ),
             )
             downloadsTransportLog.i {

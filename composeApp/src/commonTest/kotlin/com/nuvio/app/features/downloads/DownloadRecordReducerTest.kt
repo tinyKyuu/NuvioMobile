@@ -312,6 +312,7 @@ class DownloadRecordReducerTest {
             localFileUri = "file:///private/container/movie.mp4",
         ).copy(
             providerAddonId = "https://provider.test/user-secret/manifest.json",
+            sourceFingerprint = "safe-source-fingerprint",
         )
 
         val payload = DownloadRecordCodec.encodeItem(item)
@@ -322,8 +323,10 @@ class DownloadRecordReducerTest {
         assertFalse(payload.contains("token=secret"))
         assertFalse(payload.contains("Referer"))
         assertFalse(payload.contains("user-secret"))
+        assertTrue(payload.contains("safe-source-fingerprint"))
         assertNull(decoded.localFileUri)
         assertNull(decoded.providerAddonId)
+        assertEquals("safe-source-fingerprint", decoded.sourceFingerprint)
         assertEquals(item.fileName, decoded.fileName)
         assertEquals("", decoded.sourceUrl)
         assertEquals(emptyMap(), decoded.sourceHeaders)
@@ -336,6 +339,9 @@ class DownloadRecordReducerTest {
             id = "stored",
             status = DownloadStatus.Paused,
             localFileUri = null,
+        ).copy(
+            providerAddonId = "provider-id",
+            sourceResponseHeaders = mapOf("Content-Type" to "video/mp4"),
         ).toStoredDownloadRequest()
 
         val decoded = assertNotNull(

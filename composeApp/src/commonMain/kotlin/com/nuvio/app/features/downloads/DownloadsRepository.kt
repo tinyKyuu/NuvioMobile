@@ -2,7 +2,6 @@ package com.nuvio.app.features.downloads
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.profiles.ProfileRepository
-import com.nuvio.app.features.streams.StreamItem
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -131,83 +130,87 @@ object DownloadsRepository {
         return resolvedUri
     }
 
-    fun enqueueFromStream(
-        contentType: String,
-        videoId: String,
-        parentMetaId: String,
-        parentMetaType: String,
-        title: String,
-        logo: String?,
-        poster: String?,
-        background: String?,
-        seasonNumber: Int?,
-        episodeNumber: Int?,
-        episodeTitle: String?,
-        episodeThumbnail: String?,
-        stream: StreamItem,
+    fun exportDownload(item: DownloadItem): Boolean {
+        val localFileUri = playableLocalFileUri(item) ?: return false
+        return DownloadsPlatformDownloader.exportFile(localFileUri)
+    }
+
+    internal fun evaluateEnqueue(request: DownloadEnqueueRequest): DownloadEnqueueDecision {
+        ensureLoaded()
+        return synchronized(stateLock) {
+            decideDownloadEnqueue(
+                items = _uiState.value.items,
+                request = request,
+                activeProfileId = ProfileRepository.activeProfileId,
+            )
+        }
+    }
+
+    internal fun enqueue(
+        request: DownloadEnqueueRequest,
+        replacingDownloadId: String? = null,
     ): DownloadEnqueueResult {
         ensureLoaded()
-
-        val sourceUrl = stream.playableDirectUrl
-            ?.trim()
-            ?.takeIf { it.isNotBlank() }
-            ?: return DownloadEnqueueResult.MissingUrl
-
-        if (!sourceUrl.isSupportedDownloadUrl()) {
-            return DownloadEnqueueResult.UnsupportedFormat
+        val normalizedRequest = request.normalized()
+        val eligibility = evaluateDownloadEligibility(normalizedRequest)
+        if (eligibility is DownloadEligibility.Ineligible) {
+            return eligibility.reason.toEnqueueResult()
         }
 
         val now = DownloadsClock.nowEpochMs()
-        val downloadId = synchronized(stateLock) { nextDownloadIdLocked(now) }
-        val fileName = buildFileName(
-            title = title,
-            seasonNumber = seasonNumber,
-            episodeNumber = episodeNumber,
-            episodeTitle = episodeTitle,
-            fallbackTitle = stream.streamLabel,
-            sourceUrl = sourceUrl,
-            nowEpochMs = now,
-        )
-        val ownerProfileKey = activeOwnerProfileKey()
-        val item = DownloadItem(
-            id = downloadId,
-            contentType = contentType,
-            parentMetaId = parentMetaId,
-            parentMetaType = parentMetaType,
-            videoId = videoId,
-            title = title,
-            logo = logo,
-            poster = poster,
-            background = background,
-            seasonNumber = seasonNumber,
-            episodeNumber = episodeNumber,
-            episodeTitle = episodeTitle,
-            episodeThumbnail = episodeThumbnail,
-            streamTitle = stream.streamLabel,
-            streamSubtitle = stream.streamSubtitle,
-            providerName = stream.addonName,
-            providerAddonId = stream.addonId,
-            sourceUrl = sourceUrl,
-            sourceHeaders = sanitizeRequestHeaders(stream.behaviorHints.proxyHeaders?.request),
-            sourceResponseHeaders = sanitizeResponseHeaders(stream.behaviorHints.proxyHeaders?.response),
-            localFileUri = null,
-            fileName = fileName,
-            status = DownloadStatus.Queued,
-            downloadedBytes = 0L,
-            totalBytes = null,
-            errorMessage = null,
-            createdAtEpochMs = now,
-            updatedAtEpochMs = now,
-        )
-        val record = item.toDownloadRecord(
-            ownerProfileKey = ownerProfileKey,
-            nowEpochMs = now,
-        )
-
-        val replacement = synchronized(stateLock) {
-            val replacedRecord = currentProfileRecords.firstOrNull {
-                it.logicalContentKey == record.logicalContentKey
+        val commit = synchronized(stateLock) {
+            val decision = decideDownloadEnqueue(
+                items = _uiState.value.items,
+                request = normalizedRequest,
+                activeProfileId = ProfileRepository.activeProfileId,
+            )
+            val replacedRecord = when (decision) {
+                DownloadEnqueueDecision.Enqueue -> {
+                    if (replacingDownloadId != null) {
+                        return@synchronized EnqueueCommit(
+                            result = DownloadEnqueueResult.ReplacementRequired,
+                        )
+                    }
+                    null
+                }
+                is DownloadEnqueueDecision.ExistingExact -> {
+                    return@synchronized EnqueueCommit(
+                        result = DownloadEnqueueResult.AlreadyExists,
+                    )
+                }
+                is DownloadEnqueueDecision.ConfirmReplacement -> {
+                    if (decision.item.id != replacingDownloadId) {
+                        return@synchronized EnqueueCommit(
+                            result = DownloadEnqueueResult.ReplacementRequired,
+                        )
+                    }
+                    currentProfileRecords.firstOrNull { it.downloadId == decision.item.id }
+                        ?: return@synchronized EnqueueCommit(
+                            result = DownloadEnqueueResult.ReplacementRequired,
+                        )
+                }
+                is DownloadEnqueueDecision.Ineligible -> {
+                    return@synchronized EnqueueCommit(
+                        result = decision.reason.toEnqueueResult(),
+                    )
+                }
+                DownloadEnqueueDecision.ProfileChanged -> {
+                    return@synchronized EnqueueCommit(
+                        result = DownloadEnqueueResult.ProfileChanged,
+                    )
+                }
             }
+
+            val downloadId = nextDownloadIdLocked(now)
+            val ownerProfileKey = downloadOwnerProfileKey(normalizedRequest.profileId)
+            val item = normalizedRequest.toDownloadItem(
+                downloadId = downloadId,
+                nowEpochMs = now,
+            )
+            val record = item.toDownloadRecord(
+                ownerProfileKey = ownerProfileKey,
+                nowEpochMs = now,
+            )
             saveRequestLocked(record)
             try {
                 store.commit(
@@ -230,29 +233,34 @@ object DownloadsRepository {
                 currentProfileRecords.filterTo(this) { it.downloadId != replacedRecord?.downloadId }
             }
             publishCurrentProfileLocked()
-            EnqueueCommit(replacedRecord, replacedRecord?.let { activeHandles.remove(it.downloadId) })
+            EnqueueCommit(
+                result = if (replacedRecord == null) {
+                    DownloadEnqueueResult.Started
+                } else {
+                    DownloadEnqueueResult.Replaced
+                },
+                record = record,
+                replacedRecord = replacedRecord,
+                detachedHandle = replacedRecord?.let { activeHandles.remove(it.downloadId) },
+            )
         }
 
-        replacement.detachedHandle?.cancel()
-            ?: replacement.replacedRecord?.let { DownloadsPlatformDownloader.cancel(it.downloadId) }
-        replacement.replacedRecord?.let { old ->
+        val record = commit.record ?: return commit.result
+        commit.detachedHandle?.cancel()
+            ?: commit.replacedRecord?.let { DownloadsPlatformDownloader.cancel(it.downloadId) }
+        commit.replacedRecord?.let { old ->
             DownloadsPlatformDownloader.removeFile(resolveLocalUri(old))
             DownloadsPlatformDownloader.removePartialFile(old.downloadId, old.item.fileName)
             log.i {
-                "event=logical_replace download_id=$downloadId replaced_download_id=${old.downloadId}"
+                "event=logical_replace download_id=${record.downloadId} replaced_download_id=${old.downloadId}"
             }
         }
         notifyLiveStatusPlatform()
         log.i {
-            "event=record_created download_id=$downloadId owner_profile=$ownerProfileKey state=${record.internalState} downloaded_bytes=0 total_bytes=unknown"
+            "event=record_created download_id=${record.downloadId} owner_profile=${record.ownerProfileKey} state=${record.internalState} downloaded_bytes=0 total_bytes=unknown"
         }
         pumpScheduler()
-
-        return if (replacement.replacedRecord != null) {
-            DownloadEnqueueResult.Replaced
-        } else {
-            DownloadEnqueueResult.Started
-        }
+        return commit.result
     }
 
     fun pauseDownload(downloadId: String) {
@@ -855,8 +863,10 @@ private val DownloadInternalState.isTerminal: Boolean
         this == DownloadInternalState.FailedPermanent
 
 private data class EnqueueCommit(
-    val replacedRecord: DownloadRecord?,
-    val detachedHandle: DownloadsTaskHandle?,
+    val result: DownloadEnqueueResult,
+    val record: DownloadRecord? = null,
+    val replacedRecord: DownloadRecord? = null,
+    val detachedHandle: DownloadsTaskHandle? = null,
 )
 
 private data class AppliedEventResult(
@@ -865,39 +875,6 @@ private data class AppliedEventResult(
     val detachedHandle: DownloadsTaskHandle? = null,
     val changed: Boolean = false,
 )
-
-private fun sanitizeRequestHeaders(headers: Map<String, String>?): Map<String, String> =
-    headers
-        .orEmpty()
-        .mapNotNull { (key, value) ->
-            val normalizedKey = key.trim()
-            val normalizedValue = value.trim()
-            if (
-                normalizedKey.isBlank() ||
-                normalizedValue.isBlank() ||
-                normalizedKey.equals("Accept-Encoding", ignoreCase = true) ||
-                normalizedKey.equals("Range", ignoreCase = true)
-            ) {
-                null
-            } else {
-                normalizedKey to normalizedValue
-            }
-        }
-        .toMap()
-
-private fun sanitizeResponseHeaders(headers: Map<String, String>?): Map<String, String> =
-    headers
-        .orEmpty()
-        .mapNotNull { (key, value) ->
-            val normalizedKey = key.trim()
-            val normalizedValue = value.trim()
-            if (normalizedKey.isBlank() || normalizedValue.isBlank()) {
-                null
-            } else {
-                normalizedKey to normalizedValue
-            }
-        }
-        .toMap()
 
 private fun buildFileName(
     title: String,
@@ -950,11 +927,52 @@ private fun String.fileExtensionFromUrl(): String {
     }
 }
 
-private fun String.isSupportedDownloadUrl(): Boolean {
-    val normalized = trim().lowercase()
-    if (normalized.startsWith("magnet:")) return false
-    if (normalized.endsWith(".m3u8") || normalized.contains(".m3u8?")) return false
-    if (normalized.endsWith(".mpd") || normalized.contains(".mpd?")) return false
-    if (normalized.endsWith(".torrent") || normalized.contains(".torrent?")) return false
-    return normalized.startsWith("http://") || normalized.startsWith("https://")
-}
+private fun DownloadEligibilityReason.toEnqueueResult(): DownloadEnqueueResult =
+    if (this == DownloadEligibilityReason.MissingUrl) {
+        DownloadEnqueueResult.MissingUrl
+    } else {
+        DownloadEnqueueResult.UnsupportedFormat
+    }
+
+private fun DownloadEnqueueRequest.toDownloadItem(
+    downloadId: String,
+    nowEpochMs: Long,
+): DownloadItem = DownloadItem(
+    id = downloadId,
+    contentType = contentType,
+    parentMetaId = parentMetaId,
+    parentMetaType = parentMetaType,
+    videoId = videoId,
+    title = title,
+    logo = logo,
+    poster = poster,
+    background = background,
+    seasonNumber = seasonNumber,
+    episodeNumber = episodeNumber,
+    episodeTitle = episodeTitle,
+    episodeThumbnail = episodeThumbnail,
+    streamTitle = streamTitle,
+    streamSubtitle = streamSubtitle,
+    providerName = providerName,
+    providerAddonId = providerAddonId,
+    sourceFingerprint = sourceFingerprint(),
+    sourceUrl = sourceUrl,
+    sourceHeaders = sourceHeaders,
+    sourceResponseHeaders = sourceResponseHeaders,
+    localFileUri = null,
+    fileName = buildFileName(
+        title = title,
+        seasonNumber = seasonNumber,
+        episodeNumber = episodeNumber,
+        episodeTitle = episodeTitle,
+        fallbackTitle = streamTitle,
+        sourceUrl = sourceUrl,
+        nowEpochMs = nowEpochMs,
+    ),
+    status = DownloadStatus.Queued,
+    downloadedBytes = 0L,
+    totalBytes = null,
+    errorMessage = null,
+    createdAtEpochMs = nowEpochMs,
+    updatedAtEpochMs = nowEpochMs,
+)

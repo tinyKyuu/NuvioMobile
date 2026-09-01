@@ -26,16 +26,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Forward10
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Replay10
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.VideoLibrary
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -94,6 +101,8 @@ internal fun PlayerControlsShell(
     onSourcesClick: (() -> Unit)? = null,
     onEpisodesClick: (() -> Unit)? = null,
     onOpenInExternalPlayer: (() -> Unit)? = null,
+    downloadPresentation: PlayerDownloadIndicatorPresentation? = null,
+    onDownloadClick: (() -> Unit)? = null,
     onSubmitIntroClick: (() -> Unit)? = null,
     parentalWarnings: List<ParentalWarning> = emptyList(),
     showParentalGuide: Boolean = false,
@@ -155,6 +164,8 @@ internal fun PlayerControlsShell(
                 onParentalGuideAnimationComplete = onParentalGuideAnimationComplete,
                 onLockToggle = onLockToggle,
                 onVideoSettingsClick = onVideoSettingsClick,
+                downloadPresentation = downloadPresentation,
+                onDownloadClick = onDownloadClick,
                 onOpenInExternalPlayer = onOpenInExternalPlayer,
                 onBack = onBack,
                 modifier = Modifier
@@ -223,6 +234,8 @@ private fun PlayerHeader(
     onParentalGuideAnimationComplete: () -> Unit,
     onLockToggle: () -> Unit,
     onVideoSettingsClick: (() -> Unit)?,
+    downloadPresentation: PlayerDownloadIndicatorPresentation?,
+    onDownloadClick: (() -> Unit)?,
     onOpenInExternalPlayer: (() -> Unit)?,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -311,7 +324,7 @@ private fun PlayerHeader(
 
             if (showActions) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(metrics.headerActionSpacing),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (onSubmitIntroClick != null) {
@@ -321,6 +334,24 @@ private fun PlayerHeader(
                             buttonSize = metrics.headerIconSize + 16.dp,
                             iconSize = metrics.headerIconSize,
                             onClick = onSubmitIntroClick,
+                        )
+                    }
+                    if (downloadPresentation != null && onDownloadClick != null) {
+                        PlayerDownloadHeaderButton(
+                            presentation = downloadPresentation,
+                            contentDescription = stringResource(
+                                if (downloadPresentation.icon == PlayerDownloadIndicatorIcon.Download &&
+                                    downloadPresentation.progressFraction == null &&
+                                    !downloadPresentation.showIndeterminateProgress
+                                ) {
+                                    Res.string.player_download_action
+                                } else {
+                                    Res.string.player_download_manage_action
+                                },
+                            ),
+                            buttonSize = metrics.headerIconSize + 16.dp,
+                            iconSize = metrics.headerIconSize,
+                            onClick = onDownloadClick,
                         )
                     }
                     if (onOpenInExternalPlayer != null) {
@@ -363,6 +394,55 @@ private fun PlayerHeader(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PlayerDownloadHeaderButton(
+    presentation: PlayerDownloadIndicatorPresentation,
+    contentDescription: String,
+    buttonSize: androidx.compose.ui.unit.Dp,
+    iconSize: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit,
+) {
+    val icon = when (presentation.icon) {
+        PlayerDownloadIndicatorIcon.Download -> Icons.Rounded.Download
+        PlayerDownloadIndicatorIcon.Queued -> Icons.Rounded.Schedule
+        PlayerDownloadIndicatorIcon.WaitingForNetwork -> Icons.Rounded.CloudOff
+        PlayerDownloadIndicatorIcon.Paused -> Icons.Rounded.Pause
+        PlayerDownloadIndicatorIcon.Failed -> Icons.Rounded.Refresh
+        PlayerDownloadIndicatorIcon.Finalizing -> Icons.Rounded.Download
+        PlayerDownloadIndicatorIcon.Completed -> Icons.Rounded.CheckCircle
+    }
+    Box(
+        modifier = Modifier
+            .size(buttonSize)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.35f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            presentation.progressFraction != null -> CircularProgressIndicator(
+                progress = { presentation.progressFraction },
+                modifier = Modifier.size(iconSize + 8.dp),
+                color = Color.White,
+                trackColor = Color.White.copy(alpha = 0.25f),
+                strokeWidth = 2.dp,
+            )
+            presentation.showIndeterminateProgress -> CircularProgressIndicator(
+                modifier = Modifier.size(iconSize + 8.dp),
+                color = Color.White,
+                trackColor = Color.White.copy(alpha = 0.25f),
+                strokeWidth = 2.dp,
+            )
+        }
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = Color.White,
+            modifier = Modifier.size(iconSize * 0.72f),
+        )
     }
 }
 

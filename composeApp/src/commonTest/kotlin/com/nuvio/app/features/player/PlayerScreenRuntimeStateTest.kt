@@ -52,6 +52,45 @@ class PlayerScreenRuntimeStateTest {
     }
 
     @Test
+    fun downloadRequestUsesActiveSourceAtTapTime() {
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
+        runtime.activeSourceUrl = "https://second.test/video.mp4"
+        runtime.activeSourceHeaders = mapOf("Authorization" to "Bearer second")
+        runtime.activeSourceResponseHeaders = mapOf("Content-Type" to "video/mp4")
+        runtime.activeStreamTitle = "Second source"
+        runtime.activeProviderName = "Second provider"
+        runtime.activeProviderAddonId = "second-addon"
+
+        val request = runtime.currentDownloadEnqueueRequest()
+
+        assertEquals("https://second.test/video.mp4", request.sourceUrl)
+        assertEquals(mapOf("Authorization" to "Bearer second"), request.sourceHeaders)
+        assertEquals(mapOf("Content-Type" to "video/mp4"), request.sourceResponseHeaders)
+        assertEquals("Second source", request.streamTitle)
+        assertEquals("Second provider", request.providerName)
+        assertEquals("second-addon", request.providerAddonId)
+    }
+
+    @Test
+    fun downloadRequestUsesActiveEpisodeAtTapTime() {
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
+        runtime.activeVideoId = "episode-2"
+        runtime.activeSeasonNumber = 3
+        runtime.activeEpisodeNumber = 2
+        runtime.activeEpisodeTitle = "Second episode"
+        runtime.activeEpisodeThumbnail = "https://image.test/episode-2.jpg"
+
+        val request = runtime.currentDownloadEnqueueRequest()
+
+        assertEquals("episode-2", request.videoId)
+        assertEquals(3, request.seasonNumber)
+        assertEquals(2, request.episodeNumber)
+        assertEquals("Second episode", request.episodeTitle)
+        assertEquals("https://image.test/episode-2.jpg", request.episodeThumbnail)
+        assertEquals("tt1234567|3|2", request.logicalContentKey)
+    }
+
+    @Test
     fun seekScrobbleUpdate_requiresActiveIncompletePlayback() {
         assertTrue(
             shouldUpdateTrackingScrobbleAfterSeek(
@@ -137,6 +176,7 @@ class PlayerScreenRuntimeStateTest {
         onBack = {},
         onOpenInExternalPlayer = null,
         onOpenExternalUrl = null,
+        onOpenDownloads = null,
         modifier = Modifier,
         logo = null,
         poster = null,

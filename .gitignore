@@ -33,6 +33,7 @@ scripts/scrape_android_compose_animation_docs.py
 tools
 AGENTS.md
 PERFORMANCE_FINDINGS.md
+.worktreeinclude
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)
 .mpvkit-build.sparseimage

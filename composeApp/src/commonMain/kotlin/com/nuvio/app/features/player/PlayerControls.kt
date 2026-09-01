@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.CloudOff
@@ -405,14 +406,31 @@ private fun PlayerDownloadHeaderButton(
     iconSize: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit,
 ) {
+    val showsProgressRing = presentation.progressFraction != null ||
+        presentation.showIndeterminateProgress
     val icon = when (presentation.icon) {
-        PlayerDownloadIndicatorIcon.Download -> Icons.Rounded.Download
+        PlayerDownloadIndicatorIcon.Download -> {
+            if (showsProgressRing) Icons.Rounded.ArrowDownward else Icons.Rounded.Download
+        }
         PlayerDownloadIndicatorIcon.Queued -> Icons.Rounded.Schedule
         PlayerDownloadIndicatorIcon.WaitingForNetwork -> Icons.Rounded.CloudOff
         PlayerDownloadIndicatorIcon.Paused -> Icons.Rounded.Pause
         PlayerDownloadIndicatorIcon.Failed -> Icons.Rounded.Refresh
-        PlayerDownloadIndicatorIcon.Finalizing -> Icons.Rounded.Download
+        PlayerDownloadIndicatorIcon.Finalizing -> Icons.Rounded.ArrowDownward
         PlayerDownloadIndicatorIcon.Completed -> Icons.Rounded.CheckCircle
+    }
+    val iconModifier = when {
+        presentation.icon == PlayerDownloadIndicatorIcon.Download && !showsProgressRing -> {
+            Modifier.size(width = iconSize, height = iconSize + 2.dp)
+        }
+        presentation.icon == PlayerDownloadIndicatorIcon.Download ||
+            presentation.icon == PlayerDownloadIndicatorIcon.Finalizing -> {
+            Modifier.size(if (iconSize > 20.dp) 17.dp else 16.dp)
+        }
+        presentation.icon == PlayerDownloadIndicatorIcon.Paused -> {
+            Modifier.size(if (iconSize > 20.dp) 16.dp else 15.dp)
+        }
+        else -> Modifier.size(iconSize)
     }
     Box(
         modifier = Modifier
@@ -425,23 +443,23 @@ private fun PlayerDownloadHeaderButton(
         when {
             presentation.progressFraction != null -> CircularProgressIndicator(
                 progress = { presentation.progressFraction },
-                modifier = Modifier.size(iconSize + 8.dp),
+                modifier = Modifier.size(iconSize + 6.dp),
                 color = Color.White,
                 trackColor = Color.White.copy(alpha = 0.25f),
-                strokeWidth = 2.dp,
+                strokeWidth = 2.25.dp,
             )
             presentation.showIndeterminateProgress -> CircularProgressIndicator(
-                modifier = Modifier.size(iconSize + 8.dp),
+                modifier = Modifier.size(iconSize + 6.dp),
                 color = Color.White,
                 trackColor = Color.White.copy(alpha = 0.25f),
-                strokeWidth = 2.dp,
+                strokeWidth = 2.25.dp,
             )
         }
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
             tint = Color.White,
-            modifier = Modifier.size(iconSize),
+            modifier = iconModifier,
         )
     }
 }

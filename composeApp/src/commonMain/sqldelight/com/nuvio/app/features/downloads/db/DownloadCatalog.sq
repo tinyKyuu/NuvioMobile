@@ -1,0 +1,70 @@
+CREATE TABLE download_catalog_entry (
+    download_id TEXT NOT NULL PRIMARY KEY,
+    owner_profile_key TEXT NOT NULL,
+    record_version INTEGER NOT NULL,
+    logical_content_key TEXT NOT NULL,
+    transport_kind TEXT NOT NULL,
+    internal_state TEXT NOT NULL,
+    state_reason TEXT,
+    relative_media_path TEXT,
+    platform_session_id TEXT,
+    platform_task_identifier INTEGER,
+    last_event_id TEXT,
+    item_payload TEXT NOT NULL,
+    downloaded_bytes INTEGER NOT NULL,
+    expected_bytes INTEGER,
+    created_at_epoch_ms INTEGER NOT NULL,
+    started_at_epoch_ms INTEGER,
+    updated_at_epoch_ms INTEGER NOT NULL,
+    completed_at_epoch_ms INTEGER
+);
+
+CREATE INDEX download_catalog_entry_profile
+ON download_catalog_entry(owner_profile_key, created_at_epoch_ms);
+
+selectForProfile:
+SELECT *
+FROM download_catalog_entry
+WHERE owner_profile_key = ?
+ORDER BY created_at_epoch_ms DESC, download_id DESC;
+
+selectById:
+SELECT *
+FROM download_catalog_entry
+WHERE download_id = ?;
+
+selectAll:
+SELECT *
+FROM download_catalog_entry
+ORDER BY created_at_epoch_ms DESC, download_id DESC;
+
+upsert:
+INSERT OR REPLACE INTO download_catalog_entry(
+    download_id,
+    owner_profile_key,
+    record_version,
+    logical_content_key,
+    transport_kind,
+    internal_state,
+    state_reason,
+    relative_media_path,
+    platform_session_id,
+    platform_task_identifier,
+    last_event_id,
+    item_payload,
+    downloaded_bytes,
+    expected_bytes,
+    created_at_epoch_ms,
+    started_at_epoch_ms,
+    updated_at_epoch_ms,
+    completed_at_epoch_ms
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteById:
+DELETE FROM download_catalog_entry
+WHERE download_id = ?;
+
+deleteForProfile:
+DELETE FROM download_catalog_entry
+WHERE owner_profile_key = ?;

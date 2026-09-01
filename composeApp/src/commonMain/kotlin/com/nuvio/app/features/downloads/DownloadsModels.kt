@@ -11,8 +11,11 @@ import org.jetbrains.compose.resources.getString
 
 @Serializable
 enum class DownloadStatus {
+    Queued,
     Downloading,
+    WaitingForNetwork,
     Paused,
+    Finalizing,
     Completed,
     Failed,
 }

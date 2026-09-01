@@ -1,6 +1,6 @@
 package com.nuvio.app.features.downloads
 
 internal expect object DownloadsStorage {
-    fun loadPayload(): String?
-    fun savePayload(payload: String)
+    fun loadLegacyPayload(profileId: Int): String?
+    fun removeLegacyPayload(profileId: Int)
 }

@@ -8,6 +8,8 @@ import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest
+import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeTest
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompilationTask
 import java.util.Properties
 
@@ -199,6 +201,7 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.kotlinxSerialization)
+    alias(libs.plugins.sqldelight)
 }
 
 val supabaseProps = Properties().apply {
@@ -310,6 +313,23 @@ tasks.withType<KotlinCompilationTask<*>>().configureEach {
     dependsOn(generateRuntimeConfigs)
 }
 
+val downloadTestBaseUrl = providers.gradleProperty("nuvio.download.test.baseUrl")
+    .orElse(providers.environmentVariable("NUVIO_DOWNLOAD_TEST_BASE_URL"))
+
+tasks.withType<KotlinNativeTest>().configureEach {
+    downloadTestBaseUrl.orNull
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+        ?.let { baseUrl ->
+            val key = if (this is KotlinNativeSimulatorTest) {
+                "SIMCTL_CHILD_NUVIO_DOWNLOAD_TEST_BASE_URL"
+            } else {
+                "NUVIO_DOWNLOAD_TEST_BASE_URL"
+            }
+            environment(key, baseUrl)
+        }
+}
+
 kotlin {
     android {
         namespace = "com.nuvio.app"
@@ -381,6 +401,7 @@ kotlin {
             baseName = "ComposeApp"
             isStatic = true
             freeCompilerArgs += listOf("-Xbinary=bundleId=$iosFrameworkBundleId")
+            linkerOpts("-lsqlite3")
             if (iosDistribution == "full") {
                 linkerOpts(
                     "-lc++",
@@ -415,6 +436,7 @@ kotlin {
                 implementation("io.github.peerless2012:ass-media:0.4.0-beta01")
                 implementation(libs.ktor.client.okhttp)
                 implementation(libs.sentry.android)
+                implementation(libs.sqldelight.android.driver)
                 implementation(libs.androidx.media3.exoplayer.hls)
                 implementation(libs.androidx.media3.exoplayer.dash)
                 implementation(libs.androidx.media3.exoplayer.smoothstreaming)
@@ -481,8 +503,17 @@ kotlin {
     }
 }
 
+sqldelight {
+    databases {
+        create("DownloadsDatabase") {
+            packageName.set("com.nuvio.app.features.downloads.db")
+        }
+    }
+}
+
 configurations.matching { it.name == "iosMainImplementation" }.configureEach {
     project.dependencies.add(name, libs.ktor.client.darwin)
+    project.dependencies.add(name, libs.sqldelight.native.driver)
 }
 
 configurations.all {

@@ -644,6 +644,7 @@
     <string name="downloads_section_shows">Shows</string>
     <string name="downloads_select">Select</string>
     <string name="downloads_select_all">Select all</string>
+    <string name="downloads_selection_count">%1$d file(s)</string>
     <string name="downloads_selection_summary">%1$d file(s) • %2$s known storage</string>
     <string name="downloads_show_downloads">Show Downloads</string>
     <string name="downloads_sort_content_description">Sort downloaded items</string>

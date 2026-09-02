@@ -5,11 +5,14 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -27,6 +31,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -57,6 +62,7 @@ import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
+import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
@@ -120,6 +126,7 @@ fun DownloadsScreen(
     }
     val allVisibleDownloadsSelected = visibleSelectionIds.isNotEmpty() &&
         visibleSelectionIds.all(selectionSummary.selectedIds::contains)
+    val selectionBarVisible = selectionMode && selectionSummary.fileCount > 0
     val bottomInset = nuvioSafeBottomPadding()
     val density = LocalDensity.current
     var selectionBarHeightPx by remember { mutableStateOf(0) }
@@ -239,7 +246,7 @@ fun DownloadsScreen(
                 )
             }
 
-            if (selectionMode && selectionBarHeightPx > 0) {
+            if (selectionBarVisible && selectionBarHeightPx > 0) {
                 item(key = "downloads-selection-clearance") {
                     Spacer(modifier = Modifier.height(selectionBarClearance + 8.dp))
                 }
@@ -247,33 +254,47 @@ fun DownloadsScreen(
         }
 
         AnimatedVisibility(
-            visible = selectionMode,
+            visible = selectionBarVisible,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth(),
             enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
             exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
         ) {
-            Box(
+            BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .onSizeChanged { selectionBarHeightPx = it.height }
-                    .padding(
-                        start = 12.dp,
-                        end = 12.dp,
-                        bottom = bottomInset + 12.dp,
-                    ),
+                    .onSizeChanged { selectionBarHeightPx = it.height },
             ) {
-                DownloadSelectionBar(
-                    modifier = Modifier.fillMaxWidth(),
-                    summary = selectionSummary,
-                    allVisibleSelected = allVisibleDownloadsSelected,
-                    onSelectAll = { selectedDownloadIds = visibleSelectionIds },
-                    onClearSelection = { selectedDownloadIds = emptySet() },
-                    onDeleteSelection = {
-                        downloadsPendingBulkDeletion = selectionSummary.selectedIds
-                    },
-                )
+                val horizontalPadding = if (maxWidth < 600.dp) {
+                    NuvioTokens.Space.s12
+                } else {
+                    NuvioTokens.Space.s24
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = horizontalPadding,
+                            end = horizontalPadding,
+                            bottom = bottomInset + NuvioTokens.Space.s18,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    DownloadSelectionBar(
+                        modifier = Modifier
+                            .widthIn(max = 720.dp)
+                            .fillMaxWidth(),
+                        summary = selectionSummary,
+                        allVisibleSelected = allVisibleDownloadsSelected,
+                        onSelectAll = { selectedDownloadIds = visibleSelectionIds },
+                        onClearSelection = { selectedDownloadIds = emptySet() },
+                        onDeleteSelection = {
+                            downloadsPendingBulkDeletion = selectionSummary.selectedIds
+                        },
+                    )
+                }
             }
         }
     }
@@ -797,58 +818,127 @@ private fun DownloadSelectionBar(
     onClearSelection: () -> Unit,
     onDeleteSelection: () -> Unit,
 ) {
+    val tokens = MaterialTheme.nuvio
+
     Surface(
         modifier = modifier,
-        shape = MaterialTheme.shapes.large,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        tonalElevation = 6.dp,
-        shadowElevation = 12.dp,
+        shape = tokens.shapes.chip,
+        color = tokens.colors.surfacePopover,
+        tonalElevation = tokens.elevation.playerControls,
+        shadowElevation = tokens.elevation.overlay,
+        border = BorderStroke(
+            width = tokens.borders.thin,
+            color = tokens.colors.textPrimary.copy(alpha = tokens.opacity.hover),
+        ),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+        BoxWithConstraints(
+            modifier = Modifier.padding(
+                start = NuvioTokens.Space.s18,
+                end = NuvioTokens.Space.s8,
+                top = NuvioTokens.Space.s8,
+                bottom = NuvioTokens.Space.s8,
+            ),
         ) {
-            Text(
-                text = stringResource(
-                    Res.string.downloads_selection_summary,
-                    summary.fileCount,
-                    formatBytes(summary.knownStorageBytes),
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                fontWeight = FontWeight.SemiBold,
-            )
+            val compactSummary = maxWidth < 560.dp
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(
+                Text(
+                    text = if (compactSummary) {
+                        stringResource(
+                            Res.string.downloads_selection_count,
+                            summary.fileCount,
+                        )
+                    } else {
+                        stringResource(
+                            Res.string.downloads_selection_summary,
+                            summary.fileCount,
+                            formatBytes(summary.knownStorageBytes),
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.colors.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
+                ) {
+                    DownloadSelectionAction(
+                        label = stringResource(Res.string.downloads_select_all),
                         enabled = !allVisibleSelected,
                         onClick = onSelectAll,
-                    ) {
-                        Text(stringResource(Res.string.downloads_select_all))
-                    }
-                    TextButton(
+                    )
+                    DownloadSelectionAction(
+                        label = stringResource(Res.string.action_clear),
                         enabled = summary.fileCount > 0,
                         onClick = onClearSelection,
-                    ) {
-                        Text(stringResource(Res.string.action_clear))
-                    }
-                }
-                TextButton(
-                    enabled = summary.fileCount > 0,
-                    onClick = onDeleteSelection,
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Delete,
-                        contentDescription = null,
                     )
-                    Text(stringResource(Res.string.downloads_delete_selected))
+                    DownloadSelectionAction(
+                        label = stringResource(Res.string.downloads_delete_selected),
+                        enabled = summary.fileCount > 0,
+                        onClick = onDeleteSelection,
+                        destructive = true,
+                        showDeleteIcon = !compactSummary,
+                    )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DownloadSelectionAction(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    destructive: Boolean = false,
+    showDeleteIcon: Boolean = false,
+) {
+    val tokens = MaterialTheme.nuvio
+    val containerColor = if (destructive) {
+        tokens.colors.danger.copy(alpha = tokens.opacity.selected)
+    } else {
+        tokens.colors.overlayHover
+    }
+    val contentColor = if (destructive) tokens.colors.danger else tokens.colors.textPrimary
+
+    TextButton(
+        enabled = enabled,
+        onClick = onClick,
+        shape = tokens.shapes.chip,
+        colors = ButtonDefaults.textButtonColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+            disabledContainerColor = containerColor.copy(
+                alpha = containerColor.alpha * tokens.opacity.disabled,
+            ),
+            disabledContentColor = tokens.colors.textDisabled,
+        ),
+        contentPadding = PaddingValues(
+            horizontal = NuvioTokens.Space.s12,
+            vertical = NuvioTokens.Space.s8,
+        ),
+    ) {
+        if (showDeleteIcon) {
+            Icon(
+                imageVector = Icons.Rounded.Delete,
+                contentDescription = null,
+                modifier = Modifier.size(NuvioTokens.Icon.sm),
+            )
+            Spacer(modifier = Modifier.size(NuvioTokens.Space.s6))
+        }
+        Text(
+            text = label,
+            maxLines = 1,
+        )
     }
 }
 

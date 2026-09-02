@@ -1,15 +1,26 @@
 package com.nuvio.app.features.downloads
 
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -20,6 +31,8 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -31,6 +44,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,6 +52,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,8 +62,10 @@ import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
+import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
@@ -66,6 +84,9 @@ fun DownloadsScreen(
 
     var selectedShowId by rememberSaveable(initialShowId) { mutableStateOf(initialShowId) }
     var downloadPendingDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var downloadsPendingBulkDeletion by remember { mutableStateOf<Set<String>?>(null) }
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
+    var selectedDownloadIds by remember { mutableStateOf(emptySet<String>()) }
     var showManagement by rememberSaveable { mutableStateOf(false) }
     var completedSortName by rememberSaveable {
         mutableStateOf(CompletedDownloadSort.RecentlyAdded.name)
@@ -74,6 +95,10 @@ fun DownloadsScreen(
         ?: CompletedDownloadSort.RecentlyAdded
     val networkPolicy by DownloadsNetworkPolicyRepository.policy.collectAsStateWithLifecycle()
     val exportFailedText = stringResource(Res.string.downloads_export_failed)
+
+    LaunchedEffect(uiState.items) {
+        selectedDownloadIds = retainExistingDownloadSelection(selectedDownloadIds, uiState.items)
+    }
 
     val completedEpisodes = remember(uiState.items) {
         uiState.completedItems
@@ -86,69 +111,191 @@ fun DownloadsScreen(
             completedEpisodes.firstOrNull { it.parentMetaId == showId }?.title
         }
     }
+    val selectedShowDownloadIds = remember(selectedShowId, completedEpisodes) {
+        selectedShowId?.let { downloadIdsForShow(completedEpisodes, it) }.orEmpty()
+    }
+    val selectionSummary = remember(selectedDownloadIds, uiState.items) {
+        summarizeDownloadSelection(selectedDownloadIds, uiState.items)
+    }
+    val visibleSelectionIds = remember(selectedShowId, selectedShowDownloadIds, uiState.items) {
+        if (selectedShowId == null) {
+            uiState.items.mapTo(linkedSetOf(), DownloadItem::id)
+        } else {
+            selectedShowDownloadIds
+        }
+    }
+    val allVisibleDownloadsSelected = visibleSelectionIds.isNotEmpty() &&
+        visibleSelectionIds.all(selectionSummary.selectedIds::contains)
+    val selectionBarVisible = selectionMode && selectionSummary.fileCount > 0
+    val bottomInset = nuvioSafeBottomPadding()
+    val density = LocalDensity.current
+    var selectionBarHeightPx by remember { mutableStateOf(0) }
+    val selectionBarClearance = with(density) { selectionBarHeightPx.toDp() }
 
-    NuvioScreen {
-        stickyHeader {
-            NuvioScreenHeader(
-                title = if (selectedShowId == null) {
-                    stringResource(Res.string.compose_settings_root_downloads_title)
-                } else {
-                    selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
-                },
-                onBack = {
-                    if (selectedShowId != null) {
-                        onBackFromShow?.invoke() ?: run { selectedShowId = null }
+    fun enterSelection(targetIds: Collection<String>) {
+        selectionMode = true
+        selectedDownloadIds = retainExistingDownloadSelection(
+            selectedIds = selectedDownloadIds + targetIds,
+            items = uiState.items,
+        )
+    }
+
+    fun toggleSelection(targetIds: Collection<String>) {
+        selectedDownloadIds = toggleDownloadSelection(
+            selectedIds = selectedDownloadIds,
+            targetIds = targetIds,
+            items = uiState.items,
+        )
+    }
+
+    fun leaveSelection() {
+        selectionMode = false
+        selectedDownloadIds = emptySet()
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        NuvioScreen(modifier = Modifier.fillMaxSize()) {
+            stickyHeader {
+                NuvioScreenHeader(
+                    title = if (selectedShowId == null) {
+                        stringResource(Res.string.compose_settings_root_downloads_title)
                     } else {
-                        onBack()
-                    }
-                },
-                actions = {
-                    if (selectedShowId == null) {
-                        IconButton(onClick = { showManagement = !showManagement }) {
-                            Icon(
-                                imageVector = Icons.Rounded.Storage,
-                                contentDescription = stringResource(Res.string.downloads_manage_storage),
-                                tint = MaterialTheme.nuvio.colors.textPrimary,
-                            )
+                        selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
+                    },
+                    onBack = {
+                        if (selectionMode) {
+                            leaveSelection()
+                        } else if (selectedShowId != null) {
+                            onBackFromShow?.invoke() ?: run { selectedShowId = null }
+                        } else {
+                            onBack()
                         }
-                    }
-                },
-            )
+                    },
+                    actions = {
+                        if (selectionMode) {
+                            TextButton(onClick = ::leaveSelection) {
+                                Text(stringResource(Res.string.action_done))
+                            }
+                        } else if (selectedShowId == null) {
+                            TextButton(onClick = { selectionMode = true }) {
+                                Text(stringResource(Res.string.downloads_select))
+                            }
+                            IconButton(onClick = { showManagement = !showManagement }) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Storage,
+                                    contentDescription = stringResource(Res.string.downloads_manage_storage),
+                                    tint = MaterialTheme.nuvio.colors.textPrimary,
+                                )
+                            }
+                        } else {
+                            IconButton(
+                                enabled = selectedShowDownloadIds.isNotEmpty(),
+                                onClick = { downloadsPendingBulkDeletion = selectedShowDownloadIds },
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Delete,
+                                    contentDescription = stringResource(Res.string.downloads_delete_show),
+                                    tint = MaterialTheme.nuvio.colors.textPrimary,
+                                )
+                            }
+                        }
+                    },
+                )
+            }
+
+            if (selectedShowId == null) {
+                downloadsRootContent(
+                    uiState = uiState,
+                    showManagement = showManagement,
+                    networkPolicy = networkPolicy,
+                    onNetworkPolicyChanged = DownloadsNetworkPolicyRepository::update,
+                    completedSort = completedSort,
+                    onCompletedSortChanged = { completedSortName = it.name },
+                    onOpenDownload = onOpenDownload,
+                    onOpenShow = { showId, title ->
+                        onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
+                    },
+                    onDeleteDownload = { downloadPendingDeletionId = it },
+                    selectionMode = selectionMode,
+                    selectedDownloadIds = selectionSummary.selectedIds,
+                    onEnterSelection = ::enterSelection,
+                    onToggleSelection = ::toggleSelection,
+                    onExportDownload = { item ->
+                        val localFileUri = DownloadsRepository.playableLocalFileUri(item)
+                        if (localFileUri == null || !DownloadsPlatformDownloader.exportFile(localFileUri)) {
+                            NuvioToastController.show(exportFailedText)
+                        }
+                    },
+                )
+            } else {
+                downloadsShowContent(
+                    showId = selectedShowId.orEmpty(),
+                    episodes = completedEpisodes,
+                    onOpenDownload = onOpenDownload,
+                    onDeleteDownload = { downloadPendingDeletionId = it },
+                    selectionMode = selectionMode,
+                    selectedDownloadIds = selectionSummary.selectedIds,
+                    onEnterSelection = ::enterSelection,
+                    onToggleSelection = ::toggleSelection,
+                    onExportDownload = { item ->
+                        val localFileUri = DownloadsRepository.playableLocalFileUri(item)
+                        if (localFileUri == null || !DownloadsPlatformDownloader.exportFile(localFileUri)) {
+                            NuvioToastController.show(exportFailedText)
+                        }
+                    },
+                )
+            }
+
+            if (selectionBarVisible && selectionBarHeightPx > 0) {
+                item(key = "downloads-selection-clearance") {
+                    Spacer(modifier = Modifier.height(selectionBarClearance + 8.dp))
+                }
+            }
         }
 
-        if (selectedShowId == null) {
-            downloadsRootContent(
-                uiState = uiState,
-                showManagement = showManagement,
-                networkPolicy = networkPolicy,
-                onNetworkPolicyChanged = DownloadsNetworkPolicyRepository::update,
-                completedSort = completedSort,
-                onCompletedSortChanged = { completedSortName = it.name },
-                onOpenDownload = onOpenDownload,
-                onOpenShow = { showId, title ->
-                    onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
-                },
-                onDeleteDownload = { downloadPendingDeletionId = it },
-                onExportDownload = { item ->
-                    val localFileUri = DownloadsRepository.playableLocalFileUri(item)
-                    if (localFileUri == null || !DownloadsPlatformDownloader.exportFile(localFileUri)) {
-                        NuvioToastController.show(exportFailedText)
-                    }
-                },
-            )
-        } else {
-            downloadsShowContent(
-                showId = selectedShowId.orEmpty(),
-                episodes = completedEpisodes,
-                onOpenDownload = onOpenDownload,
-                onDeleteDownload = { downloadPendingDeletionId = it },
-                onExportDownload = { item ->
-                    val localFileUri = DownloadsRepository.playableLocalFileUri(item)
-                    if (localFileUri == null || !DownloadsPlatformDownloader.exportFile(localFileUri)) {
-                        NuvioToastController.show(exportFailedText)
-                    }
-                },
-            )
+        AnimatedVisibility(
+            visible = selectionBarVisible,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth(),
+            enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
+        ) {
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onSizeChanged { selectionBarHeightPx = it.height },
+            ) {
+                val horizontalPadding = if (maxWidth < 600.dp) {
+                    NuvioTokens.Space.s12
+                } else {
+                    NuvioTokens.Space.s24
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = horizontalPadding,
+                            end = horizontalPadding,
+                            bottom = bottomInset + NuvioTokens.Space.s18,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    DownloadSelectionBar(
+                        modifier = Modifier
+                            .widthIn(max = 720.dp)
+                            .fillMaxWidth(),
+                        summary = selectionSummary,
+                        allVisibleSelected = allVisibleDownloadsSelected,
+                        onSelectAll = { selectedDownloadIds = visibleSelectionIds },
+                        onClearSelection = { selectedDownloadIds = emptySet() },
+                        onDeleteSelection = {
+                            downloadsPendingBulkDeletion = selectionSummary.selectedIds
+                        },
+                    )
+                }
+            }
         }
     }
 
@@ -167,8 +314,33 @@ fun DownloadsScreen(
             onDismiss = { downloadPendingDeletionId = null },
         )
     }
+
+    val pendingBulkDeletion = downloadsPendingBulkDeletion
+    if (pendingBulkDeletion != null) {
+        val pendingSummary = summarizeDownloadSelection(pendingBulkDeletion, uiState.items)
+        if (pendingSummary.fileCount > 0) {
+            NuvioStatusModal(
+                title = stringResource(Res.string.downloads_bulk_delete_title),
+                message = bulkDeleteConfirmationMessage(pendingSummary),
+                isVisible = true,
+                confirmText = stringResource(Res.string.action_delete),
+                dismissText = stringResource(Res.string.action_cancel),
+                onConfirm = {
+                    DownloadsRepository.cancelDownloads(pendingSummary.selectedIds)
+                    downloadsPendingBulkDeletion = null
+                    leaveSelection()
+                },
+                onDismiss = { downloadsPendingBulkDeletion = null },
+            )
+        } else {
+            LaunchedEffect(pendingBulkDeletion) {
+                downloadsPendingBulkDeletion = null
+            }
+        }
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 private fun LazyListScope.downloadsRootContent(
     uiState: DownloadsUiState,
     showManagement: Boolean,
@@ -179,6 +351,10 @@ private fun LazyListScope.downloadsRootContent(
     onOpenDownload: (DownloadItem) -> Unit,
     onOpenShow: (showId: String, title: String) -> Unit,
     onDeleteDownload: (String) -> Unit,
+    selectionMode: Boolean,
+    selectedDownloadIds: Set<String>,
+    onEnterSelection: (Collection<String>) -> Unit,
+    onToggleSelection: (Collection<String>) -> Unit,
     onExportDownload: (DownloadItem) -> Unit,
 ) {
     val currentDownloads = currentDownloadsForDisplay(uiState.items)
@@ -211,6 +387,10 @@ private fun LazyListScope.downloadsRootContent(
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
                 onExport = { onExportDownload(item) },
+                selectionMode = selectionMode,
+                selected = item.id in selectedDownloadIds,
+                onEnterSelection = { onEnterSelection(listOf(item.id)) },
+                onToggleSelection = { onToggleSelection(listOf(item.id)) },
             )
         }
     }
@@ -240,6 +420,10 @@ private fun LazyListScope.downloadsRootContent(
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
                 onExport = { onExportDownload(item) },
+                selectionMode = selectionMode,
+                selected = item.id in selectedDownloadIds,
+                onEnterSelection = { onEnterSelection(listOf(item.id)) },
+                onToggleSelection = { onToggleSelection(listOf(item.id)) },
             )
         }
     }
@@ -253,11 +437,22 @@ private fun LazyListScope.downloadsRootContent(
             key = { it.representative.parentMetaId },
         ) { group ->
             val item = group.representative
+            val groupIds = group.episodes.mapTo(linkedSetOf(), DownloadItem::id)
+            val groupSelected = groupIds.isNotEmpty() && groupIds.all(selectedDownloadIds::contains)
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .clickable { onOpenShow(item.parentMetaId, item.title) },
+                    .combinedClickable(
+                        onClick = {
+                            if (selectionMode) {
+                                onToggleSelection(groupIds)
+                            } else {
+                                onOpenShow(item.parentMetaId, item.title)
+                            }
+                        },
+                        onLongClick = { onEnterSelection(groupIds) },
+                    ),
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainer,
             ) {
@@ -288,11 +483,18 @@ private fun LazyListScope.downloadsRootContent(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Icon(
-                        imageVector = Icons.Rounded.PlayArrow,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (selectionMode) {
+                        Checkbox(
+                            checked = groupSelected,
+                            onCheckedChange = { onToggleSelection(groupIds) },
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayArrow,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
@@ -375,11 +577,16 @@ private fun completedSortLabel(sort: CompletedDownloadSort): String = when (sort
     CompletedDownloadSort.SmallestFirst -> stringResource(Res.string.downloads_sort_smallest_first)
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 private fun LazyListScope.downloadsShowContent(
     showId: String,
     episodes: List<DownloadItem>,
     onOpenDownload: (DownloadItem) -> Unit,
     onDeleteDownload: (String) -> Unit,
+    selectionMode: Boolean,
+    selectedDownloadIds: Set<String>,
+    onEnterSelection: (Collection<String>) -> Unit,
+    onToggleSelection: (Collection<String>) -> Unit,
     onExportDownload: (DownloadItem) -> Unit,
 ) {
     val showEpisodes = episodes
@@ -438,11 +645,16 @@ private fun LazyListScope.downloadsShowContent(
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
                 onExport = { onExportDownload(item) },
+                selectionMode = selectionMode,
+                selected = item.id in selectedDownloadIds,
+                onEnterSelection = { onEnterSelection(listOf(item.id)) },
+                onToggleSelection = { onToggleSelection(listOf(item.id)) },
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DownloadRow(
     item: DownloadItem,
@@ -452,6 +664,10 @@ private fun DownloadRow(
     onRetry: () -> Unit,
     onDelete: () -> Unit,
     onExport: () -> Unit,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onEnterSelection: () -> Unit,
+    onToggleSelection: () -> Unit,
 ) {
     val displayTitle = item.displayTitle()
     val displaySubtitle = downloadDisplaySubtitle(
@@ -463,7 +679,16 @@ private fun DownloadRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clickable(enabled = item.isPlayable, onClick = onOpen),
+            .combinedClickable(
+                onClick = {
+                    if (selectionMode) {
+                        onToggleSelection()
+                    } else if (item.isPlayable) {
+                        onOpen()
+                    }
+                },
+                onLongClick = onEnterSelection,
+            ),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
@@ -505,55 +730,62 @@ private fun DownloadRow(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    when (item.status) {
-                        DownloadStatus.Queued,
-                        DownloadStatus.Downloading,
-                        DownloadStatus.WaitingForNetwork,
-                        -> {
-                            IconButton(onClick = onPause) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Pause,
-                                    contentDescription = stringResource(Res.string.compose_action_pause),
-                                )
-                            }
-                        }
-                        DownloadStatus.Paused -> {
-                            IconButton(onClick = onResume) {
-                                Icon(
-                                    imageVector = Icons.Rounded.PlayArrow,
-                                    contentDescription = stringResource(Res.string.action_resume),
-                                )
-                            }
-                        }
-                        DownloadStatus.Failed -> {
-                            IconButton(onClick = onRetry) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Refresh,
-                                    contentDescription = stringResource(Res.string.action_retry),
-                                )
-                            }
-                        }
-                        DownloadStatus.Finalizing -> Unit
-                        DownloadStatus.Completed -> {
-                            IconButton(onClick = onOpen) {
-                                Icon(
-                                    imageVector = Icons.Rounded.PlayArrow,
-                                    contentDescription = stringResource(Res.string.action_play),
-                                )
-                            }
-                            IconButton(onClick = onExport) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Share,
-                                    contentDescription = stringResource(Res.string.downloads_export),
-                                )
-                            }
-                        }
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            imageVector = Icons.Rounded.Delete,
-                            contentDescription = stringResource(Res.string.action_delete),
+                    if (selectionMode) {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = { onToggleSelection() },
                         )
+                    } else {
+                        when (item.status) {
+                            DownloadStatus.Queued,
+                            DownloadStatus.Downloading,
+                            DownloadStatus.WaitingForNetwork,
+                            -> {
+                                IconButton(onClick = onPause) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Pause,
+                                        contentDescription = stringResource(Res.string.compose_action_pause),
+                                    )
+                                }
+                            }
+                            DownloadStatus.Paused -> {
+                                IconButton(onClick = onResume) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PlayArrow,
+                                        contentDescription = stringResource(Res.string.action_resume),
+                                    )
+                                }
+                            }
+                            DownloadStatus.Failed -> {
+                                IconButton(onClick = onRetry) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Refresh,
+                                        contentDescription = stringResource(Res.string.action_retry),
+                                    )
+                                }
+                            }
+                            DownloadStatus.Finalizing -> Unit
+                            DownloadStatus.Completed -> {
+                                IconButton(onClick = onOpen) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PlayArrow,
+                                        contentDescription = stringResource(Res.string.action_play),
+                                    )
+                                }
+                                IconButton(onClick = onExport) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Share,
+                                        contentDescription = stringResource(Res.string.downloads_export),
+                                    )
+                                }
+                            }
+                        }
+                        IconButton(onClick = onDelete) {
+                            Icon(
+                                imageVector = Icons.Rounded.Delete,
+                                contentDescription = stringResource(Res.string.action_delete),
+                            )
+                        }
                     }
                 }
             }
@@ -575,6 +807,156 @@ private fun DownloadRow(
             }
         }
     }
+}
+
+@Composable
+private fun DownloadSelectionBar(
+    modifier: Modifier = Modifier,
+    summary: DownloadSelectionSummary,
+    allVisibleSelected: Boolean,
+    onSelectAll: () -> Unit,
+    onClearSelection: () -> Unit,
+    onDeleteSelection: () -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+
+    Surface(
+        modifier = modifier,
+        shape = tokens.shapes.chip,
+        color = tokens.colors.surfacePopover,
+        tonalElevation = tokens.elevation.playerControls,
+        shadowElevation = tokens.elevation.overlay,
+        border = BorderStroke(
+            width = tokens.borders.thin,
+            color = tokens.colors.textPrimary.copy(alpha = tokens.opacity.hover),
+        ),
+    ) {
+        BoxWithConstraints(
+            modifier = Modifier.padding(
+                start = NuvioTokens.Space.s18,
+                end = NuvioTokens.Space.s8,
+                top = NuvioTokens.Space.s8,
+                bottom = NuvioTokens.Space.s8,
+            ),
+        ) {
+            val compactSummary = maxWidth < 560.dp
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
+            ) {
+                Text(
+                    text = if (compactSummary) {
+                        stringResource(
+                            Res.string.downloads_selection_count,
+                            summary.fileCount,
+                        )
+                    } else {
+                        stringResource(
+                            Res.string.downloads_selection_summary,
+                            summary.fileCount,
+                            formatBytes(summary.knownStorageBytes),
+                        )
+                    },
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = tokens.colors.textPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
+                ) {
+                    DownloadSelectionAction(
+                        label = stringResource(Res.string.downloads_select_all),
+                        enabled = !allVisibleSelected,
+                        onClick = onSelectAll,
+                    )
+                    DownloadSelectionAction(
+                        label = stringResource(Res.string.action_clear),
+                        enabled = summary.fileCount > 0,
+                        onClick = onClearSelection,
+                    )
+                    DownloadSelectionAction(
+                        label = stringResource(Res.string.downloads_delete_selected),
+                        enabled = summary.fileCount > 0,
+                        onClick = onDeleteSelection,
+                        destructive = true,
+                        showDeleteIcon = !compactSummary,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DownloadSelectionAction(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    destructive: Boolean = false,
+    showDeleteIcon: Boolean = false,
+) {
+    val tokens = MaterialTheme.nuvio
+    val containerColor = if (destructive) {
+        tokens.colors.danger.copy(alpha = tokens.opacity.selected)
+    } else {
+        tokens.colors.overlayHover
+    }
+    val contentColor = if (destructive) tokens.colors.danger else tokens.colors.textPrimary
+
+    TextButton(
+        enabled = enabled,
+        onClick = onClick,
+        shape = tokens.shapes.chip,
+        colors = ButtonDefaults.textButtonColors(
+            containerColor = containerColor,
+            contentColor = contentColor,
+            disabledContainerColor = containerColor.copy(
+                alpha = containerColor.alpha * tokens.opacity.disabled,
+            ),
+            disabledContentColor = tokens.colors.textDisabled,
+        ),
+        contentPadding = PaddingValues(
+            horizontal = NuvioTokens.Space.s12,
+            vertical = NuvioTokens.Space.s8,
+        ),
+    ) {
+        if (showDeleteIcon) {
+            Icon(
+                imageVector = Icons.Rounded.Delete,
+                contentDescription = null,
+                modifier = Modifier.size(NuvioTokens.Icon.sm),
+            )
+            Spacer(modifier = Modifier.size(NuvioTokens.Space.s6))
+        }
+        Text(
+            text = label,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun bulkDeleteConfirmationMessage(summary: DownloadSelectionSummary): String = when {
+    summary.completedFileCount > 0 && summary.currentTransferCount > 0 -> stringResource(
+        Res.string.downloads_bulk_delete_message_mixed,
+        summary.completedFileCount,
+        summary.currentTransferCount,
+    )
+    summary.completedFileCount > 0 -> stringResource(
+        Res.string.downloads_bulk_delete_message_completed,
+        summary.completedFileCount,
+    )
+    else -> stringResource(
+        Res.string.downloads_bulk_delete_message_current,
+        summary.currentTransferCount,
+    )
 }
 
 @Composable

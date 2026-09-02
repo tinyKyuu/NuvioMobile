@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -21,6 +22,7 @@ import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import com.nuvio.app.features.watchtogether.session.WatchTogetherDevelopmentSession
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_airs_prefix
 import nuvio.composeapp.generated.resources.compose_player_downloaded
@@ -77,6 +79,17 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
 
     val runtime = remember { PlayerScreenRuntime(args) }
     runtime.args = args
+    val runtimeScope = rememberCoroutineScope()
+    val watchTogetherSession = remember(runtime) {
+        WatchTogetherDevelopmentSession(
+            scope = runtimeScope,
+            player = PlayerWatchTogetherAdapter(runtime, runtimeScope),
+        )
+    }
+    val watchTogetherState by watchTogetherSession.state.collectAsStateWithLifecycle()
+    DisposableEffect(watchTogetherSession) {
+        onDispose { watchTogetherSession.close() }
+    }
 
     BoxWithConstraints(
         modifier = args.modifier
@@ -87,7 +100,9 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
         val horizontalSafePadding = playerHorizontalSafePadding()
         val metrics = remember(maxWidth) { PlayerLayoutMetrics.fromWidth(maxWidth) }
 
-        runtime.scope = rememberCoroutineScope()
+        runtime.scope = runtimeScope
+        runtime.watchTogetherSession = watchTogetherSession
+        runtime.watchTogetherState = watchTogetherState
         runtime.hapticFeedback = LocalHapticFeedback.current
         runtime.gestureController = rememberPlayerGestureController()
         runtime.playerSettingsUiState = playerSettingsUiState

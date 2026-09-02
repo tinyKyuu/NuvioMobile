@@ -32,6 +32,7 @@ import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Forward10
+import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Pause
@@ -99,6 +100,7 @@ internal fun PlayerControlsShell(
     onSubtitleClick: () -> Unit,
     onAudioClick: () -> Unit,
     onVideoSettingsClick: (() -> Unit)? = null,
+    onWatchTogetherClick: (() -> Unit)? = null,
     onSourcesClick: (() -> Unit)? = null,
     onEpisodesClick: (() -> Unit)? = null,
     onOpenInExternalPlayer: (() -> Unit)? = null,
@@ -166,6 +168,7 @@ internal fun PlayerControlsShell(
                 onParentalGuideAnimationComplete = onParentalGuideAnimationComplete,
                 onLockToggle = onLockToggle,
                 onVideoSettingsClick = onVideoSettingsClick,
+                onWatchTogetherClick = onWatchTogetherClick,
                 downloadPresentation = downloadPresentation,
                 onDownloadClick = onDownloadClick,
                 downloadMenuContent = downloadMenuContent,
@@ -237,6 +240,7 @@ private fun PlayerHeader(
     onParentalGuideAnimationComplete: () -> Unit,
     onLockToggle: () -> Unit,
     onVideoSettingsClick: (() -> Unit)?,
+    onWatchTogetherClick: (() -> Unit)?,
     downloadPresentation: PlayerDownloadIndicatorPresentation?,
     onDownloadClick: (() -> Unit)?,
     downloadMenuContent: (@Composable () -> Unit)?,
@@ -366,6 +370,15 @@ private fun PlayerHeader(
                             buttonSize = metrics.headerIconSize + 16.dp,
                             iconSize = metrics.headerIconSize,
                             onClick = onOpenInExternalPlayer,
+                        )
+                    }
+                    if (onWatchTogetherClick != null) {
+                        PlayerHeaderIconButton(
+                            icon = Icons.Rounded.Groups,
+                            contentDescription = "Watch Together",
+                            buttonSize = metrics.headerIconSize + 16.dp,
+                            iconSize = metrics.headerIconSize,
+                            onClick = onWatchTogetherClick,
                         )
                     }
                     PlayerHeaderIconButton(

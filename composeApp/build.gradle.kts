@@ -3,9 +3,12 @@ import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.file.RegularFileProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.Input
+import org.gradle.api.tasks.InputDirectory
 import org.gradle.api.tasks.InputFile
 import org.gradle.api.tasks.Optional
 import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.targets.native.tasks.KotlinNativeSimulatorTest
@@ -181,6 +184,67 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     }
 }
 
+abstract class GenerateWatchTogetherTestFixturesTask : DefaultTask() {
+    @get:InputDirectory
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val inputDir: DirectoryProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun generate() {
+        val fixtureFiles = inputDir.get().asFile
+            .listFiles { file -> file.isFile && file.extension == "json" }
+            .orEmpty()
+            .sortedBy { it.name }
+        check(fixtureFiles.isNotEmpty()) { "No Watch Together conformance fixtures found." }
+
+        val packageDir = outputDir.get().asFile
+            .resolve("com/nuvio/app/features/watchtogether/protocol")
+            .apply { mkdirs() }
+        val entries = fixtureFiles.joinToString(",\n") { file ->
+            "    ${file.name.asKotlinStringLiteral()} to " +
+                file.readText().asKotlinStringLiteral()
+        }
+        packageDir.resolve("WatchTogetherConformanceFixtureJson.kt").writeText(
+            """
+            |package com.nuvio.app.features.watchtogether.protocol
+            |
+            |internal val WatchTogetherConformanceFixtureJson: Map<String, String> = linkedMapOf(
+            |$entries
+            |)
+            """.trimMargin() + "\n"
+        )
+    }
+
+    private fun String.asKotlinStringLiteral(): String = buildString {
+        append('"')
+        this@asKotlinStringLiteral.forEach { character ->
+            when (character) {
+                '\\' -> append("\\\\")
+                '"' -> append("\\\"")
+                '\n' -> append("\\n")
+                '\r' -> append("\\r")
+                '\t' -> append("\\t")
+                '$' -> {
+                    append('\\')
+                    append('$')
+                }
+                else -> {
+                    if (character.code < 0x20) {
+                        append("\\u")
+                        append(character.code.toString(16).padStart(4, '0'))
+                    } else {
+                        append(character)
+                    }
+                }
+            }
+        }
+        append('"')
+    }
+}
+
 fun readXcconfigValue(file: File, key: String): String? {
     if (!file.exists()) return null
     return file.readLines()
@@ -309,8 +373,17 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     )
 }
 
+val generateWatchTogetherTestFixtures =
+    tasks.register<GenerateWatchTogetherTestFixturesTask>("generateWatchTogetherTestFixtures") {
+        inputDir.set(layout.projectDirectory.dir("src/commonTest/resources/watch-together/v1"))
+        outputDir.set(layout.buildDirectory.dir("generated/watch-together-test-fixtures/kotlin"))
+    }
+
 tasks.withType<KotlinCompilationTask<*>>().configureEach {
     dependsOn(generateRuntimeConfigs)
+    if (name.contains("test", ignoreCase = true)) {
+        dependsOn(generateWatchTogetherTestFixtures)
+    }
 }
 
 val downloadTestBaseUrl = providers.gradleProperty("nuvio.download.test.baseUrl")
@@ -416,6 +489,9 @@ kotlin {
     sourceSets {
         val commonMain by getting {
             kotlin.srcDir(generatedRuntimeConfigDir)
+        }
+        val commonTest by getting {
+            kotlin.srcDir(generateWatchTogetherTestFixtures.flatMap { it.outputDir })
         }
         androidMain {
             kotlin.srcDir(project.file(androidDistributionSourceDir))

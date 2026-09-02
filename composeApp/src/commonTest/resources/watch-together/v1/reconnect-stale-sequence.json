@@ -1,0 +1,168 @@
+{
+  "$schema": "urn:watch-together:conformance:v1:fixture",
+  "name": "reconnect-stale-sequence",
+  "clockStartMs": 3000000,
+  "room": {
+    "roomId": "room_0003",
+    "hostParticipantId": "host_0003",
+    "hostDisplayName": "Host",
+    "hostSessionId": "host_session_0003",
+    "roundId": "round_0003",
+    "capacity": 2,
+    "lifetimeMs": 21600000
+  },
+  "participants": [
+    {
+      "participantId": "guest_0003",
+      "displayName": "Guest",
+      "sessionId": "guest_session_old_0003"
+    }
+  ],
+  "steps": [
+    {
+      "op": "disconnect",
+      "participantId": "guest_0003",
+      "sessionId": "guest_session_old_0003",
+      "revision": 3
+    },
+    {
+      "op": "command",
+      "label": "old-session-rejection",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_2001",
+        "roomId": "room_0003",
+        "roundId": "round_0003",
+        "participantId": "guest_0003",
+        "sessionId": "guest_session_old_0003",
+        "sequence": 1,
+        "sentAtMs": 3000000,
+        "type": "playback.resume",
+        "payload": {}
+      },
+      "expect": {
+        "type": "command.rejected",
+        "code": "SESSION_NOT_ACTIVE",
+        "revision": 3
+      }
+    },
+    {
+      "op": "reconnect",
+      "participantId": "guest_0003",
+      "sessionId": "guest_session_new_0003",
+      "revision": 4
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_2001",
+        "roomId": "room_0003",
+        "roundId": "round_0003",
+        "participantId": "guest_0003",
+        "sessionId": "guest_session_old_0003",
+        "sequence": 1,
+        "sentAtMs": 3000000,
+        "type": "playback.resume",
+        "payload": {}
+      },
+      "expect": {
+        "type": "command.rejected",
+        "code": "SESSION_NOT_ACTIVE",
+        "revision": 3,
+        "sameAs": "old-session-rejection"
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_2002",
+        "roomId": "room_0003",
+        "roundId": "round_0003",
+        "participantId": "guest_0003",
+        "sessionId": "guest_session_old_0003",
+        "sequence": 2,
+        "sentAtMs": 3000000,
+        "type": "playback.resume",
+        "payload": {}
+      },
+      "expect": {
+        "type": "command.rejected",
+        "code": "SESSION_NOT_ACTIVE",
+        "revision": 4
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_2003",
+        "roomId": "room_0003",
+        "roundId": "round_0003",
+        "participantId": "guest_0003",
+        "sessionId": "guest_session_new_0003",
+        "sequence": 1,
+        "sentAtMs": 3000000,
+        "type": "playback.resume",
+        "payload": {}
+      },
+      "expect": {
+        "type": "command.accepted",
+        "applied": true,
+        "revision": 5
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_2004",
+        "roomId": "room_0003",
+        "roundId": "round_0003",
+        "participantId": "guest_0003",
+        "sessionId": "guest_session_new_0003",
+        "sequence": 1,
+        "sentAtMs": 3000000,
+        "type": "playback.pause",
+        "payload": {}
+      },
+      "expect": {
+        "type": "command.rejected",
+        "code": "STALE_SEQUENCE",
+        "revision": 5
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_2005",
+        "roomId": "room_0003",
+        "roundId": "round_0003",
+        "participantId": "guest_0003",
+        "sessionId": "guest_session_new_0003",
+        "sequence": 2,
+        "sentAtMs": 3000000,
+        "type": "playback.pause",
+        "payload": {}
+      },
+      "expect": {
+        "type": "command.accepted",
+        "applied": true,
+        "revision": 6
+      }
+    },
+    {
+      "op": "assert",
+      "expect": {
+        "revision": 6,
+        "playbackMode": "paused",
+        "participant": {
+          "participantId": "guest_0003",
+          "connection": "connected"
+        }
+      }
+    }
+  ]
+}

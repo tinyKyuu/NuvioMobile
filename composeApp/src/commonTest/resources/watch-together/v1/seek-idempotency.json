@@ -1,0 +1,127 @@
+{
+  "$schema": "urn:watch-together:conformance:v1:fixture",
+  "name": "seek-idempotency",
+  "clockStartMs": 2000000,
+  "room": {
+    "roomId": "room_0002",
+    "hostParticipantId": "host_0002",
+    "hostDisplayName": "Host",
+    "hostSessionId": "host_session_0002",
+    "roundId": "round_0002",
+    "capacity": 2,
+    "lifetimeMs": 21600000
+  },
+  "participants": [],
+  "steps": [
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_1001",
+        "roomId": "room_0002",
+        "roundId": "round_0002",
+        "participantId": "host_0002",
+        "sessionId": "host_session_0002",
+        "sequence": 1,
+        "sentAtMs": 2000000,
+        "type": "playback.resume",
+        "payload": {}
+      },
+      "expect": {
+        "type": "command.accepted",
+        "applied": true,
+        "revision": 2
+      }
+    },
+    {
+      "op": "advance",
+      "byMs": 10000
+    },
+    {
+      "op": "command",
+      "label": "first-seek",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_1002",
+        "roomId": "room_0002",
+        "roundId": "round_0002",
+        "participantId": "host_0002",
+        "sessionId": "host_session_0002",
+        "sequence": 2,
+        "sentAtMs": 2010000,
+        "type": "playback.seek",
+        "payload": {
+          "positionMs": 30000
+        }
+      },
+      "expect": {
+        "type": "command.accepted",
+        "applied": true,
+        "revision": 3
+      }
+    },
+    {
+      "op": "assert",
+      "expect": {
+        "revision": 3,
+        "playbackMode": "playing",
+        "canonicalPositionMs": 30000
+      }
+    },
+    {
+      "op": "advance",
+      "byMs": 1250
+    },
+    {
+      "op": "assert",
+      "expect": {
+        "canonicalPositionMs": 31250
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_1002",
+        "roomId": "room_0002",
+        "roundId": "round_0002",
+        "participantId": "host_0002",
+        "sessionId": "host_session_0002",
+        "sequence": 2,
+        "sentAtMs": 2010000,
+        "type": "playback.seek",
+        "payload": {
+          "positionMs": 30000
+        }
+      },
+      "expect": {
+        "type": "command.accepted",
+        "applied": true,
+        "revision": 3,
+        "sameAs": "first-seek"
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_1002",
+        "roomId": "room_0002",
+        "roundId": "round_0002",
+        "participantId": "host_0002",
+        "sessionId": "host_session_0002",
+        "sequence": 3,
+        "sentAtMs": 2011250,
+        "type": "playback.seek",
+        "payload": {
+          "positionMs": 32000
+        }
+      },
+      "expect": {
+        "type": "command.rejected",
+        "code": "MESSAGE_ID_REUSE",
+        "revision": 3
+      }
+    }
+  ]
+}

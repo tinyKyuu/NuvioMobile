@@ -1,0 +1,120 @@
+{
+  "$schema": "urn:watch-together:conformance:v1:fixture",
+  "name": "pause-resume",
+  "clockStartMs": 1000000,
+  "room": {
+    "roomId": "room_0001",
+    "hostParticipantId": "host_0001",
+    "hostDisplayName": "Host",
+    "hostSessionId": "host_session_0001",
+    "roundId": "round_0001",
+    "capacity": 2,
+    "lifetimeMs": 21600000
+  },
+  "participants": [
+    {
+      "participantId": "guest_0001",
+      "displayName": "Guest",
+      "sessionId": "guest_session_0001"
+    }
+  ],
+  "steps": [
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_0001",
+        "roomId": "room_0001",
+        "roundId": "round_0001",
+        "participantId": "host_0001",
+        "sessionId": "host_session_0001",
+        "sequence": 1,
+        "sentAtMs": 1000000,
+        "type": "playback.resume",
+        "payload": {}
+      },
+      "expect": {
+        "type": "command.accepted",
+        "applied": true,
+        "revision": 3
+      }
+    },
+    {
+      "op": "advance",
+      "byMs": 5000
+    },
+    {
+      "op": "assert",
+      "expect": {
+        "revision": 3,
+        "playbackMode": "playing",
+        "canonicalPositionMs": 5000
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_0002",
+        "roomId": "room_0001",
+        "roundId": "round_0001",
+        "participantId": "guest_0001",
+        "sessionId": "guest_session_0001",
+        "sequence": 1,
+        "sentAtMs": 1005000,
+        "type": "playback.pause",
+        "payload": {}
+      },
+      "expect": {
+        "type": "command.accepted",
+        "applied": true,
+        "revision": 4
+      }
+    },
+    {
+      "op": "advance",
+      "byMs": 2000
+    },
+    {
+      "op": "assert",
+      "expect": {
+        "revision": 4,
+        "playbackMode": "paused",
+        "canonicalPositionMs": 5000
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_0003",
+        "roomId": "room_0001",
+        "roundId": "round_0001",
+        "participantId": "host_0001",
+        "sessionId": "host_session_0001",
+        "sequence": 2,
+        "sentAtMs": 1007000,
+        "type": "playback.resume",
+        "payload": {}
+      },
+      "expect": {
+        "type": "command.accepted",
+        "applied": true,
+        "revision": 5
+      }
+    },
+    {
+      "op": "advance",
+      "byMs": 250
+    },
+    {
+      "op": "assert",
+      "expect": {
+        "revision": 5,
+        "roundStatus": "active",
+        "playbackMode": "playing",
+        "canonicalPositionMs": 5250
+      }
+    }
+  ]
+}

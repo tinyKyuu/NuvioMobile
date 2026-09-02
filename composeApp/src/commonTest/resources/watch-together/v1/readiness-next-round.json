@@ -1,0 +1,202 @@
+{
+  "$schema": "urn:watch-together:conformance:v1:fixture",
+  "name": "readiness-next-round",
+  "clockStartMs": 4000000,
+  "room": {
+    "roomId": "room_0004",
+    "hostParticipantId": "host_0004",
+    "hostDisplayName": "Host",
+    "hostSessionId": "host_session_0004",
+    "roundId": "round_0004",
+    "capacity": 2,
+    "lifetimeMs": 21600000
+  },
+  "participants": [
+    {
+      "participantId": "guest_0004",
+      "displayName": "Guest",
+      "sessionId": "guest_session_0004"
+    }
+  ],
+  "steps": [
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_3001",
+        "roomId": "room_0004",
+        "roundId": "round_0004",
+        "participantId": "guest_0004",
+        "sessionId": "guest_session_0004",
+        "sequence": 1,
+        "sentAtMs": 4000000,
+        "type": "participant.readiness",
+        "payload": {
+          "sourceReady": true,
+          "viewerReady": true,
+          "durationMs": 2700000,
+          "durationMismatchAcknowledged": true
+        }
+      },
+      "expect": {
+        "type": "command.accepted",
+        "applied": true,
+        "revision": 3
+      }
+    },
+    {
+      "op": "assert",
+      "expect": {
+        "participant": {
+          "participantId": "guest_0004",
+          "readiness": {
+            "sourceReady": true,
+            "viewerReady": true,
+            "durationMs": 2700000,
+            "durationMismatchAcknowledged": true
+          }
+        }
+      }
+    },
+    {
+      "op": "nextRound",
+      "roundId": "round_0005",
+      "revision": 4
+    },
+    {
+      "op": "assert",
+      "expect": {
+        "revision": 4,
+        "roundId": "round_0005",
+        "roundGeneration": 2,
+        "roundStatus": "preparing",
+        "playbackMode": "paused",
+        "canonicalPositionMs": 0,
+        "participant": {
+          "participantId": "guest_0004",
+          "readiness": {
+            "sourceReady": false,
+            "viewerReady": false,
+            "durationMs": null,
+            "durationMismatchAcknowledged": false
+          }
+        }
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_3002",
+        "roomId": "room_0004",
+        "roundId": "round_0004",
+        "participantId": "host_0004",
+        "sessionId": "host_session_0004",
+        "sequence": 1,
+        "sentAtMs": 4000000,
+        "type": "playback.resume",
+        "payload": {}
+      },
+      "expect": {
+        "type": "command.rejected",
+        "code": "ROUND_MISMATCH",
+        "revision": 4
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_3001",
+        "roomId": "room_0004",
+        "roundId": "round_0005",
+        "participantId": "guest_0004",
+        "sessionId": "guest_session_0004",
+        "sequence": 2,
+        "sentAtMs": 4000000,
+        "type": "participant.readiness",
+        "payload": {
+          "sourceReady": true,
+          "viewerReady": true,
+          "durationMs": 2700000,
+          "durationMismatchAcknowledged": true
+        }
+      },
+      "expect": {
+        "type": "command.rejected",
+        "code": "MESSAGE_ID_REUSE",
+        "revision": 4
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_3004",
+        "roomId": "room_0004",
+        "roundId": "round_0005",
+        "participantId": "guest_0004",
+        "sessionId": "guest_session_0004",
+        "sequence": 1,
+        "sentAtMs": 4000000,
+        "type": "participant.readiness",
+        "payload": {
+          "sourceReady": true,
+          "viewerReady": true,
+          "durationMs": 2700000,
+          "durationMismatchAcknowledged": true
+        }
+      },
+      "expect": {
+        "type": "command.rejected",
+        "code": "STALE_SEQUENCE",
+        "revision": 4
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_3005",
+        "roomId": "room_0004",
+        "roundId": "round_0005",
+        "participantId": "guest_0004",
+        "sessionId": "guest_session_0004",
+        "sequence": 2,
+        "sentAtMs": 4000000,
+        "type": "participant.readiness",
+        "payload": {
+          "sourceReady": true,
+          "viewerReady": true,
+          "durationMs": 2700000,
+          "durationMismatchAcknowledged": true
+        }
+      },
+      "expect": {
+        "type": "command.accepted",
+        "applied": true,
+        "revision": 5
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_3003",
+        "roomId": "room_0004",
+        "roundId": "round_0005",
+        "participantId": "host_0004",
+        "sessionId": "host_session_0004",
+        "sequence": 1,
+        "sentAtMs": 4000000,
+        "type": "playback.resume",
+        "payload": {}
+      },
+      "expect": {
+        "type": "command.accepted",
+        "applied": true,
+        "revision": 6
+      }
+    }
+  ]
+}

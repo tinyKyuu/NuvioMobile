@@ -616,6 +616,12 @@
     <string name="detail_trailers_title">Trailers</string>
     <string name="downloads_empty_episodes">No episodes</string>
     <string name="downloads_empty_title">No downloads yet</string>
+    <string name="downloads_bulk_delete_message_completed">Remove %1$d completed file(s)?</string>
+    <string name="downloads_bulk_delete_message_current">Cancel or clear %1$d current transfer(s) and delete their partial files?</string>
+    <string name="downloads_bulk_delete_message_mixed">Remove %1$d completed file(s), and cancel or clear %2$d current transfer(s)? Partial files will also be deleted.</string>
+    <string name="downloads_bulk_delete_title">Remove selected downloads?</string>
+    <string name="downloads_delete_selected">Delete</string>
+    <string name="downloads_delete_show">Delete show downloads</string>
     <string name="downloads_episode_count">%1$d episode(s)</string>
     <string name="downloads_export">Export</string>
     <string name="downloads_export_failed">Couldn&apos;t export this download</string>
@@ -636,6 +642,9 @@
     <string name="downloads_section_downloaded">Downloaded</string>
     <string name="downloads_section_movies">Movies</string>
     <string name="downloads_section_shows">Shows</string>
+    <string name="downloads_select">Select</string>
+    <string name="downloads_select_all">Select all</string>
+    <string name="downloads_selection_summary">%1$d file(s) • %2$s known storage</string>
     <string name="downloads_show_downloads">Show Downloads</string>
     <string name="downloads_sort_content_description">Sort downloaded items</string>
     <string name="downloads_sort_largest_first">Largest first</string>

@@ -338,6 +338,63 @@ object DownloadsRepository {
         pumpScheduler()
     }
 
+    fun cancelDownloads(downloadIds: Collection<String>): Int {
+        ensureLoaded()
+        val ownerProfileKey = activeOwnerProfileKey()
+        val targets = synchronized(stateLock) {
+            if (loadedProfileKey != ownerProfileKey || activeOwnerProfileKey() != ownerProfileKey) {
+                return@synchronized emptyList()
+            }
+
+            val removedRecords = removeProfileRecordsFromCatalogAsBatch(
+                store = store,
+                ownerProfileKey = ownerProfileKey,
+                requestedDownloadIds = downloadIds,
+                runtimeRecordsById = runtimeRecordsById,
+            )
+            if (removedRecords.isEmpty()) return@synchronized emptyList()
+
+            val removedIds = removedRecords.mapTo(hashSetOf(), DownloadRecord::downloadId)
+            val removedTargets = removedRecords.map { record ->
+                DownloadBatchRemovalTarget(
+                    record = record,
+                    activeHandle = activeHandles.remove(record.downloadId),
+                )
+            }
+            removedIds.forEach { downloadId ->
+                runtimeRecordsById.remove(downloadId)
+                progressPersistencePolicy.remove(downloadId)
+            }
+            currentProfileRecords = currentProfileRecords.filterNot { it.downloadId in removedIds }
+            removedTargets
+        }
+
+        performDownloadBatchCleanup(
+            targets = targets,
+            cancelPlatformTask = DownloadsPlatformDownloader::cancel,
+            removeRequest = DownloadsRequestStorage::remove,
+            removeCompletedFile = { record ->
+                DownloadsPlatformDownloader.removeFile(resolveLocalUri(record))
+            },
+            removePartialFile = { record ->
+                DownloadsPlatformDownloader.removePartialFile(
+                    downloadId = record.downloadId,
+                    destinationFileName = record.item.fileName,
+                )
+            },
+            onBatchCleaned = {
+                targets.forEach { target ->
+                    val record = target.record
+                    log.i {
+                        "event=record_deleted_batch download_id=${record.downloadId} owner_profile=${record.ownerProfileKey} prior_state=${record.internalState} downloaded_bytes=${record.downloadedBytes} total_bytes=${record.expectedBytes ?: "unknown"}"
+                    }
+                }
+                pumpScheduler(forcePublishCurrentProfile = true)
+            },
+        )
+        return targets.size
+    }
+
     private fun loadProfileLocked(
         profileId: Int,
         ownerProfileKey: String,
@@ -563,7 +620,7 @@ object DownloadsRepository {
         totalBytes: Long?,
     ) {
         val now = DownloadsClock.nowEpochMs()
-        applyEvent(
+        val result = applyEvent(
             downloadId = downloadId,
             eventFactory = { eventId ->
                 DownloadRecordEvent.Complete(
@@ -577,7 +634,7 @@ object DownloadsRepository {
             eventName = "platform_complete",
             detachHandle = true,
         )
-        pumpScheduler()
+        if (result.changed) pumpScheduler()
     }
 
     internal fun onPlatformFailure(
@@ -585,7 +642,7 @@ object DownloadsRepository {
         message: String,
     ) {
         val now = DownloadsClock.nowEpochMs()
-        applyEvent(
+        val result = applyEvent(
             downloadId = downloadId,
             eventFactory = { eventId ->
                 DownloadRecordEvent.Failure(
@@ -599,7 +656,7 @@ object DownloadsRepository {
             eventName = "platform_failure",
             detachHandle = true,
         )
-        pumpScheduler()
+        if (result.changed) pumpScheduler()
     }
 
     internal fun shouldRetainPlatformTask(downloadId: String): Boolean = synchronized(stateLock) {
@@ -643,7 +700,7 @@ object DownloadsRepository {
         pumpScheduler()
     }
 
-    private fun pumpScheduler() {
+    private fun pumpScheduler(forcePublishCurrentProfile: Boolean = false) {
         var shouldNotify = false
         val scheduled = synchronized(stateLock) {
             val durableRecords = store.allRecords().map { stored ->
@@ -652,8 +709,6 @@ object DownloadsRepository {
                     ?: hydrateRequestLocked(stored)
             }
             val queued = selectQueuedDownloadsToStart(durableRecords)
-            if (queued.isEmpty()) return@synchronized emptyList()
-
             val now = DownloadsClock.nowEpochMs()
             val nextRecords = queued.mapNotNull { queuedRecord ->
                 val current = runtimeRecordsById[queuedRecord.downloadId] ?: queuedRecord
@@ -666,9 +721,9 @@ object DownloadsRepository {
                 )
                 reduction.record?.takeIf { reduction.changed }
             }
-            if (nextRecords.isEmpty()) return@synchronized emptyList()
-
-            store.commit(recordsToUpsert = nextRecords)
+            if (nextRecords.isNotEmpty()) {
+                store.commit(recordsToUpsert = nextRecords)
+            }
             nextRecords.forEach { next ->
                 runtimeRecordsById[next.downloadId] = next
                 progressPersistencePolicy.recordImmediate(next)
@@ -680,7 +735,10 @@ object DownloadsRepository {
                     "event=scheduler_start download_id=${next.downloadId} owner_profile=${next.ownerProfileKey} max_concurrent=$MAX_CONCURRENT_DOWNLOADS"
                 }
             }
-            if (shouldNotify) publishCurrentProfileLocked()
+            if (forcePublishCurrentProfile || shouldNotify) {
+                publishCurrentProfileLocked()
+                shouldNotify = true
+            }
             nextRecords
         }
 

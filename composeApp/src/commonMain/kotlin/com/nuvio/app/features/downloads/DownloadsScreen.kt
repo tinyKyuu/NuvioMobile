@@ -1,6 +1,7 @@
 package com.nuvio.app.features.downloads
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Storage
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -31,6 +33,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +69,9 @@ fun DownloadsScreen(
 
     var selectedShowId by rememberSaveable(initialShowId) { mutableStateOf(initialShowId) }
     var downloadPendingDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var downloadsPendingBulkDeletion by remember { mutableStateOf<Set<String>?>(null) }
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
+    var selectedDownloadIds by remember { mutableStateOf(emptySet<String>()) }
     var showManagement by rememberSaveable { mutableStateOf(false) }
     var completedSortName by rememberSaveable {
         mutableStateOf(CompletedDownloadSort.RecentlyAdded.name)
@@ -74,6 +80,10 @@ fun DownloadsScreen(
         ?: CompletedDownloadSort.RecentlyAdded
     val networkPolicy by DownloadsNetworkPolicyRepository.policy.collectAsStateWithLifecycle()
     val exportFailedText = stringResource(Res.string.downloads_export_failed)
+
+    LaunchedEffect(uiState.items) {
+        selectedDownloadIds = retainExistingDownloadSelection(selectedDownloadIds, uiState.items)
+    }
 
     val completedEpisodes = remember(uiState.items) {
         uiState.completedItems
@@ -86,6 +96,35 @@ fun DownloadsScreen(
             completedEpisodes.firstOrNull { it.parentMetaId == showId }?.title
         }
     }
+    val selectedShowDownloadIds = remember(selectedShowId, completedEpisodes) {
+        selectedShowId?.let { downloadIdsForShow(completedEpisodes, it) }.orEmpty()
+    }
+    val selectionSummary = remember(selectedDownloadIds, uiState.items) {
+        summarizeDownloadSelection(selectedDownloadIds, uiState.items)
+    }
+    val allDownloadsSelected = uiState.items.isNotEmpty() &&
+        selectionSummary.selectedIds.size == uiState.items.size
+
+    fun enterSelection(targetIds: Collection<String>) {
+        selectionMode = true
+        selectedDownloadIds = retainExistingDownloadSelection(
+            selectedIds = selectedDownloadIds + targetIds,
+            items = uiState.items,
+        )
+    }
+
+    fun toggleSelection(targetIds: Collection<String>) {
+        selectedDownloadIds = toggleDownloadSelection(
+            selectedIds = selectedDownloadIds,
+            targetIds = targetIds,
+            items = uiState.items,
+        )
+    }
+
+    fun leaveSelection() {
+        selectionMode = false
+        selectedDownloadIds = emptySet()
+    }
 
     NuvioScreen {
         stickyHeader {
@@ -96,18 +135,38 @@ fun DownloadsScreen(
                     selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
                 },
                 onBack = {
-                    if (selectedShowId != null) {
+                    if (selectionMode) {
+                        leaveSelection()
+                    } else if (selectedShowId != null) {
                         onBackFromShow?.invoke() ?: run { selectedShowId = null }
                     } else {
                         onBack()
                     }
                 },
                 actions = {
-                    if (selectedShowId == null) {
+                    if (selectionMode) {
+                        TextButton(onClick = ::leaveSelection) {
+                            Text(stringResource(Res.string.action_done))
+                        }
+                    } else if (selectedShowId == null) {
+                        TextButton(onClick = { selectionMode = true }) {
+                            Text(stringResource(Res.string.downloads_select))
+                        }
                         IconButton(onClick = { showManagement = !showManagement }) {
                             Icon(
                                 imageVector = Icons.Rounded.Storage,
                                 contentDescription = stringResource(Res.string.downloads_manage_storage),
+                                tint = MaterialTheme.nuvio.colors.textPrimary,
+                            )
+                        }
+                    } else {
+                        IconButton(
+                            enabled = selectedShowDownloadIds.isNotEmpty(),
+                            onClick = { downloadsPendingBulkDeletion = selectedShowDownloadIds },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Delete,
+                                contentDescription = stringResource(Res.string.downloads_delete_show),
                                 tint = MaterialTheme.nuvio.colors.textPrimary,
                             )
                         }
@@ -129,6 +188,15 @@ fun DownloadsScreen(
                     onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
                 },
                 onDeleteDownload = { downloadPendingDeletionId = it },
+                selectionMode = selectionMode,
+                selectedDownloadIds = selectionSummary.selectedIds,
+                selectionSummary = selectionSummary,
+                allDownloadsSelected = allDownloadsSelected,
+                onSelectAll = { selectedDownloadIds = uiState.items.mapTo(linkedSetOf(), DownloadItem::id) },
+                onClearSelection = { selectedDownloadIds = emptySet() },
+                onDeleteSelection = { downloadsPendingBulkDeletion = selectionSummary.selectedIds },
+                onEnterSelection = ::enterSelection,
+                onToggleSelection = ::toggleSelection,
                 onExportDownload = { item ->
                     val localFileUri = DownloadsRepository.playableLocalFileUri(item)
                     if (localFileUri == null || !DownloadsPlatformDownloader.exportFile(localFileUri)) {
@@ -142,6 +210,14 @@ fun DownloadsScreen(
                 episodes = completedEpisodes,
                 onOpenDownload = onOpenDownload,
                 onDeleteDownload = { downloadPendingDeletionId = it },
+                selectionMode = selectionMode,
+                selectedDownloadIds = selectionSummary.selectedIds,
+                selectionSummary = selectionSummary,
+                onSelectAll = { selectedDownloadIds = selectedShowDownloadIds },
+                onClearSelection = { selectedDownloadIds = emptySet() },
+                onDeleteSelection = { downloadsPendingBulkDeletion = selectionSummary.selectedIds },
+                onEnterSelection = ::enterSelection,
+                onToggleSelection = ::toggleSelection,
                 onExportDownload = { item ->
                     val localFileUri = DownloadsRepository.playableLocalFileUri(item)
                     if (localFileUri == null || !DownloadsPlatformDownloader.exportFile(localFileUri)) {
@@ -167,8 +243,33 @@ fun DownloadsScreen(
             onDismiss = { downloadPendingDeletionId = null },
         )
     }
+
+    val pendingBulkDeletion = downloadsPendingBulkDeletion
+    if (pendingBulkDeletion != null) {
+        val pendingSummary = summarizeDownloadSelection(pendingBulkDeletion, uiState.items)
+        if (pendingSummary.fileCount > 0) {
+            NuvioStatusModal(
+                title = stringResource(Res.string.downloads_bulk_delete_title),
+                message = bulkDeleteConfirmationMessage(pendingSummary),
+                isVisible = true,
+                confirmText = stringResource(Res.string.action_delete),
+                dismissText = stringResource(Res.string.action_cancel),
+                onConfirm = {
+                    DownloadsRepository.cancelDownloads(pendingSummary.selectedIds)
+                    downloadsPendingBulkDeletion = null
+                    leaveSelection()
+                },
+                onDismiss = { downloadsPendingBulkDeletion = null },
+            )
+        } else {
+            LaunchedEffect(pendingBulkDeletion) {
+                downloadsPendingBulkDeletion = null
+            }
+        }
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 private fun LazyListScope.downloadsRootContent(
     uiState: DownloadsUiState,
     showManagement: Boolean,
@@ -179,11 +280,32 @@ private fun LazyListScope.downloadsRootContent(
     onOpenDownload: (DownloadItem) -> Unit,
     onOpenShow: (showId: String, title: String) -> Unit,
     onDeleteDownload: (String) -> Unit,
+    selectionMode: Boolean,
+    selectedDownloadIds: Set<String>,
+    selectionSummary: DownloadSelectionSummary,
+    allDownloadsSelected: Boolean,
+    onSelectAll: () -> Unit,
+    onClearSelection: () -> Unit,
+    onDeleteSelection: () -> Unit,
+    onEnterSelection: (Collection<String>) -> Unit,
+    onToggleSelection: (Collection<String>) -> Unit,
     onExportDownload: (DownloadItem) -> Unit,
 ) {
     val currentDownloads = currentDownloadsForDisplay(uiState.items)
     val movies = completedMoviesForDisplay(uiState.items, completedSort)
     val shows = completedShowsForDisplay(uiState.items, completedSort)
+
+    if (selectionMode) {
+        item {
+            DownloadSelectionBar(
+                summary = selectionSummary,
+                allVisibleSelected = allDownloadsSelected,
+                onSelectAll = onSelectAll,
+                onClearSelection = onClearSelection,
+                onDeleteSelection = onDeleteSelection,
+            )
+        }
+    }
 
     if (showManagement) {
         item {
@@ -211,6 +333,10 @@ private fun LazyListScope.downloadsRootContent(
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
                 onExport = { onExportDownload(item) },
+                selectionMode = selectionMode,
+                selected = item.id in selectedDownloadIds,
+                onEnterSelection = { onEnterSelection(listOf(item.id)) },
+                onToggleSelection = { onToggleSelection(listOf(item.id)) },
             )
         }
     }
@@ -240,6 +366,10 @@ private fun LazyListScope.downloadsRootContent(
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
                 onExport = { onExportDownload(item) },
+                selectionMode = selectionMode,
+                selected = item.id in selectedDownloadIds,
+                onEnterSelection = { onEnterSelection(listOf(item.id)) },
+                onToggleSelection = { onToggleSelection(listOf(item.id)) },
             )
         }
     }
@@ -253,11 +383,22 @@ private fun LazyListScope.downloadsRootContent(
             key = { it.representative.parentMetaId },
         ) { group ->
             val item = group.representative
+            val groupIds = group.episodes.mapTo(linkedSetOf(), DownloadItem::id)
+            val groupSelected = groupIds.isNotEmpty() && groupIds.all(selectedDownloadIds::contains)
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 12.dp, vertical = 6.dp)
-                    .clickable { onOpenShow(item.parentMetaId, item.title) },
+                    .combinedClickable(
+                        onClick = {
+                            if (selectionMode) {
+                                onToggleSelection(groupIds)
+                            } else {
+                                onOpenShow(item.parentMetaId, item.title)
+                            }
+                        },
+                        onLongClick = { onEnterSelection(groupIds) },
+                    ),
                 shape = MaterialTheme.shapes.medium,
                 color = MaterialTheme.colorScheme.surfaceContainer,
             ) {
@@ -288,11 +429,18 @@ private fun LazyListScope.downloadsRootContent(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    Icon(
-                        imageVector = Icons.Rounded.PlayArrow,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    if (selectionMode) {
+                        Checkbox(
+                            checked = groupSelected,
+                            onCheckedChange = { onToggleSelection(groupIds) },
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.PlayArrow,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
@@ -375,11 +523,20 @@ private fun completedSortLabel(sort: CompletedDownloadSort): String = when (sort
     CompletedDownloadSort.SmallestFirst -> stringResource(Res.string.downloads_sort_smallest_first)
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 private fun LazyListScope.downloadsShowContent(
     showId: String,
     episodes: List<DownloadItem>,
     onOpenDownload: (DownloadItem) -> Unit,
     onDeleteDownload: (String) -> Unit,
+    selectionMode: Boolean,
+    selectedDownloadIds: Set<String>,
+    selectionSummary: DownloadSelectionSummary,
+    onSelectAll: () -> Unit,
+    onClearSelection: () -> Unit,
+    onDeleteSelection: () -> Unit,
+    onEnterSelection: (Collection<String>) -> Unit,
+    onToggleSelection: (Collection<String>) -> Unit,
     onExportDownload: (DownloadItem) -> Unit,
 ) {
     val showEpisodes = episodes
@@ -394,6 +551,19 @@ private fun LazyListScope.downloadsShowContent(
                 if (season == 0) 0 else 1
             }.thenBy { (season, _) -> if (season == 0) 0 else season },
         )
+
+    if (selectionMode) {
+        item {
+            DownloadSelectionBar(
+                summary = selectionSummary,
+                allVisibleSelected = showEpisodes.isNotEmpty() &&
+                    showEpisodes.all { it.id in selectedDownloadIds },
+                onSelectAll = onSelectAll,
+                onClearSelection = onClearSelection,
+                onDeleteSelection = onDeleteSelection,
+            )
+        }
+    }
 
     if (seasons.isEmpty()) {
         item {
@@ -438,11 +608,16 @@ private fun LazyListScope.downloadsShowContent(
                 onRetry = { DownloadsRepository.retryDownload(item.id) },
                 onDelete = { onDeleteDownload(item.id) },
                 onExport = { onExportDownload(item) },
+                selectionMode = selectionMode,
+                selected = item.id in selectedDownloadIds,
+                onEnterSelection = { onEnterSelection(listOf(item.id)) },
+                onToggleSelection = { onToggleSelection(listOf(item.id)) },
             )
         }
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DownloadRow(
     item: DownloadItem,
@@ -452,6 +627,10 @@ private fun DownloadRow(
     onRetry: () -> Unit,
     onDelete: () -> Unit,
     onExport: () -> Unit,
+    selectionMode: Boolean,
+    selected: Boolean,
+    onEnterSelection: () -> Unit,
+    onToggleSelection: () -> Unit,
 ) {
     val displayTitle = item.displayTitle()
     val displaySubtitle = downloadDisplaySubtitle(
@@ -463,7 +642,16 @@ private fun DownloadRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clickable(enabled = item.isPlayable, onClick = onOpen),
+            .combinedClickable(
+                onClick = {
+                    if (selectionMode) {
+                        onToggleSelection()
+                    } else if (item.isPlayable) {
+                        onOpen()
+                    }
+                },
+                onLongClick = onEnterSelection,
+            ),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
@@ -505,55 +693,62 @@ private fun DownloadRow(
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    when (item.status) {
-                        DownloadStatus.Queued,
-                        DownloadStatus.Downloading,
-                        DownloadStatus.WaitingForNetwork,
-                        -> {
-                            IconButton(onClick = onPause) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Pause,
-                                    contentDescription = stringResource(Res.string.compose_action_pause),
-                                )
-                            }
-                        }
-                        DownloadStatus.Paused -> {
-                            IconButton(onClick = onResume) {
-                                Icon(
-                                    imageVector = Icons.Rounded.PlayArrow,
-                                    contentDescription = stringResource(Res.string.action_resume),
-                                )
-                            }
-                        }
-                        DownloadStatus.Failed -> {
-                            IconButton(onClick = onRetry) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Refresh,
-                                    contentDescription = stringResource(Res.string.action_retry),
-                                )
-                            }
-                        }
-                        DownloadStatus.Finalizing -> Unit
-                        DownloadStatus.Completed -> {
-                            IconButton(onClick = onOpen) {
-                                Icon(
-                                    imageVector = Icons.Rounded.PlayArrow,
-                                    contentDescription = stringResource(Res.string.action_play),
-                                )
-                            }
-                            IconButton(onClick = onExport) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Share,
-                                    contentDescription = stringResource(Res.string.downloads_export),
-                                )
-                            }
-                        }
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            imageVector = Icons.Rounded.Delete,
-                            contentDescription = stringResource(Res.string.action_delete),
+                    if (selectionMode) {
+                        Checkbox(
+                            checked = selected,
+                            onCheckedChange = { onToggleSelection() },
                         )
+                    } else {
+                        when (item.status) {
+                            DownloadStatus.Queued,
+                            DownloadStatus.Downloading,
+                            DownloadStatus.WaitingForNetwork,
+                            -> {
+                                IconButton(onClick = onPause) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Pause,
+                                        contentDescription = stringResource(Res.string.compose_action_pause),
+                                    )
+                                }
+                            }
+                            DownloadStatus.Paused -> {
+                                IconButton(onClick = onResume) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PlayArrow,
+                                        contentDescription = stringResource(Res.string.action_resume),
+                                    )
+                                }
+                            }
+                            DownloadStatus.Failed -> {
+                                IconButton(onClick = onRetry) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Refresh,
+                                        contentDescription = stringResource(Res.string.action_retry),
+                                    )
+                                }
+                            }
+                            DownloadStatus.Finalizing -> Unit
+                            DownloadStatus.Completed -> {
+                                IconButton(onClick = onOpen) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.PlayArrow,
+                                        contentDescription = stringResource(Res.string.action_play),
+                                    )
+                                }
+                                IconButton(onClick = onExport) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Share,
+                                        contentDescription = stringResource(Res.string.downloads_export),
+                                    )
+                                }
+                            }
+                        }
+                        IconButton(onClick = onDelete) {
+                            Icon(
+                                imageVector = Icons.Rounded.Delete,
+                                contentDescription = stringResource(Res.string.action_delete),
+                            )
+                        }
                     }
                 }
             }
@@ -575,6 +770,86 @@ private fun DownloadRow(
             }
         }
     }
+}
+
+@Composable
+private fun DownloadSelectionBar(
+    summary: DownloadSelectionSummary,
+    allVisibleSelected: Boolean,
+    onSelectAll: () -> Unit,
+    onClearSelection: () -> Unit,
+    onDeleteSelection: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = stringResource(
+                    Res.string.downloads_selection_summary,
+                    summary.fileCount,
+                    formatBytes(summary.knownStorageBytes),
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(
+                        enabled = !allVisibleSelected,
+                        onClick = onSelectAll,
+                    ) {
+                        Text(stringResource(Res.string.downloads_select_all))
+                    }
+                    TextButton(
+                        enabled = summary.fileCount > 0,
+                        onClick = onClearSelection,
+                    ) {
+                        Text(stringResource(Res.string.action_clear))
+                    }
+                }
+                TextButton(
+                    enabled = summary.fileCount > 0,
+                    onClick = onDeleteSelection,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Delete,
+                        contentDescription = null,
+                    )
+                    Text(stringResource(Res.string.downloads_delete_selected))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun bulkDeleteConfirmationMessage(summary: DownloadSelectionSummary): String = when {
+    summary.completedFileCount > 0 && summary.currentTransferCount > 0 -> stringResource(
+        Res.string.downloads_bulk_delete_message_mixed,
+        summary.completedFileCount,
+        summary.currentTransferCount,
+    )
+    summary.completedFileCount > 0 -> stringResource(
+        Res.string.downloads_bulk_delete_message_completed,
+        summary.completedFileCount,
+    )
+    else -> stringResource(
+        Res.string.downloads_bulk_delete_message_current,
+        summary.currentTransferCount,
+    )
 }
 
 @Composable

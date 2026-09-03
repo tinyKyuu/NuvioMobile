@@ -130,6 +130,12 @@ internal enum class WatchTogetherServiceCapability {
     @SerialName("participant.readiness")
     ParticipantReadiness,
 
+    @SerialName("round.readiness_gate")
+    RoundReadinessGate,
+
+    @SerialName("round.countdown")
+    RoundCountdown,
+
     @SerialName("round.multiple")
     MultipleRounds,
 
@@ -238,6 +244,12 @@ internal enum class WatchTogetherRejectionCode {
     @SerialName("ROUND_MISMATCH")
     RoundMismatch,
 
+    @SerialName("READINESS_REQUIRED")
+    ReadinessRequired,
+
+    @SerialName("COUNTDOWN_ACTIVE")
+    CountdownActive,
+
     @SerialName("MESSAGE_ID_REUSE")
     MessageIdReuse,
 
@@ -333,7 +345,14 @@ internal data class WatchTogetherRoundState(
     val roundId: String,
     val generation: Long,
     val status: WatchTogetherRoundStatus,
+    val countdown: WatchTogetherCountdownState? = null,
     val playback: WatchTogetherPlaybackAnchor,
+)
+
+@Serializable
+internal data class WatchTogetherCountdownState(
+    val startedAtRelayTimeMs: Long,
+    val endsAtRelayTimeMs: Long,
 )
 
 @Serializable

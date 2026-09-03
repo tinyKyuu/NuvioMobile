@@ -222,6 +222,35 @@ internal object WatchTogetherContractValidator {
 
         opaqueId(field("round.roundId"), state.round.roundId)
         positiveSafeInteger(field("round.generation"), state.round.generation)
+        when (state.round.status) {
+            WatchTogetherRoundStatus.Countdown -> {
+                check(field("round.countdown"), state.round.countdown != null) {
+                    "is required while the round is counting down"
+                }
+                check(
+                    field("round.playback.mode"),
+                    state.round.playback.mode == WatchTogetherPlaybackMode.Paused,
+                ) { "must be paused while the round is counting down" }
+            }
+
+            else -> check(field("round.countdown"), state.round.countdown == null) {
+                "must be null outside a countdown"
+            }
+        }
+        state.round.countdown?.let { countdown ->
+            nonNegativeSafeInteger(
+                field("round.countdown.startedAtRelayTimeMs"),
+                countdown.startedAtRelayTimeMs,
+            )
+            positiveSafeInteger(
+                field("round.countdown.endsAtRelayTimeMs"),
+                countdown.endsAtRelayTimeMs,
+            )
+            check(
+                field("round.countdown.endsAtRelayTimeMs"),
+                countdown.endsAtRelayTimeMs > countdown.startedAtRelayTimeMs,
+            ) { "must follow startedAtRelayTimeMs" }
+        }
         nonNegativeSafeInteger(
             field("round.playback.anchorPositionMs"),
             state.round.playback.anchorPositionMs,

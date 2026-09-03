@@ -567,6 +567,8 @@ kotlin {
             implementation(libs.kmpalette.core)
             implementation(libs.androidx.navigation3.ui)
             implementation(libs.kermit)
+            implementation(libs.ktor.client.core)
+            implementation(libs.ktor.client.websockets)
             implementation(libs.supabase.postgrest)
             implementation(libs.supabase.auth)
             implementation(libs.supabase.functions)

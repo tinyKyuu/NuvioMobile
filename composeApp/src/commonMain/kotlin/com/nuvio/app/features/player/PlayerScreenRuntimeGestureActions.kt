@@ -150,6 +150,16 @@ internal fun PlayerScreenRuntime.showVolumeFeedback(level: PlayerAudioLevel) {
 }
 
 internal fun PlayerScreenRuntime.togglePlayback() {
+    val wantsToPlay = !playbackSnapshot.isPlaying
+    if (wantsToPlay && playbackSnapshot.isEnded) {
+        if (watchTogetherSession?.requestSeek(0L) != true) {
+            playerController?.seekTo(0L)
+        }
+    }
+    if (watchTogetherSession?.requestPlayback(wantsToPlay) == true) {
+        controlsVisible = true
+        return
+    }
     if (playbackSnapshot.isPlaying) {
         shouldPlay = false
         playerController?.pause()
@@ -164,8 +174,15 @@ internal fun PlayerScreenRuntime.togglePlayback() {
 }
 
 internal fun PlayerScreenRuntime.seekBy(offsetMs: Long) {
-    playerController?.seekBy(offsetMs)
-    scheduleProgressSyncAfterSeek()
+    val durationMs = playbackSnapshot.durationMs.takeIf { it > 0L }
+    val targetPositionMs = (playbackSnapshot.positionMs + offsetMs)
+        .coerceAtLeast(0L)
+        .let { position -> durationMs?.let(position::coerceAtMost) ?: position }
+    val handledByWatchTogether = watchTogetherSession?.requestSeek(targetPositionMs) == true
+    if (!handledByWatchTogether) {
+        playerController?.seekBy(offsetMs)
+        scheduleProgressSyncAfterSeek()
+    }
     controlsVisible = true
     when {
         offsetMs > 0L -> showSeekFeedback(PlayerSeekDirection.Forward, offsetMs)
@@ -197,8 +214,11 @@ internal fun PlayerScreenRuntime.handleDoubleTapSeek(direction: PlayerSeekDirect
             maxDurationMs?.let { unclamped.coerceAtMost(it) } ?: unclamped
         }
     }
-    playerController?.seekTo(targetPositionMs)
-    scheduleProgressSyncAfterSeek()
+    val handledByWatchTogether = watchTogetherSession?.requestSeek(targetPositionMs) == true
+    if (!handledByWatchTogether) {
+        playerController?.seekTo(targetPositionMs)
+        scheduleProgressSyncAfterSeek()
+    }
     showSeekFeedback(direction, nextState.amountMs)
 
     accumulatedSeekResetJob?.cancel()
@@ -309,8 +329,11 @@ internal fun PlayerScreenRuntime.rememberSurfaceGestureCallbacks(): PlayerSurfac
         currentPositionMs = rememberUpdatedState(playbackSnapshot.positionMs.coerceAtLeast(0L)),
         currentDurationMs = rememberUpdatedState(playbackSnapshot.durationMs),
         commitHorizontalSeek = rememberUpdatedState { targetPositionMs: Long ->
-            playerController?.seekTo(targetPositionMs)
-            scheduleProgressSyncAfterSeek()
+            val handledByWatchTogether = watchTogetherSession?.requestSeek(targetPositionMs) == true
+            if (!handledByWatchTogether) {
+                playerController?.seekTo(targetPositionMs)
+                scheduleProgressSyncAfterSeek()
+            }
         },
     )
 }

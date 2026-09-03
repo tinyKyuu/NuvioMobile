@@ -218,6 +218,9 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
             p2pRebufferProgress = p2pRebufferProgress,
         )
         RenderPlayerModals(displayedPositionMs = displayedPositionMs)
+        if (showWatchTogetherPanel && !isInPip) {
+            WatchTogetherDevelopmentDialog()
+        }
     }
 }
 
@@ -295,6 +298,14 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
             onVideoSettingsClick = if (isIos) {
                 {
                     showVideoSettingsModal = true
+                    controlsVisible = true
+                }
+            } else {
+                null
+            },
+            onWatchTogetherClick = if (isIos) {
+                {
+                    showWatchTogetherPanel = true
                     controlsVisible = true
                 }
             } else {
@@ -408,8 +419,11 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
             onScrubFinished = { positionMs ->
                 isScrubbingTimeline = false
                 scrubbingPositionMs = null
-                playerController?.seekTo(positionMs)
-                scheduleProgressSyncAfterSeek()
+                val handledByWatchTogether = watchTogetherSession?.requestSeek(positionMs) == true
+                if (!handledByWatchTogether) {
+                    playerController?.seekTo(positionMs)
+                    scheduleProgressSyncAfterSeek()
+                }
             },
             horizontalSafePadding = horizontalSafePadding,
             modifier = Modifier.fillMaxSize(),
@@ -461,8 +475,11 @@ private fun BoxScope.RenderPlaybackOverlays(
             val rawMs = (interval.endTime * 1000.0).toLong()
             val durationMs = playbackSnapshot.durationMs
             val seekMs = if (durationMs > 0L) rawMs.coerceAtMost(durationMs - 1) else rawMs
-            playerController?.seekTo(seekMs)
-            scheduleProgressSyncAfterSeek()
+            val handledByWatchTogether = watchTogetherSession?.requestSeek(seekMs) == true
+            if (!handledByWatchTogether) {
+                playerController?.seekTo(seekMs)
+                scheduleProgressSyncAfterSeek()
+            }
             skipIntervalDismissed = true
         },
         onDismissSkipInterval = { skipIntervalDismissed = true },

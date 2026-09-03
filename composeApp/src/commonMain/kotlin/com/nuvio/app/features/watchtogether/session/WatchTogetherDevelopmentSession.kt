@@ -89,6 +89,9 @@ internal class WatchTogetherDevelopmentSession(
     private var nextSequence = 0L
     private var nextRequest = 0L
     private var manualDisconnect = false
+    private var seekSettlingUntilMs = 0L
+    private var seekSettlementAnchorRelayTimeMs: Long? = null
+    private var resumeIssuedWhileSettling = false
     private val correctionPolicy = DriftCorrectionPolicy()
     private val outgoingCommandFrames = Channel<OutgoingCommandFrame>(Channel.UNLIMITED)
     private val commandSenderJob = scope.launch {
@@ -136,6 +139,23 @@ internal class WatchTogetherDevelopmentSession(
         return true
     }
 
+    fun simulateConnectionLoss(): Boolean {
+        if (mutableState.value.status != WatchTogetherDevelopmentStatus.Connected) return false
+        val socket = activeSocket ?: return false
+        val frame = buildJsonObject {
+            put("type", "session.drop")
+            put("requestId", requestId())
+        }
+        mutableState.value = mutableState.value.copy(
+            correction = "Starting reconnect test",
+            errorMessage = null,
+        )
+        outgoingCommandFrames.trySend(
+            OutgoingCommandFrame(socket = socket, text = frame.toString()),
+        )
+        return true
+    }
+
     fun leave() {
         manualDisconnect = true
         connectionJob?.cancel()
@@ -153,6 +173,7 @@ internal class WatchTogetherDevelopmentSession(
         latestRelayReceivedAtMs = null
         clockEstimator.reset()
         correctionPolicy.reset()
+        resetSeekSettlement()
         mutableState.value = WatchTogetherDevelopmentState(
             endpoint = mutableState.value.endpoint,
             displayName = mutableState.value.displayName,
@@ -302,6 +323,7 @@ internal class WatchTogetherDevelopmentSession(
         )
         nextSequence = 0L
         orderer = ServerMessageOrderer(frame.roomId, WATCH_TOGETHER_PROTOCOL_VERSION)
+        resetSeekSettlement()
         mutableState.value = mutableState.value.copy(
             status = WatchTogetherDevelopmentStatus.Connected,
             roomCode = frame.roomCode,
@@ -459,24 +481,50 @@ internal class WatchTogetherDevelopmentSession(
         )
 
         val desiredPlaying = room.round.playback.mode == WatchTogetherPlaybackMode.Playing
+        val localNowMs = monotonicNowMs()
+        val isSettling = localNowMs < seekSettlingUntilMs &&
+            seekSettlementAnchorRelayTimeMs == room.round.playback.anchorRelayTimeMs
+        if (!isSettling && seekSettlementAnchorRelayTimeMs != null) resetSeekSettlement()
+
         if (!desiredPlaying) {
             correctionPolicy.reset()
             if (snapshot.isPlaying) execute(WatchTogetherPlayerCommand.Pause, "Paused to canonical state")
-            if (abs(driftMs) > 250L) {
-                execute(WatchTogetherPlayerCommand.SeekTo(canonicalPositionMs), "Hard seek while paused")
+            if (abs(driftMs) > 250L && !isSettling) {
+                executeSeek(
+                    positionMs = canonicalPositionMs,
+                    anchorRelayTimeMs = room.round.playback.anchorRelayTimeMs,
+                    label = "Hard seek while paused",
+                )
+            } else if (isSettling) {
+                mutableState.value = mutableState.value.copy(correction = "Waiting for player after seek")
+            }
+            return
+        }
+
+        if (isSettling) {
+            if (!snapshot.isPlaying && !resumeIssuedWhileSettling) {
+                resumeIssuedWhileSettling = true
+                execute(WatchTogetherPlayerCommand.Resume, "Waiting for player after seek")
+            } else {
+                mutableState.value = mutableState.value.copy(correction = "Waiting for player after seek")
             }
             return
         }
 
         if (!snapshot.isPlaying) {
             if (abs(driftMs) > 250L) {
-                execute(WatchTogetherPlayerCommand.SeekTo(canonicalPositionMs), "Aligned before resume")
+                executeSeek(
+                    positionMs = canonicalPositionMs,
+                    anchorRelayTimeMs = room.round.playback.anchorRelayTimeMs,
+                    label = "Aligned before resume",
+                )
             }
             execute(WatchTogetherPlayerCommand.Resume, "Resumed to canonical state")
+            resumeIssuedWhileSettling = true
             return
         }
 
-        when (val decision = correctionPolicy.evaluate(driftMs, monotonicNowMs())) {
+        when (val decision = correctionPolicy.evaluate(driftMs, localNowMs)) {
             DriftCorrectionDecision.None -> {
                 if (abs(driftMs) <= 250L) {
                     mutableState.value = mutableState.value.copy(correction = "Within 250 ms")
@@ -484,7 +532,11 @@ internal class WatchTogetherDevelopmentSession(
             }
 
             DriftCorrectionDecision.HardSeek -> {
-                execute(WatchTogetherPlayerCommand.SeekTo(canonicalPositionMs), "Hard seek")
+                executeSeek(
+                    positionMs = canonicalPositionMs,
+                    anchorRelayTimeMs = room.round.playback.anchorRelayTimeMs,
+                    label = "Hard seek",
+                )
             }
 
             is DriftCorrectionDecision.TemporaryRate -> {
@@ -499,14 +551,38 @@ internal class WatchTogetherDevelopmentSession(
                         correction = "Temporary ${decision.rate}× correction",
                     )
                 } else {
-                    execute(WatchTogetherPlayerCommand.SeekTo(canonicalPositionMs), "Rate unsupported; hard seek")
+                    executeSeek(
+                        positionMs = canonicalPositionMs,
+                        anchorRelayTimeMs = room.round.playback.anchorRelayTimeMs,
+                        label = "Rate unsupported; hard seek",
+                    )
                 }
             }
         }
     }
 
-    private suspend fun execute(command: WatchTogetherPlayerCommand, label: String) {
-        when (player.execute(command)) {
+    private suspend fun executeSeek(
+        positionMs: Long,
+        anchorRelayTimeMs: Long,
+        label: String,
+    ) {
+        val result = execute(WatchTogetherPlayerCommand.SeekTo(positionMs), label)
+        if (result is WatchTogetherPlayerCommandResult.Applied) {
+            seekSettlingUntilMs = monotonicNowMs() + SEEK_SETTLEMENT_MS
+            seekSettlementAnchorRelayTimeMs = anchorRelayTimeMs
+            resumeIssuedWhileSettling = false
+            mutableState.value = mutableState.value.copy(
+                correction = "$label; waiting for player",
+            )
+        }
+    }
+
+    private suspend fun execute(
+        command: WatchTogetherPlayerCommand,
+        label: String,
+    ): WatchTogetherPlayerCommandResult {
+        val result = player.execute(command)
+        when (result) {
             WatchTogetherPlayerCommandResult.Applied -> {
                 mutableState.value = mutableState.value.copy(correction = label)
             }
@@ -517,6 +593,13 @@ internal class WatchTogetherDevelopmentSession(
                 mutableState.value = mutableState.value.copy(correction = "Correction unsupported")
             }
         }
+        return result
+    }
+
+    private fun resetSeekSettlement() {
+        seekSettlingUntilMs = 0L
+        seekSettlementAnchorRelayTimeMs = null
+        resumeIssuedWhileSettling = false
     }
 
     private fun relayNowMs(): Long? {
@@ -556,4 +639,8 @@ internal class WatchTogetherDevelopmentSession(
     }
 
     private fun monotonicNowMs(): Long = monotonicOrigin.elapsedNow().inWholeMilliseconds
+
+    private companion object {
+        const val SEEK_SETTLEMENT_MS = 4_000L
+    }
 }

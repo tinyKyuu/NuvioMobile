@@ -4,6 +4,7 @@ import com.nuvio.app.features.watchtogether.protocol.RelayClockEstimator
 import com.nuvio.app.features.watchtogether.protocol.RelayClockSample
 import com.nuvio.app.features.watchtogether.protocol.ServerMessageDecision
 import com.nuvio.app.features.watchtogether.protocol.ServerMessageOrderer
+import com.nuvio.app.features.watchtogether.protocol.WATCH_TOGETHER_MAX_SAFE_INTEGER
 import com.nuvio.app.features.watchtogether.protocol.WATCH_TOGETHER_PROTOCOL_VERSION
 import com.nuvio.app.features.watchtogether.protocol.WatchTogetherCanonicalClock
 import com.nuvio.app.features.watchtogether.protocol.WatchTogetherClientCommand
@@ -265,10 +266,17 @@ internal class WatchTogetherDevelopmentSession(
     private suspend fun DefaultClientWebSocketSession.sendInitialRequest(request: InitialRequest) {
         val requestId = requestId()
         val frame = when (request) {
-            is InitialRequest.Create -> buildJsonObject {
-                put("type", "room.create")
-                put("requestId", requestId)
-                put("displayName", request.displayName)
+            is InitialRequest.Create -> {
+                val initialPositionMs = player.snapshot().localPositionMs.coerceIn(
+                    minimumValue = 0L,
+                    maximumValue = WATCH_TOGETHER_MAX_SAFE_INTEGER,
+                )
+                buildJsonObject {
+                    put("type", "room.create")
+                    put("requestId", requestId)
+                    put("displayName", request.displayName)
+                    put("initialPositionMs", initialPositionMs)
+                }
             }
             is InitialRequest.Join -> buildJsonObject {
                 put("type", "room.join")

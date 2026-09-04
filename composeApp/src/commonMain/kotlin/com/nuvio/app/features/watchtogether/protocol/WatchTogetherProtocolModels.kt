@@ -18,6 +18,7 @@ internal data class WatchTogetherServiceManifest(
     val description: String,
     val canonicalOrigin: String,
     val protocolVersions: List<String>,
+    val transports: List<WatchTogetherServiceTransport>,
     val endpoints: WatchTogetherServiceEndpoints,
     val operator: WatchTogetherServiceOperator,
     val privacy: WatchTogetherPrivacyDeclaration,
@@ -26,8 +27,20 @@ internal data class WatchTogetherServiceManifest(
 )
 
 @Serializable
+internal data class WatchTogetherServiceTransport(
+    val profile: WatchTogetherTransportProfile,
+    val projectUrl: String,
+    val publishableKey: String,
+)
+
+@Serializable
+internal enum class WatchTogetherTransportProfile {
+    @SerialName("supabase_direct_v1")
+    SupabaseDirectV1,
+}
+
+@Serializable
 internal data class WatchTogetherServiceEndpoints(
-    val relayWebSocketUrl: String,
     val accountLinkUrl: String? = null,
     val statusUrl: String? = null,
     val supportUrl: String? = null,
@@ -87,6 +100,9 @@ internal data class WatchTogetherHostAuthentication(
 internal enum class WatchTogetherHostAuthenticationMode {
     @SerialName("none")
     None,
+
+    @SerialName("email_otp")
+    EmailOtp,
 
     @SerialName("email_otp_device_link")
     EmailOtpDeviceLink,

@@ -25,7 +25,7 @@ internal object WatchTogetherContractValidator {
     private val serviceIdPattern = Regex("^[a-z0-9]+(?:[.-][a-z0-9]+)+$")
     private val canonicalOriginPattern = Regex("^https://[^@/?#]+/?$")
     private val secureHttpUrlPattern = Regex("^https://(?![^/?#]*@)[^?#]+$")
-    private val secureWebSocketUrlPattern = Regex("^wss://(?![^/?#]*@)[^?#]+$")
+    private val publishableKeyPattern = Regex("^sb_publishable_[A-Za-z0-9_-]{20,200}$")
 
     fun validate(manifest: WatchTogetherServiceManifest): WatchTogetherValidationResult =
         collect {
@@ -41,11 +41,26 @@ internal object WatchTogetherContractValidator {
                 "must contain at least one version"
             }
             unique("protocolVersions", manifest.protocolVersions)
-            matches(
-                "endpoints.relayWebSocketUrl",
-                manifest.endpoints.relayWebSocketUrl,
-                secureWebSocketUrlPattern,
-            )
+            check("transports", manifest.transports.size in 1..4) {
+                "must contain between one and four transport profiles"
+            }
+            unique("transports.profile", manifest.transports.map { it.profile })
+            manifest.transports.forEachIndexed { index, transport ->
+                when (transport.profile) {
+                    WatchTogetherTransportProfile.SupabaseDirectV1 -> {
+                        matches(
+                            "transports[$index].projectUrl",
+                            transport.projectUrl,
+                            canonicalOriginPattern,
+                        )
+                        check(
+                            "transports[$index].publishableKey",
+                            transport.publishableKey.length <= 215 &&
+                                publishableKeyPattern.matches(transport.publishableKey),
+                        ) { "must be a public Supabase publishable key" }
+                    }
+                }
+            }
             optionalSecureHttp("endpoints.accountLinkUrl", manifest.endpoints.accountLinkUrl)
             optionalSecureHttp("endpoints.statusUrl", manifest.endpoints.statusUrl)
             optionalSecureHttp("endpoints.supportUrl", manifest.endpoints.supportUrl)
@@ -66,6 +81,13 @@ internal object WatchTogetherContractValidator {
                         "authentication.host.accountRequired",
                         !manifest.authentication.host.accountRequired,
                     ) { "must be false when host authentication mode is none" }
+                }
+
+                WatchTogetherHostAuthenticationMode.EmailOtp -> {
+                    check(
+                        "authentication.host.accountRequired",
+                        manifest.authentication.host.accountRequired,
+                    ) { "must be true for email OTP" }
                 }
 
                 WatchTogetherHostAuthenticationMode.EmailOtpDeviceLink -> {

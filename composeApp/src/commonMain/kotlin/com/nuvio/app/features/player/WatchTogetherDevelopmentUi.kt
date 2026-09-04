@@ -136,6 +136,9 @@ internal fun PlayerScreenRuntime.WatchTogetherDevelopmentDialog() {
                                     watchTogetherRoomCodeInput,
                                 )
                             },
+                            onUseHostedService = {
+                                watchTogetherUseDevelopmentRelay = false
+                            },
                         )
                     }
                 }
@@ -158,6 +161,7 @@ private fun ColumnScope.SetupContent(
     onRoomCodeChange: (String) -> Unit,
     onCreate: () -> Unit,
     onJoin: () -> Unit,
+    onUseHostedService: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
     Text(
@@ -217,6 +221,12 @@ private fun ColumnScope.SetupContent(
         onClick = onJoin,
     )
     errorMessage?.let { ErrorText(it) }
+    TextButton(
+        onClick = onUseHostedService,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text("Use hosted pilot service", color = tokens.colors.textSecondary)
+    }
 }
 
 @Composable
@@ -327,7 +337,7 @@ private fun RoomMetricsCard(state: WatchTogetherDevelopmentState) {
 }
 
 @Composable
-private fun WatchTogetherTextField(
+internal fun WatchTogetherTextField(
     value: String,
     onValueChange: (String) -> Unit,
     label: String,
@@ -388,7 +398,7 @@ private fun WatchTogetherTextField(
 }
 
 @Composable
-private fun PrimaryActionButton(
+internal fun PrimaryActionButton(
     label: String,
     enabled: Boolean,
     onClick: () -> Unit,
@@ -410,7 +420,7 @@ private fun PrimaryActionButton(
 }
 
 @Composable
-private fun SecondaryActionButton(
+internal fun SecondaryActionButton(
     label: String,
     enabled: Boolean = true,
     onClick: () -> Unit,
@@ -432,7 +442,7 @@ private fun SecondaryActionButton(
 }
 
 @Composable
-private fun ScrollablePane(
+internal fun ScrollablePane(
     modifier: Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -444,7 +454,7 @@ private fun ScrollablePane(
 }
 
 @Composable
-private fun DevelopmentMetric(label: String, value: String?) {
+internal fun DevelopmentMetric(label: String, value: String?) {
     if (value == null) return
     val tokens = MaterialTheme.nuvio
     Row(
@@ -472,7 +482,7 @@ private fun DevelopmentMetric(label: String, value: String?) {
 }
 
 @Composable
-private fun ErrorText(message: String) {
+internal fun ErrorText(message: String) {
     Text(
         text = message,
         color = MaterialTheme.nuvio.colors.danger,

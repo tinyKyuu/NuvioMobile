@@ -68,6 +68,7 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentStorage
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesStorage
 import com.nuvio.app.features.watchprogress.ResumePromptStorage
 import com.nuvio.app.features.watchprogress.WatchProgressStorage
+import com.nuvio.app.features.watchtogether.hosted.WatchTogetherPlatformSecurity
 
 open class MainActivity : AppCompatActivity() {
     private var pipRemoteActionReceiver: PipRemoteActionReceiver? = null
@@ -90,6 +91,7 @@ open class MainActivity : AppCompatActivity() {
         AddonHttpClientProvider.initialize(applicationContext)
         AddonStorage.initialize(applicationContext)
         AuthStorage.initialize(applicationContext)
+        WatchTogetherPlatformSecurity.initialize(applicationContext)
         ServerConfigurationStorage.initialize(applicationContext)
         LibraryStorage.initialize(applicationContext)
         WatchedStorage.initialize(applicationContext)

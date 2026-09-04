@@ -21,6 +21,9 @@ import com.nuvio.app.features.streams.StreamsUiState
 import com.nuvio.app.features.tracking.TrackingMediaReference
 import com.nuvio.app.features.watched.WatchedUiState
 import com.nuvio.app.features.watchprogress.WatchProgressUiState
+import com.nuvio.app.features.watchtogether.hosted.WatchTogetherHostedSession
+import com.nuvio.app.features.watchtogether.hosted.WatchTogetherHostedState
+import com.nuvio.app.features.watchtogether.hosted.WatchTogetherPlaybackSession
 import com.nuvio.app.features.watchtogether.session.WatchTogetherDevelopmentSession
 import com.nuvio.app.features.watchtogether.session.WatchTogetherDevelopmentState
 import kotlinx.coroutines.CoroutineScope
@@ -192,11 +195,16 @@ internal class PlayerScreenRuntime(
     var showSubtitleModal by mutableStateOf(false)
     var showVideoSettingsModal by mutableStateOf(false)
     var showWatchTogetherPanel by mutableStateOf(false)
+    var watchTogetherUseDevelopmentRelay by mutableStateOf(false)
     var watchTogetherEndpointInput by mutableStateOf("")
     var watchTogetherDisplayNameInput by mutableStateOf("")
     var watchTogetherRoomCodeInput by mutableStateOf("")
     var watchTogetherSession: WatchTogetherDevelopmentSession? = null
     var watchTogetherState by mutableStateOf(WatchTogetherDevelopmentState())
+    val hostedWatchTogetherDialogDraft = WatchTogetherHostedDialogDraft()
+    var hostedWatchTogetherSession: WatchTogetherHostedSession? = null
+    var hostedWatchTogetherState by mutableStateOf(WatchTogetherHostedState())
+    var watchTogetherPlaybackSession: WatchTogetherPlaybackSession? = null
     var audioTracks by mutableStateOf<List<AudioTrack>>(emptyList())
     var subtitleTracks by mutableStateOf<List<SubtitleTrack>>(emptyList())
     var selectedAudioIndex by mutableStateOf(-1)

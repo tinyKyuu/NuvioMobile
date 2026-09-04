@@ -219,7 +219,7 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
         )
         RenderPlayerModals(displayedPositionMs = displayedPositionMs)
         if (showWatchTogetherPanel && !isInPip) {
-            WatchTogetherDevelopmentDialog()
+            WatchTogetherDialog()
         }
     }
 }
@@ -419,7 +419,7 @@ private fun PlayerScreenRuntime.RenderPlayerControls(displayedPositionMs: Long, 
             onScrubFinished = { positionMs ->
                 isScrubbingTimeline = false
                 scrubbingPositionMs = null
-                val handledByWatchTogether = watchTogetherSession?.requestSeek(positionMs) == true
+                val handledByWatchTogether = watchTogetherPlaybackSession?.requestSeek(positionMs) == true
                 if (!handledByWatchTogether) {
                     playerController?.seekTo(positionMs)
                     scheduleProgressSyncAfterSeek()
@@ -475,7 +475,7 @@ private fun BoxScope.RenderPlaybackOverlays(
             val rawMs = (interval.endTime * 1000.0).toLong()
             val durationMs = playbackSnapshot.durationMs
             val seekMs = if (durationMs > 0L) rawMs.coerceAtMost(durationMs - 1) else rawMs
-            val handledByWatchTogether = watchTogetherSession?.requestSeek(seekMs) == true
+            val handledByWatchTogether = watchTogetherPlaybackSession?.requestSeek(seekMs) == true
             if (!handledByWatchTogether) {
                 playerController?.seekTo(seekMs)
                 scheduleProgressSyncAfterSeek()

@@ -22,6 +22,7 @@ import com.nuvio.app.features.p2p.P2pSettingsRepository
 import com.nuvio.app.features.p2p.P2pStreamingEngine
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import com.nuvio.app.features.watchtogether.hosted.WatchTogetherHostedSessionRepository
 import com.nuvio.app.features.watchtogether.session.WatchTogetherDevelopmentSession
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_airs_prefix
@@ -80,15 +81,25 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
     val runtime = remember { PlayerScreenRuntime(args) }
     runtime.args = args
     val runtimeScope = rememberCoroutineScope()
-    val watchTogetherSession = remember(runtime) {
+    val watchTogetherPlayerAdapter = remember(runtime) {
+        PlayerWatchTogetherAdapter(runtime, runtimeScope)
+    }
+    val developmentWatchTogetherSession = remember(runtime) {
         WatchTogetherDevelopmentSession(
             scope = runtimeScope,
-            player = PlayerWatchTogetherAdapter(runtime, runtimeScope),
+            player = watchTogetherPlayerAdapter,
         )
     }
-    val watchTogetherState by watchTogetherSession.state.collectAsStateWithLifecycle()
-    DisposableEffect(watchTogetherSession) {
-        onDispose { watchTogetherSession.close() }
+    val developmentWatchTogetherState by
+        developmentWatchTogetherSession.state.collectAsStateWithLifecycle()
+    val hostedWatchTogetherSession = remember { WatchTogetherHostedSessionRepository.session }
+    val hostedWatchTogetherState by hostedWatchTogetherSession.state.collectAsStateWithLifecycle()
+    DisposableEffect(developmentWatchTogetherSession) {
+        onDispose { developmentWatchTogetherSession.close() }
+    }
+    DisposableEffect(hostedWatchTogetherSession, watchTogetherPlayerAdapter) {
+        hostedWatchTogetherSession.attachPlayer(watchTogetherPlayerAdapter)
+        onDispose { hostedWatchTogetherSession.detachPlayer(watchTogetherPlayerAdapter) }
     }
 
     BoxWithConstraints(
@@ -101,8 +112,15 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
         val metrics = remember(maxWidth) { PlayerLayoutMetrics.fromWidth(maxWidth) }
 
         runtime.scope = runtimeScope
-        runtime.watchTogetherSession = watchTogetherSession
-        runtime.watchTogetherState = watchTogetherState
+        runtime.watchTogetherSession = developmentWatchTogetherSession
+        runtime.watchTogetherState = developmentWatchTogetherState
+        runtime.hostedWatchTogetherSession = hostedWatchTogetherSession
+        runtime.hostedWatchTogetherState = hostedWatchTogetherState
+        runtime.watchTogetherPlaybackSession = when {
+            hostedWatchTogetherState.isActive -> hostedWatchTogetherSession
+            developmentWatchTogetherState.isActive -> developmentWatchTogetherSession
+            else -> null
+        }
         runtime.hapticFeedback = LocalHapticFeedback.current
         runtime.gestureController = rememberPlayerGestureController()
         runtime.playerSettingsUiState = playerSettingsUiState

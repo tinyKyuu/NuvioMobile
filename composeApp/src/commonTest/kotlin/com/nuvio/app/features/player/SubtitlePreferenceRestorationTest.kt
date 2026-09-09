@@ -171,6 +171,145 @@ class SubtitlePreferenceRestorationTest {
         assertTrue(runtime.isUserExplicitSubtitleSelection)
     }
 
+    @Test
+    fun completedEmptyFetchFallsBackToSavedLanguageAndActualEmbeddedIndex() = withIsolatedTrackPreferences { id ->
+        val runtime = pendingNextEpisode(id)
+        val controller = runtime.playerController as RecordingController
+        controller.tracks = listOf(SubtitleTrack(5, "new-en", "English", "en"),
+            SubtitleTrack(8, "new-fr", "French", "fr"))
+        runtime.addonSubtitleFetchState = AddonSubtitleFetchState("episode-2", isComplete = true)
+        repeat(12) { runtime.refreshTracks() }
+        assertNull(runtime.pendingAddonSubtitlePreference)
+        assertEquals(5, runtime.selectedSubtitleIndex)
+        assertEquals(listOf(5), controller.indices)
+        assertTrue(controller.urls.isEmpty())
+    }
+
+    @Test
+    fun completedUnmatchedResultsCannotReintroduceOldEpisodeUrl() = withIsolatedTrackPreferences { id ->
+        val runtime = pendingNextEpisode(id)
+        val controller = runtime.playerController as RecordingController
+        controller.tracks = listOf(SubtitleTrack(0, "new-en", "English", "en"))
+        runtime.addonSubtitles = listOf(addon(oldUrl, "episode-1"), addon(oldUrl, "episode-2"),
+            addon("https://example.com/fr.srt", "episode-2", "fr"))
+        runtime.addonSubtitleFetchState = AddonSubtitleFetchState("episode-2", isComplete = true)
+        runtime.refreshTracks()
+        assertEquals(0, runtime.selectedSubtitleIndex)
+        assertNull(runtime.pendingAddonSubtitlePreference)
+        assertTrue(controller.urls.isEmpty())
+    }
+
+    @Test
+    fun initialFalseLoadingAndOtherVideoCompletionDoNotReleasePendingWait() = withIsolatedTrackPreferences { id ->
+        val runtime = pendingNextEpisode(id)
+        val controller = runtime.playerController as RecordingController
+        controller.tracks = listOf(SubtitleTrack(0, "new-en", "English", "en"))
+        for (state in listOf(AddonSubtitleFetchState(),
+            AddonSubtitleFetchState("episode-1", isComplete = true), AddonSubtitleFetchState("episode-2"))) {
+            runtime.addonSubtitleFetchState = state
+            runtime.isLoadingAddonSubtitles = false
+            repeat(12) { runtime.refreshTracks() }
+            assertEquals(-1, runtime.selectedSubtitleIndex)
+            assertTrue(runtime.pendingAddonSubtitlePreference != null)
+        }
+        runtime.isLoadingAddonSubtitles = true
+        runtime.refreshTracks()
+        assertTrue(controller.indices.isEmpty())
+        runtime.addonSubtitles = listOf(addon(newUrl, "episode-2"))
+        runtime.refreshTracks()
+        assertEquals(listOf(newUrl), controller.urls)
+    }
+
+    @Test
+    fun failedOrNoAddonFetchCompletionReleasesWaitWithoutAUrl() = withIsolatedTrackPreferences { id ->
+        // The repository reports the same terminal contract after errors,
+        // timeouts or finding no compatible addons, even with no result emission.
+        val runtime = pendingNextEpisode(id)
+        val controller = runtime.playerController as RecordingController
+        controller.tracks = listOf(SubtitleTrack(0, "new-en", "English", "en"))
+        runtime.addonSubtitleFetchState = AddonSubtitleFetchState("episode-2", isComplete = true)
+        runtime.refreshTracks()
+        assertNull(runtime.pendingAddonSubtitlePreference)
+        assertEquals(listOf(0), controller.indices)
+        assertTrue(controller.urls.isEmpty())
+    }
+
+    @Test
+    fun unavailableVideoFetchCanStillUseEmbeddedSavedLanguage() = withIsolatedTrackPreferences { id ->
+        val runtime = pendingNextEpisode(id)
+        runtime.activeVideoId = null
+        val controller = runtime.playerController as RecordingController
+        controller.tracks = listOf(SubtitleTrack(0, "new-en", "English", "en"))
+        runtime.addonSubtitleFetchState = AddonSubtitleFetchState(null, isComplete = true)
+        runtime.refreshTracks()
+        assertEquals(0, runtime.selectedSubtitleIndex)
+        assertNull(runtime.pendingAddonSubtitlePreference)
+        assertTrue(controller.urls.isEmpty())
+    }
+
+    @Test
+    fun completedFallbackCanUseTracksOrCurrentResultsArrivingLater() = withIsolatedTrackPreferences { id ->
+        val runtime = pendingNextEpisode(id)
+        val controller = runtime.playerController as RecordingController
+        runtime.addonSubtitleFetchState = AddonSubtitleFetchState("episode-2", isComplete = true)
+        runtime.refreshTracks()
+        assertNull(runtime.pendingAddonSubtitlePreference)
+        assertFalse(runtime.preferredSubtitleSelectionApplied)
+        runtime.addonSubtitles = listOf(addon(oldUrl, "episode-1"))
+        runtime.refreshTracks()
+        assertTrue(controller.urls.isEmpty())
+        runtime.addonSubtitles = listOf(addon(newUrl, "episode-2"))
+        runtime.refreshTracks()
+        assertEquals(listOf(newUrl), controller.urls)
+    }
+
+    @Test
+    fun userOffAfterFallbackIsProtectedFromLateResults() = withIsolatedTrackPreferences { id ->
+        val runtime = pendingNextEpisode(id)
+        val controller = runtime.playerController as RecordingController
+        runtime.addonSubtitleFetchState = AddonSubtitleFetchState("episode-2", isComplete = true)
+        runtime.refreshTracks()
+        runtime.persistInternalSubtitlePreference(null)
+        runtime.isUserExplicitSubtitleSelection = true
+        runtime.preferredSubtitleSelectionApplied = true
+        runtime.addonSubtitles = listOf(addon(newUrl, "episode-2"))
+        runtime.refreshTracks()
+        assertEquals(-1, runtime.selectedSubtitleIndex)
+        assertTrue(controller.urls.isEmpty())
+    }
+
+    private fun pendingNextEpisode(id: String): PlayerScreenRuntime = runtime(id).apply {
+        persistAddonSubtitlePreference(addon(oldUrl, "episode-1"))
+        advance(this)
+        refreshTracks()
+    }
+
+    @Test
+    fun embeddedTrackArrivingAfterTerminalEmptySnapshotIsStillSelected() = withIsolatedTrackPreferences { id ->
+        val runtime = pendingNextEpisode(id)
+        runtime.addonSubtitleFetchState = AddonSubtitleFetchState("episode-2", isComplete = true)
+        runtime.refreshTracks()
+        val controller = runtime.playerController as RecordingController
+        controller.tracks = listOf(SubtitleTrack(4, "new-en", "English", "en"))
+        runtime.refreshTracks()
+        assertEquals(listOf(4), controller.indices)
+        assertTrue(controller.urls.isEmpty())
+    }
+
+    @Test
+    fun repositoryReportsUnavailableCompletionAndClearReturnsToNotStarted() {
+        try {
+            SubtitleRepository.fetchAddonSubtitles("", "unavailable-video")
+            assertEquals(AddonSubtitleFetchState("unavailable-video", true), SubtitleRepository.fetchState.value)
+            assertFalse(SubtitleRepository.isLoading.value)
+            SubtitleRepository.fetchAddonSubtitles("series", null)
+            assertEquals(AddonSubtitleFetchState(null, true), SubtitleRepository.fetchState.value)
+        } finally {
+            SubtitleRepository.clear()
+        }
+        assertEquals(AddonSubtitleFetchState(), SubtitleRepository.fetchState.value)
+    }
+
     private fun savedAddon() = PersistedPlayerTrackPreference(
         subtitleType = PersistedSubtitleSelectionType.ADDON, subtitleLanguage = "en",
         addonSubtitleId = "en", addonSubtitleUrl = oldUrl, addonSubtitleAddonName = "Test addon",

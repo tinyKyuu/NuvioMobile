@@ -236,7 +236,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         playerController,
         playerControllerSourceUrl,
     ) {
-        val fetchKey = addonSubtitleFetchKey ?: return@LaunchedEffect
+        val fetchKey = addonSubtitleFetchKey ?: "unavailable:$subtitleVideoKey"
         if (autoFetchedAddonSubtitlesForKey == fetchKey) return@LaunchedEffect
         autoFetchedAddonSubtitlesForKey = fetchKey
         fetchAddonSubtitlesForActiveItem()
@@ -255,6 +255,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         preferredSubtitleSelectionApplied,
         addonSubtitles,
         isLoadingAddonSubtitles,
+        addonSubtitleFetchState,
     ) {
         if (playerController == null || playbackSnapshot.isLoading) {
             return@LaunchedEffect

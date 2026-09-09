@@ -15,12 +15,17 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
     previousJob: Job?,
+    automatic: Boolean = false,
+    downloadedSourceName: String = "",
+    isCurrentRequest: () -> Boolean = { true },
     nextEpisodeInfo: NextEpisodeInfo?,
     allEpisodes: List<MetaVideo>,
     parentMetaId: String,
@@ -35,23 +40,41 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
     onSourceNameChanged: (String?) -> Unit,
     onCountdownChanged: (Int?) -> Unit,
     onNextEpisodeCardVisibleChanged: (Boolean) -> Unit,
+    findDownloadedEpisode: (MetaVideo) -> DownloadItem? = { video ->
+        DownloadsRepository.findPlayableDownload(
+            parentMetaId = parentMetaId,
+            seasonNumber = video.season,
+            episodeNumber = video.episode,
+            videoId = video.id,
+        )
+    },
 ): Job? {
     val nextVideoId = nextEpisodeInfo?.videoId ?: return null
     val nextVideo = allEpisodes.firstOrNull { video -> video.id == nextVideoId } ?: return null
     if (nextEpisodeInfo.hasAired != true) return null
 
-    val downloadedNextEpisode = DownloadsRepository.findPlayableDownload(
-        parentMetaId = parentMetaId,
-        seasonNumber = nextVideo.season,
-        episodeNumber = nextVideo.episode,
-        videoId = nextVideo.id,
-    )
+    if (!isCurrentRequest()) return null
+    previousJob?.cancel()
+    val downloadedNextEpisode = findDownloadedEpisode(nextVideo)
     if (downloadedNextEpisode != null) {
-        onDownloadedEpisodeSelected(downloadedNextEpisode, nextVideo)
-        return null
+        if (!automatic) {
+            onDownloadedEpisodeSelected(downloadedNextEpisode, nextVideo)
+            return null
+        }
+        return launch {
+            onSearchingChanged(false)
+            awaitNextEpisodeCountdown(
+                downloadedNextEpisode.providerName.ifBlank { downloadedSourceName },
+                isCurrentRequest, onSourceNameChanged, onCountdownChanged,
+            )
+            if (!isCurrentRequest()) return@launch
+            onDownloadedEpisodeSelected(downloadedNextEpisode, nextVideo)
+            onNextEpisodeCardVisibleChanged(false)
+            onCountdownChanged(null)
+            onSourceNameChanged(null)
+        }
     }
 
-    previousJob?.cancel()
     onSearchingChanged(true)
     onSourceNameChanged(null)
     onCountdownChanged(null)
@@ -261,14 +284,15 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
             }
         }
 
+        currentCoroutineContext().ensureActive()
+        if (!isCurrentRequest()) return@launch
         onSearchingChanged(false)
         val selected = selectedStream
         if (selected != null) {
-            onSourceNameChanged(selected.addonName)
-            for (i in 3 downTo 1) {
-                onCountdownChanged(i)
-                delay(1000)
-            }
+            awaitNextEpisodeCountdown(
+                selected.addonName, isCurrentRequest, onSourceNameChanged, onCountdownChanged,
+            )
+            if (!isCurrentRequest()) return@launch
             onEpisodeStreamSelected(selected, nextVideo)
             onNextEpisodeCardVisibleChanged(false)
             onCountdownChanged(null)
@@ -278,4 +302,22 @@ internal fun CoroutineScope.launchPlayerNextEpisodeAutoPlay(
             onNextEpisodeCardVisibleChanged(false)
         }
     }
+}
+
+internal suspend fun awaitNextEpisodeCountdown(
+    sourceName: String,
+    isCurrentRequest: () -> Boolean,
+    onSourceNameChanged: (String?) -> Unit,
+    onCountdownChanged: (Int?) -> Unit,
+) {
+    currentCoroutineContext().ensureActive()
+    if (!isCurrentRequest()) return
+    onSourceNameChanged(sourceName)
+    for (seconds in 3 downTo 1) {
+        currentCoroutineContext().ensureActive()
+        if (!isCurrentRequest()) return
+        onCountdownChanged(seconds)
+        delay(1_000)
+    }
+    currentCoroutineContext().ensureActive()
 }

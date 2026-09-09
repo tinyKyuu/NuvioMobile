@@ -440,9 +440,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         skipIntervals = emptyList()
         activeSkipInterval = null
         skipIntervalDismissed = false
-        showNextEpisodeCard = false
-        nextEpisodeAutoPlayJob?.cancel()
-        nextEpisodeAutoPlaySearching = false
+        resetNextEpisodeForCurrentMedia()
 
         val season = activeSeasonNumber
         val episode = activeEpisodeNumber
@@ -547,6 +545,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         playerSettingsUiState.nextEpisodeThresholdMode,
         playerSettingsUiState.nextEpisodeThresholdPercent,
         playerSettingsUiState.nextEpisodeThresholdMinutesBeforeEnd,
+        nextEpisodeCardDismissed,
     ) {
         if (nextEpisodeInfo == null || playbackSnapshot.durationMs <= 0L) {
             showNextEpisodeCard = false
@@ -560,21 +559,23 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             thresholdPercent = playerSettingsUiState.nextEpisodeThresholdPercent,
             thresholdMinutesBeforeEnd = playerSettingsUiState.nextEpisodeThresholdMinutesBeforeEnd,
         )
-        if (shouldShow && !showNextEpisodeCard) {
-            showNextEpisodeCard = true
+        if (showNextEpisodeIfEligible(shouldShow)) {
             if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true) {
-                playNextEpisode()
+                playNextEpisode(automatic = true)
             }
         } else if (!shouldShow) {
             showNextEpisodeCard = false
         }
     }
 
-    LaunchedEffect(playbackSnapshot.isEnded, nextEpisodeInfo) {
-        if (playbackSnapshot.isEnded && nextEpisodeInfo != null && !showNextEpisodeCard) {
-            showNextEpisodeCard = true
+    LaunchedEffect(playbackSnapshot.isEnded, nextEpisodeInfo, nextEpisodeCardDismissed) {
+        if (
+            playbackSnapshot.isEnded &&
+            nextEpisodeInfo != null &&
+            showNextEpisodeIfEligible(true)
+        ) {
             if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true) {
-                playNextEpisode()
+                playNextEpisode(automatic = true)
             }
         }
     }

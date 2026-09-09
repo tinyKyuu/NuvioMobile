@@ -177,10 +177,12 @@ internal class PlayerScreenRuntime(
     var playbackStartedForParentalGuide by mutableStateOf(false)
     var nextEpisodeInfo by mutableStateOf<NextEpisodeInfo?>(null)
     var showNextEpisodeCard by mutableStateOf(false)
+    var nextEpisodeCardDismissed by mutableStateOf(false)
     var nextEpisodeAutoPlaySearching by mutableStateOf(false)
     var nextEpisodeAutoPlaySourceName by mutableStateOf<String?>(null)
     var nextEpisodeAutoPlayCountdown by mutableStateOf<Int?>(null)
     var nextEpisodeAutoPlayJob by mutableStateOf<Job?>(null)
+    var nextEpisodeRequest: Any? = null
     var pendingP2pSwitch by mutableStateOf<PendingPlayerP2pSwitch?>(null)
     var playerDownloadSheetRequest by mutableStateOf<DownloadEnqueueRequest?>(null)
     var playerDownloadSheetItemId by mutableStateOf<String?>(null)

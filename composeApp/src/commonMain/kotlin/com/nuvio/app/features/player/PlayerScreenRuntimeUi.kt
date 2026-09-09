@@ -492,17 +492,8 @@ private fun BoxScope.RenderPlaybackOverlays(
         nextEpisodeAutoPlaySourceName = nextEpisodeAutoPlaySourceName,
         nextEpisodeAutoPlayCountdown = nextEpisodeAutoPlayCountdown,
         blurUnwatchedEpisodes = metaScreenSettingsUiState.blurUnwatchedEpisodes,
-        onPlayNextEpisode = {
-            nextEpisodeAutoPlayJob?.cancel()
-            playNextEpisode()
-        },
-        onDismissNextEpisode = {
-            nextEpisodeAutoPlayJob?.cancel()
-            showNextEpisodeCard = false
-            nextEpisodeAutoPlaySearching = false
-            nextEpisodeAutoPlaySourceName = null
-            nextEpisodeAutoPlayCountdown = null
-        },
+        onPlayNextEpisode = { playNextEpisode() },
+        onDismissNextEpisode = { dismissNextEpisode() },
         errorMessage = errorMessage,
             onDismissError = {
                 flushWatchProgress()

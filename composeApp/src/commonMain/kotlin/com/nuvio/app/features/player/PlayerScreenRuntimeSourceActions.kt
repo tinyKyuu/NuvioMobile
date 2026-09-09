@@ -282,14 +282,20 @@ internal fun PlayerScreenRuntime.switchToSource(stream: StreamItem) {
     controlsVisible = true
 }
 
-internal fun PlayerScreenRuntime.switchToEpisodeStream(stream: StreamItem, episode: MetaVideo) {
+internal fun PlayerScreenRuntime.switchToEpisodeStream(
+    stream: StreamItem,
+    episode: MetaVideo,
+    isCurrentRequest: () -> Boolean = { true },
+) {
+    if (!isCurrentRequest()) return
     if (
         resolveDebridForPlayer(
             stream = stream,
             season = episode.season,
             episode = episode.episode,
-            onResolved = { resolvedStream -> switchToEpisodeStream(resolvedStream, episode) },
+            onResolved = { resolvedStream -> switchToEpisodeStream(resolvedStream, episode, isCurrentRequest) },
             onStale = {
+                if (!isCurrentRequest()) return@resolveDebridForPlayer
                 PlayerStreamsRepository.loadEpisodeStreams(
                     type = contentType ?: parentMetaType,
                     videoId = episode.id,
@@ -300,6 +306,10 @@ internal fun PlayerScreenRuntime.switchToEpisodeStream(stream: StreamItem, episo
             },
         )
     ) return
+    switchToResolvedEpisodeStream(stream, episode)
+}
+
+private fun PlayerScreenRuntime.switchToResolvedEpisodeStream(stream: StreamItem, episode: MetaVideo) {
     if (isP2pStream(stream)) {
         switchToP2pEpisodeStream(stream, episode)
         return
@@ -371,9 +381,15 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
     controlsVisible = true
 }
 
-internal fun PlayerScreenRuntime.playNextEpisode() {
+internal fun PlayerScreenRuntime.playNextEpisode(automatic: Boolean = false) {
+    if (automatic && (nextEpisodeCardDismissed || nextEpisodeRequest != null)) return
+    cancelNextEpisodeAutoPlay()
+    val isCurrentRequest = beginNextEpisodeRequest()
     scope.launchPlayerNextEpisodeAutoPlay(
-        previousJob = nextEpisodeAutoPlayJob,
+        previousJob = null,
+        automatic = automatic,
+        downloadedSourceName = downloadedLabel,
+        isCurrentRequest = isCurrentRequest,
         nextEpisodeInfo = nextEpisodeInfo,
         allEpisodes = playerMetaVideos,
         parentMetaId = parentMetaId,
@@ -381,25 +397,46 @@ internal fun PlayerScreenRuntime.playNextEpisode() {
         contentType = contentType,
         settings = playerSettingsUiState,
         currentStreamBingeGroup = currentStreamBingeGroup,
-        onDownloadedEpisodeSelected = { item, episode -> switchToDownloadedEpisode(item, episode) },
-        onEpisodeStreamSelected = { stream, episode -> switchToEpisodeStream(stream, episode) },
-        onManualSelectionRequired = { nextVideo ->
-            episodeStreamsPanelState = EpisodeStreamsPanelState(
-                showStreams = true,
-                selectedEpisode = nextVideo,
-            )
-            showEpisodesPanel = true
+        onDownloadedEpisodeSelected = { item, episode ->
+            if (isCurrentRequest()) switchToDownloadedEpisode(item, episode)
         },
-        onSearchingChanged = { nextEpisodeAutoPlaySearching = it },
-        onSourceNameChanged = { nextEpisodeAutoPlaySourceName = it },
-        onCountdownChanged = { nextEpisodeAutoPlayCountdown = it },
-        onNextEpisodeCardVisibleChanged = { showNextEpisodeCard = it },
+        onEpisodeStreamSelected = { stream, episode ->
+            handoffNextEpisodeStream(
+                stream, episode, isCurrentRequest,
+                onResolved = { switchToResolvedEpisodeStream(it, episode) },
+                onUnresolved = { result ->
+                    result.toastMessage()?.let { NuvioToastController.show(it) }
+                    showNextEpisodeSources(episode)
+                    if (result == DirectDebridPlayableResult.Stale) {
+                        PlayerStreamsRepository.loadEpisodeStreams(
+                            type = contentType ?: parentMetaType, videoId = episode.id,
+                            season = episode.season, episode = episode.episode, forceRefresh = true,
+                        )
+                    }
+                },
+            )
+        },
+        onManualSelectionRequired = { nextVideo ->
+            if (!isCurrentRequest()) return@launchPlayerNextEpisodeAutoPlay
+            showNextEpisodeSources(nextVideo)
+        },
+        onRequestFinished = { finishNextEpisodeRequest(isCurrentRequest) },
+        onSearchingChanged = { if (isCurrentRequest()) nextEpisodeAutoPlaySearching = it },
+        onSourceNameChanged = { if (isCurrentRequest()) nextEpisodeAutoPlaySourceName = it },
+        onCountdownChanged = { if (isCurrentRequest()) nextEpisodeAutoPlayCountdown = it },
+        onNextEpisodeCardVisibleChanged = { if (isCurrentRequest()) showNextEpisodeCard = it },
     )?.let { job ->
-        nextEpisodeAutoPlayJob = job
+        if (isCurrentRequest()) nextEpisodeAutoPlayJob = job
     }
 }
 
+private fun PlayerScreenRuntime.showNextEpisodeSources(episode: MetaVideo) {
+    episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = episode)
+    showEpisodesPanel = true
+}
+
 internal fun PlayerScreenRuntime.openSourcesPanel() {
+    if (showNextEpisodeCard || nextEpisodeRequest != null) dismissNextEpisode()
     val vid = activeVideoId ?: return
     PlayerStreamsRepository.loadSources(
         type = contentType ?: parentMetaType,
@@ -413,6 +450,7 @@ internal fun PlayerScreenRuntime.openSourcesPanel() {
 }
 
 internal fun PlayerScreenRuntime.openEpisodesPanel() {
+    if (showNextEpisodeCard || nextEpisodeRequest != null) dismissNextEpisode()
     if (playerMetaVideos.isEmpty()) {
         scope.launch {
             playerMetaVideos = MetaDetailsRepository.fetch(parentMetaType, parentMetaId)?.videos ?: emptyList()
@@ -430,10 +468,7 @@ private fun PlayerScreenRuntime.resetEpisodePanelAndNextEpisodeState() {
     showSourcesPanel = false
     showEpisodesPanel = false
     episodeStreamsPanelState = EpisodeStreamsPanelState()
-    nextEpisodeAutoPlayJob?.cancel()
-    nextEpisodeAutoPlaySearching = false
-    nextEpisodeAutoPlaySourceName = null
-    nextEpisodeAutoPlayCountdown = null
+    cancelNextEpisodeAutoPlay()
     PlayerStreamsRepository.clearEpisodeStreams()
 }
 

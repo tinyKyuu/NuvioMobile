@@ -32,6 +32,7 @@ data class AddonSubtitle(
     val display: String,
     val addonName: String? = null,
     val isSelected: Boolean = false,
+    val sourceVideoId: String? = null,
 )
 
 const val SUBTITLE_DELAY_MIN_MS = -60_000

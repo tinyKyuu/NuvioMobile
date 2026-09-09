@@ -83,9 +83,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         accumulatedSeekState = null
         speedBoostRestoreSpeed = null
         preferredAudioSelectionApplied = false
-        preferredSubtitleSelectionApplied = false
-        isUserExplicitSubtitleSelection = false
-        hasScannedTextTracksOnce = false
+        resetSubtitleSelectionForSourceChange()
         showSourcesPanel = false
         showEpisodesPanel = false
         episodeStreamsPanelState = EpisodeStreamsPanelState()
@@ -238,7 +236,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         playerController,
         playerControllerSourceUrl,
     ) {
-        val fetchKey = addonSubtitleFetchKey ?: return@LaunchedEffect
+        val fetchKey = addonSubtitleFetchKey ?: "unavailable:$subtitleVideoKey"
         if (autoFetchedAddonSubtitlesForKey == fetchKey) return@LaunchedEffect
         autoFetchedAddonSubtitlesForKey = fetchKey
         fetchAddonSubtitlesForActiveItem()
@@ -257,6 +255,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         preferredSubtitleSelectionApplied,
         addonSubtitles,
         isLoadingAddonSubtitles,
+        addonSubtitleFetchState,
     ) {
         if (playerController == null || playbackSnapshot.isLoading) {
             return@LaunchedEffect

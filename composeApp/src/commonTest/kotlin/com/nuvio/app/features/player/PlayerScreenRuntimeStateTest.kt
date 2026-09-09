@@ -160,6 +160,161 @@ class PlayerScreenRuntimeStateTest {
         )
     }
 
+    @Test
+    fun sourceResetClearsMediaSelectionAndRearmsSavedPreferenceRestoration() {
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
+        runtime.selectedSubtitleIndex = 7
+        runtime.selectedAddonSubtitleId = "old-url"
+        runtime.useCustomSubtitles = true
+        runtime.trackPreferenceRestoreApplied = true
+        runtime.preferredSubtitleSelectionApplied = true
+        runtime.isUserExplicitSubtitleSelection = true
+        runtime.hasScannedTextTracksOnce = true
+        runtime.resetSubtitleSelectionForSourceChange()
+        assertEquals(-1, runtime.selectedSubtitleIndex)
+        assertNull(runtime.selectedAddonSubtitleId)
+        assertFalse(runtime.useCustomSubtitles)
+        assertFalse(runtime.trackPreferenceRestoreApplied)
+        assertFalse(runtime.preferredSubtitleSelectionApplied)
+        assertFalse(runtime.isUserExplicitSubtitleSelection)
+        assertFalse(runtime.hasScannedTextTracksOnce)
+    }
+
+    @Test
+    fun disabledSubtitlesRestoreAfterSourceReset() {
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
+        runtime.resetSubtitleSelectionForSourceChange()
+        runtime.restoreTrackPreference(PersistedPlayerTrackPreference(
+            subtitleType = PersistedSubtitleSelectionType.DISABLED,
+        ))
+        assertEquals(-1, runtime.selectedSubtitleIndex)
+        assertNull(runtime.selectedAddonSubtitleId)
+        assertFalse(runtime.useCustomSubtitles)
+        assertTrue(runtime.preferredSubtitleSelectionApplied)
+        assertTrue(runtime.trackPreferenceRestoreApplied)
+    }
+
+    @Test
+    fun savedAddonRestoresByUrlInsteadOfDuplicateIdAfterSourceReset() {
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
+        val preference = PersistedPlayerTrackPreference(
+            subtitleType = PersistedSubtitleSelectionType.ADDON,
+            addonSubtitleId = "en",
+            addonSubtitleUrl = "https://example.com/second.srt",
+            addonSubtitleVideoKey = runtime.subtitleVideoKey,
+        )
+        runtime.resetSubtitleSelectionForSourceChange()
+        runtime.restoreTrackPreference(preference)
+        assertEquals(preference.addonSubtitleUrl, runtime.selectedAddonSubtitleId)
+        assertEquals(-1, runtime.selectedSubtitleIndex)
+        assertTrue(runtime.useCustomSubtitles)
+        assertTrue(runtime.preferredSubtitleSelectionApplied)
+    }
+
+    @Test
+    fun manualLanguageRestoresAgainstNewEpisodeTrackIndices() {
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
+        runtime.selectedSubtitleIndex = 7
+        runtime.resetSubtitleSelectionForSourceChange()
+        runtime.subtitleTracks = listOf(
+            SubtitleTrack(index = 2, id = "new-en", language = "en", label = "English", isSelected = false),
+            SubtitleTrack(index = 4, id = "new-ja", language = "ja", label = "Japanese", isSelected = false),
+        )
+        runtime.restoreTrackPreference(PersistedPlayerTrackPreference(
+            subtitleType = PersistedSubtitleSelectionType.INTERNAL,
+            subtitleLanguage = "ja",
+        ))
+        assertEquals(4, runtime.selectedSubtitleIndex)
+        assertNull(runtime.selectedAddonSubtitleId)
+        assertFalse(runtime.useCustomSubtitles)
+        assertTrue(runtime.preferredSubtitleSelectionApplied)
+    }
+
+    @Test
+    fun restoredDisabledChoiceSurvivesPreferredAddonArrival() {
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
+        runtime.playerSettingsUiState = runtime.playerSettingsUiState.copy(
+            preferredSubtitleLanguage = "en",
+            subtitleStyle = runtime.subtitleStyle.copy(useForcedSubtitles = false),
+        )
+        runtime.playbackSnapshot = PlayerPlaybackSnapshot(isLoading = false)
+        runtime.playerController = SubtitleTestController()
+        runtime.resetSubtitleSelectionForSourceChange()
+        runtime.restoreTrackPreference(PersistedPlayerTrackPreference(
+            subtitleType = PersistedSubtitleSelectionType.DISABLED,
+        ))
+        runtime.addonSubtitles = listOf(AddonSubtitle(
+            id = "en", url = "https://example.com/en.srt", language = "en", display = "English",
+        ))
+        runtime.refreshTracks()
+        assertNull(runtime.selectedAddonSubtitleId)
+        assertFalse(runtime.useCustomSubtitles)
+        assertEquals(-1, runtime.selectedSubtitleIndex)
+    }
+
+    @Test
+    fun restoredManualLanguageSurvivesPreferredAddonArrival() {
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
+        val track = SubtitleTrack(index = 4, id = "new-ja", language = "ja", label = "Japanese")
+        runtime.playerSettingsUiState = runtime.playerSettingsUiState.copy(
+            preferredSubtitleLanguage = "en",
+            subtitleStyle = runtime.subtitleStyle.copy(useForcedSubtitles = false),
+        )
+        runtime.playbackSnapshot = PlayerPlaybackSnapshot(isLoading = false)
+        runtime.playerController = SubtitleTestController(listOf(track))
+        runtime.resetSubtitleSelectionForSourceChange()
+        runtime.subtitleTracks = listOf(track)
+        runtime.restoreTrackPreference(PersistedPlayerTrackPreference(
+            subtitleType = PersistedSubtitleSelectionType.INTERNAL, subtitleLanguage = "ja",
+        ))
+        runtime.addonSubtitles = listOf(AddonSubtitle(
+            id = "en", url = "https://example.com/en.srt", language = "en", display = "English",
+        ))
+        runtime.refreshTracks()
+        assertEquals(4, runtime.selectedSubtitleIndex)
+        assertNull(runtime.selectedAddonSubtitleId)
+        assertFalse(runtime.useCustomSubtitles)
+    }
+
+    @Test
+    fun restoredAddonUrlSurvivesPreferredAddonArrival() {
+        val runtime = PlayerScreenRuntime(testPlayerScreenArgs())
+        runtime.playerSettingsUiState = runtime.playerSettingsUiState.copy(
+            preferredSubtitleLanguage = "en",
+            subtitleStyle = runtime.subtitleStyle.copy(useForcedSubtitles = false),
+        )
+        runtime.playbackSnapshot = PlayerPlaybackSnapshot(isLoading = false)
+        runtime.playerController = SubtitleTestController()
+        runtime.resetSubtitleSelectionForSourceChange()
+        runtime.restoreTrackPreference(PersistedPlayerTrackPreference(
+            subtitleType = PersistedSubtitleSelectionType.ADDON,
+            addonSubtitleId = "ja", addonSubtitleUrl = "https://example.com/chosen.srt",
+            addonSubtitleVideoKey = runtime.subtitleVideoKey,
+        ))
+        runtime.addonSubtitles = listOf(AddonSubtitle(
+            id = "en", url = "https://example.com/en.srt", language = "en", display = "English",
+        ))
+        runtime.refreshTracks()
+        assertEquals("https://example.com/chosen.srt", runtime.selectedAddonSubtitleId)
+        assertTrue(runtime.useCustomSubtitles)
+    }
+
+    private class SubtitleTestController(val tracks: List<SubtitleTrack> = emptyList()) : PlayerEngineController {
+        override fun play() {}
+        override fun pause() {}
+        override fun seekTo(positionMs: Long) {}
+        override fun seekBy(offsetMs: Long) {}
+        override fun retry() {}
+        override fun setPlaybackSpeed(speed: Float) {}
+        override fun getAudioTracks() = emptyList<AudioTrack>()
+        override fun getSubtitleTracks() = tracks
+        override fun selectAudioTrack(index: Int) {}
+        override fun selectSubtitleTrack(index: Int) {}
+        override fun setSubtitleUri(url: String) {}
+        override fun clearExternalSubtitle() {}
+        override fun clearExternalSubtitleAndSelect(trackIndex: Int) {}
+    }
+
     private fun testPlayerScreenArgs() = PlayerScreenArgs(
         profileId = 1,
         title = "Title",

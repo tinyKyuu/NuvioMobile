@@ -80,6 +80,7 @@ internal class PlayerScreenRuntime(
     var downloadsUiState by mutableStateOf(DownloadsUiState())
     var addonSubtitles: List<AddonSubtitle> = emptyList()
     var isLoadingAddonSubtitles: Boolean = false
+    var addonSubtitleFetchState = AddonSubtitleFetchState()
 
     var horizontalSafePadding: Dp = 0.dp
     var metrics: PlayerLayoutMetrics = PlayerLayoutMetrics.fromWidth(0.dp)
@@ -209,6 +210,8 @@ internal class PlayerScreenRuntime(
     var hasScannedTextTracksOnce by mutableStateOf(false)
     var autoFetchedAddonSubtitlesForKey by mutableStateOf<String?>(null)
     var trackPreferenceRestoreApplied by mutableStateOf(false)
+    var pendingAddonSubtitlePreference: PersistedPlayerTrackPreference? = null
+    var addonSubtitleFallbackPreference: PersistedPlayerTrackPreference? = null
     var subtitleDelayMs by mutableStateOf(0)
     var subtitleAutoSyncState by mutableStateOf(SubtitleAutoSyncUiState())
 

@@ -76,6 +76,7 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
     val addonsUiState by AddonRepository.uiState.collectAsStateWithLifecycle()
     val addonSubtitles by SubtitleRepository.addonSubtitles.collectAsStateWithLifecycle()
     val isLoadingAddonSubtitles by SubtitleRepository.isLoading.collectAsStateWithLifecycle()
+    val addonSubtitleFetchState by SubtitleRepository.fetchState.collectAsStateWithLifecycle()
 
     val runtime = remember { PlayerScreenRuntime(args) }
     runtime.args = args
@@ -118,6 +119,7 @@ internal fun PlayerScreenContent(args: PlayerScreenArgs) {
         runtime.addonsUiState = addonsUiState
         runtime.addonSubtitles = addonSubtitles
         runtime.isLoadingAddonSubtitles = isLoadingAddonSubtitles
+        runtime.addonSubtitleFetchState = addonSubtitleFetchState
         runtime.horizontalSafePadding = horizontalSafePadding
         runtime.metrics = metrics
         runtime.sliderEdgePadding = horizontalSafePadding + metrics.horizontalPadding

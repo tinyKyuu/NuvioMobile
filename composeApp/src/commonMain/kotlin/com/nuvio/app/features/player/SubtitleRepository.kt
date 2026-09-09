@@ -5,8 +5,11 @@ import com.nuvio.app.features.addons.AddonResource
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -15,7 +18,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
@@ -32,6 +34,8 @@ import nuvio.composeapp.generated.resources.compose_player_no_subtitles_found
 import nuvio.composeapp.generated.resources.player_addon_subtitle_display_format
 import org.jetbrains.compose.resources.getString
 
+internal data class AddonSubtitleFetchState(val videoId: String? = null, val isComplete: Boolean = false)
+
 object SubtitleRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val json = Json { ignoreUnknownKeys = true }
@@ -46,25 +50,25 @@ object SubtitleRepository {
     val error: StateFlow<String?> = _error.asStateFlow()
 
     private var activeFetchJob: Job? = null
+    private val publicationLock = SynchronizedObject()
+    private var fetchGeneration = 0
+    private val _fetchState = MutableStateFlow(AddonSubtitleFetchState())
+    internal val fetchState = _fetchState.asStateFlow()
 
-    fun fetchAddonSubtitles(type: String, videoId: String) {
-        activeFetchJob?.cancel()
-        activeFetchJob = scope.launch {
+    fun fetchAddonSubtitles(type: String, videoId: String?) {
+        startFetch(videoId, canFetch = type.isNotBlank() && !videoId.isNullOrBlank()) { publishSubtitles, publishError ->
             val requestType = canonicalSubtitleType(type)
-            _isLoading.value = true
-            _error.value = null
-            _addonSubtitles.value = emptyList()
+            val requestedVideoId = requireNotNull(videoId)
 
             val addons = AddonRepository.uiState.value.addons.enabledAddons()
             val subtitleAddons = addons.filter { addon ->
                 val manifest = addon.manifest ?: return@filter false
                 val subtitleResource = manifest.resources.find { it.name.isSubtitleResourceName() } ?: return@filter false
-                subtitleResource.supportsSubtitleType(requestType, videoId)
+                subtitleResource.supportsSubtitleType(requestType, requestedVideoId)
             }
 
             if (subtitleAddons.isEmpty()) {
-                _isLoading.value = false
-                return@launch
+                return@startFetch
             }
 
             supervisorScope {
@@ -75,7 +79,7 @@ object SubtitleRepository {
                             manifestUrl = manifest.transportUrl,
                             resource = "subtitles",
                             type = requestType,
-                            id = videoId,
+                            id = requestedVideoId,
                         )
 
                         try {
@@ -108,15 +112,12 @@ object SubtitleRepository {
                                             addon.displayTitle,
                                         ),
                                         addonName = addon.displayTitle,
+                                        sourceVideoId = requestedVideoId,
                                     )
                                 )
                             }
 
-                            if (addonSubs.isNotEmpty()) {
-                                _addonSubtitles.update { currentSubtitles ->
-                                    currentSubtitles + addonSubs
-                                }
-                            }
+                            if (addonSubs.isNotEmpty()) publishSubtitles(addonSubs)
                         } catch (error: Throwable) {
                             if (error is CancellationException) throw error
                         }
@@ -125,17 +126,73 @@ object SubtitleRepository {
             }
 
             if (_addonSubtitles.value.isEmpty()) {
-                _error.value = getString(Res.string.compose_player_no_subtitles_found)
+                publishError(getString(Res.string.compose_player_no_subtitles_found))
             }
-            _isLoading.value = false
+        }
+    }
+
+    // The worker runs outside the lock. Only ownership and publication are serialized.
+    // Keeping this boundary explicit also allows tests to hold/release a real worker
+    // without network requests or changing configured addon records.
+    internal fun startFetch(
+        videoId: String?,
+        canFetch: Boolean,
+        fetch: suspend (publishSubtitles: (List<AddonSubtitle>) -> Unit, publishError: (String) -> Unit) -> Unit,
+    ): Job? {
+        val (previous, next) = synchronized(publicationLock) {
+            val previous = activeFetchJob
+            val generation = ++fetchGeneration
+            _fetchState.value = AddonSubtitleFetchState(videoId)
+            _addonSubtitles.value = emptyList()
+            _error.value = null
+            _isLoading.value = canFetch
+            val next = if (canFetch) {
+                scope.launch(start = CoroutineStart.LAZY) {
+                    try {
+                        fetch(
+                            { subtitles -> publishIfCurrent(generation) { _addonSubtitles.value += subtitles } },
+                            { error -> publishIfCurrent(generation) { _error.value = error } },
+                        )
+                    } catch (error: Throwable) {
+                        if (error is CancellationException) throw error
+                    } finally {
+                        publishIfCurrent(generation) {
+                            _isLoading.value = false
+                            _fetchState.value = AddonSubtitleFetchState(videoId, isComplete = true)
+                        }
+                    }
+                }
+            } else {
+                _fetchState.value = AddonSubtitleFetchState(videoId, isComplete = true)
+                null
+            }
+            activeFetchJob = next
+            previous to next
+        }
+        // Cancellation may run callbacks; neither it nor starting work holds the lock.
+        previous?.cancel()
+        next?.start()
+        return next
+    }
+
+    private inline fun publishIfCurrent(generation: Int, publish: () -> Unit) {
+        synchronized(publicationLock) {
+            if (generation == fetchGeneration) publish()
         }
     }
 
     fun clear() {
-        activeFetchJob?.cancel()
-        _addonSubtitles.value = emptyList()
-        _isLoading.value = false
-        _error.value = null
+        val previous = synchronized(publicationLock) {
+            fetchGeneration++
+            val previous = activeFetchJob
+            activeFetchJob = null
+            _fetchState.value = AddonSubtitleFetchState()
+            _addonSubtitles.value = emptyList()
+            _isLoading.value = false
+            _error.value = null
+            previous
+        }
+        previous?.cancel()
     }
 }
 

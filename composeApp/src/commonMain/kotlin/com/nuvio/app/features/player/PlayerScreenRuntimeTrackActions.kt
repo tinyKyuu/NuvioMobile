@@ -84,9 +84,23 @@ internal fun PlayerScreenRuntime.persistAddonSubtitlePreference(subtitle: AddonS
     }
 }
 
+// A new surface must restore saved choices even when only source headers changed.
+internal fun PlayerScreenRuntime.resetSubtitleSelectionForSourceChange() {
+    preferredSubtitleSelectionApplied = false
+    isUserExplicitSubtitleSelection = false
+    hasScannedTextTracksOnce = false
+    selectedSubtitleIndex = -1
+    selectedAddonSubtitleId = null
+    useCustomSubtitles = false
+    trackPreferenceRestoreApplied = false
+}
+
 internal fun PlayerScreenRuntime.restorePersistedTrackPreferenceIfNeeded() {
     if (trackPreferenceRestoreApplied) return
-    val preference = PlayerTrackPreferenceStorage.load(parentMetaId)
+    restoreTrackPreference(PlayerTrackPreferenceStorage.load(parentMetaId))
+}
+
+internal fun PlayerScreenRuntime.restoreTrackPreference(preference: PersistedPlayerTrackPreference?) {
     if (preference == null) {
         trackPreferenceRestoreApplied = true
         return
@@ -113,6 +127,7 @@ internal fun PlayerScreenRuntime.restorePersistedTrackPreferenceIfNeeded() {
             selectedAddonSubtitleId = null
             useCustomSubtitles = false
             preferredSubtitleSelectionApplied = true
+            isUserExplicitSubtitleSelection = true
         }
         PersistedSubtitleSelectionType.INTERNAL -> {
             if (subtitleTracks.isNotEmpty()) {
@@ -127,17 +142,19 @@ internal fun PlayerScreenRuntime.restorePersistedTrackPreferenceIfNeeded() {
                     selectedAddonSubtitleId = null
                     useCustomSubtitles = false
                     preferredSubtitleSelectionApplied = true
+                    isUserExplicitSubtitleSelection = true
                 }
             }
         }
         PersistedSubtitleSelectionType.ADDON -> {
             val url = preference.addonSubtitleUrl?.takeIf { it.isNotBlank() }
             if (url != null) {
-                selectedAddonSubtitleId = url ?: preference.addonSubtitleId
+                selectedAddonSubtitleId = url
                 selectedSubtitleIndex = -1
                 useCustomSubtitles = true
                 playerController?.setSubtitleUri(url)
                 preferredSubtitleSelectionApplied = true
+                isUserExplicitSubtitleSelection = true
             }
         }
     }

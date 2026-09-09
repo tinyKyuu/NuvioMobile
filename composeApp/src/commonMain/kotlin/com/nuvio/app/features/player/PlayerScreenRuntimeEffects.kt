@@ -83,12 +83,7 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         accumulatedSeekState = null
         speedBoostRestoreSpeed = null
         preferredAudioSelectionApplied = false
-        preferredSubtitleSelectionApplied = false
-        isUserExplicitSubtitleSelection = false
-        hasScannedTextTracksOnce = false
-        selectedSubtitleIndex = -1
-        selectedAddonSubtitleId = null
-        useCustomSubtitles = false
+        resetSubtitleSelectionForSourceChange()
         showSourcesPanel = false
         showEpisodesPanel = false
         episodeStreamsPanelState = EpisodeStreamsPanelState()

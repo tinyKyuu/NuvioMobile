@@ -201,6 +201,7 @@ class PlayerScreenRuntimeStateTest {
             subtitleType = PersistedSubtitleSelectionType.ADDON,
             addonSubtitleId = "en",
             addonSubtitleUrl = "https://example.com/second.srt",
+            addonSubtitleVideoKey = runtime.subtitleVideoKey,
         )
         runtime.resetSubtitleSelectionForSourceChange()
         runtime.restoreTrackPreference(preference)
@@ -288,6 +289,7 @@ class PlayerScreenRuntimeStateTest {
         runtime.restoreTrackPreference(PersistedPlayerTrackPreference(
             subtitleType = PersistedSubtitleSelectionType.ADDON,
             addonSubtitleId = "ja", addonSubtitleUrl = "https://example.com/chosen.srt",
+            addonSubtitleVideoKey = runtime.subtitleVideoKey,
         ))
         runtime.addonSubtitles = listOf(AddonSubtitle(
             id = "en", url = "https://example.com/en.srt", language = "en", display = "English",

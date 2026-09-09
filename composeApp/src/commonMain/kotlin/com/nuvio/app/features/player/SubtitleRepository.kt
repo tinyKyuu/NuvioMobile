@@ -108,6 +108,7 @@ object SubtitleRepository {
                                             addon.displayTitle,
                                         ),
                                         addonName = addon.displayTitle,
+                                        sourceVideoId = videoId,
                                     )
                                 )
                             }

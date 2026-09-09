@@ -209,6 +209,7 @@ internal class PlayerScreenRuntime(
     var hasScannedTextTracksOnce by mutableStateOf(false)
     var autoFetchedAddonSubtitlesForKey by mutableStateOf<String?>(null)
     var trackPreferenceRestoreApplied by mutableStateOf(false)
+    var pendingAddonSubtitlePreference: PersistedPlayerTrackPreference? = null
     var subtitleDelayMs by mutableStateOf(0)
     var subtitleAutoSyncState by mutableStateOf(SubtitleAutoSyncUiState())
 

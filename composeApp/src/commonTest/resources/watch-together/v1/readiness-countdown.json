@@ -1,0 +1,109 @@
+{
+  "$schema": "urn:watch-together:conformance:v1:fixture",
+  "name": "readiness-countdown",
+  "clockStartMs": 5000000,
+  "room": {
+    "roomId": "room_0005",
+    "hostParticipantId": "host_0005",
+    "hostDisplayName": "Host",
+    "hostSessionId": "host_session_0005",
+    "roundId": "round_0006",
+    "capacity": 2,
+    "lifetimeMs": 21600000
+  },
+  "participants": [
+    {
+      "participantId": "guest_0005",
+      "displayName": "Guest",
+      "sessionId": "guest_session_0005"
+    }
+  ],
+  "steps": [
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_5001",
+        "roomId": "room_0005",
+        "roundId": "round_0006",
+        "participantId": "host_0005",
+        "sessionId": "host_session_0005",
+        "sequence": 1,
+        "sentAtMs": 5000000,
+        "type": "participant.readiness",
+        "payload": {
+          "sourceReady": true,
+          "viewerReady": true,
+          "durationMs": 2700000,
+          "durationMismatchAcknowledged": false
+        }
+      },
+      "expect": {
+        "type": "command.accepted",
+        "applied": true,
+        "revision": 3
+      }
+    },
+    {
+      "op": "command",
+      "command": {
+        "protocolVersion": "1.0",
+        "messageId": "message_5002",
+        "roomId": "room_0005",
+        "roundId": "round_0006",
+        "participantId": "guest_0005",
+        "sessionId": "guest_session_0005",
+        "sequence": 1,
+        "sentAtMs": 5000000,
+        "type": "participant.readiness",
+        "payload": {
+          "sourceReady": true,
+          "viewerReady": true,
+          "durationMs": 2702000,
+          "durationMismatchAcknowledged": false
+        }
+      },
+      "expect": {
+        "type": "command.accepted",
+        "applied": true,
+        "revision": 4
+      }
+    },
+    {
+      "op": "beginCountdown",
+      "revision": 5
+    },
+    {
+      "op": "assert",
+      "expect": {
+        "revision": 5,
+        "roundStatus": "countdown",
+        "playbackMode": "paused",
+        "canonicalPositionMs": 0,
+        "countdownStartedAtRelayTimeMs": 5000000,
+        "countdownEndsAtRelayTimeMs": 5005000
+      }
+    },
+    {
+      "op": "advance",
+      "byMs": 5000
+    },
+    {
+      "op": "completeCountdown",
+      "revision": 6
+    },
+    {
+      "op": "advance",
+      "byMs": 1000
+    },
+    {
+      "op": "assert",
+      "expect": {
+        "revision": 6,
+        "roundStatus": "active",
+        "playbackMode": "playing",
+        "canonicalPositionMs": 1000
+      }
+    }
+  ]
+}

@@ -91,6 +91,32 @@ class WatchTogetherContractValidatorTest {
         assertFalse(result.isValid)
         assertEquals(setOf("sequence", "sentAtMs", "payload"), result.issues.map { it.path }.toSet())
     }
+
+    @Test
+    fun `requires countdown timing only while a round is counting down`() {
+        val missingCountdown = validRoomState().copy(
+            round = validRoomState().round.copy(
+                status = WatchTogetherRoundStatus.Countdown,
+                playback = validRoomState().round.playback.copy(
+                    mode = WatchTogetherPlaybackMode.Paused,
+                ),
+            )
+        )
+        assertTrue(
+            WatchTogetherContractValidator.validate(missingCountdown).issues
+                .any { it.path == "round.countdown" }
+        )
+
+        val validCountdown = missingCountdown.copy(
+            round = missingCountdown.round.copy(
+                countdown = WatchTogetherCountdownState(
+                    startedAtRelayTimeMs = 12_000L,
+                    endsAtRelayTimeMs = 17_000L,
+                ),
+            )
+        )
+        assertTrue(WatchTogetherContractValidator.validate(validCountdown).isValid)
+    }
 }
 
 private fun validRoomState(): WatchTogetherRoomState = WatchTogetherRoomState(

@@ -1,7 +1,10 @@
 package com.nuvio.app.features.watchtogether.protocol
 
 internal sealed interface WatchTogetherCompatibility {
-    data class Compatible(val protocolVersion: String) : WatchTogetherCompatibility
+    data class Compatible(
+        val protocolVersion: String,
+        val transport: WatchTogetherServiceTransport,
+    ) : WatchTogetherCompatibility
 
     data class LocalPlaybackOnly(
         val reason: WatchTogetherCompatibilityReason,
@@ -13,11 +16,13 @@ internal enum class WatchTogetherCompatibilityReason {
     InvalidServiceProtocolVersion,
     InvalidManifest,
     NoCommonProtocolVersion,
+    NoSupportedTransportProfile,
     ContentBlindnessNotGuaranteed,
 }
 
 internal object WatchTogetherProtocolNegotiator {
     private val clientVersions = setOf(WATCH_TOGETHER_PROTOCOL_VERSION)
+    private val clientTransportProfiles = setOf(WatchTogetherTransportProfile.SupabaseDirectV1)
     private val versionPattern = Regex("^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
 
     fun negotiate(manifest: WatchTogetherServiceManifest): WatchTogetherCompatibility {
@@ -47,7 +52,12 @@ internal object WatchTogetherProtocolNegotiator {
             ?: return WatchTogetherCompatibility.LocalPlaybackOnly(
                 WatchTogetherCompatibilityReason.NoCommonProtocolVersion,
             )
-        return WatchTogetherCompatibility.Compatible(selected)
+        val selectedTransport = manifest.transports.firstOrNull {
+            it.profile in clientTransportProfiles
+        } ?: return WatchTogetherCompatibility.LocalPlaybackOnly(
+            WatchTogetherCompatibilityReason.NoSupportedTransportProfile,
+        )
+        return WatchTogetherCompatibility.Compatible(selected, selectedTransport)
     }
 
     private val compareByVersion = Comparator<String> { left, right ->

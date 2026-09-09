@@ -76,6 +76,7 @@ internal fun LazyListScope.settingsRootContent(
     onNotificationsClick: () -> Unit,
     onContentDiscoveryClick: () -> Unit,
     onIntegrationsClick: () -> Unit,
+    onWatchTogetherClick: () -> Unit,
     onTrackingClick: () -> Unit,
     onSupportersContributorsClick: () -> Unit,
     onLicensesAttributionsClick: () -> Unit,
@@ -163,6 +164,14 @@ internal fun LazyListScope.settingsRootContent(
                         icon = Icons.Rounded.PlayArrow,
                         isTablet = isTablet,
                         onClick = onPlaybackClick,
+                    )
+                    SettingsGroupDivider(isTablet = isTablet)
+                    SettingsNavigationRow(
+                        title = "Watch Together",
+                        description = "Create or join a room before choosing a source.",
+                        icon = Icons.Rounded.People,
+                        isTablet = isTablet,
+                        onClick = onWatchTogetherClick,
                     )
                     SettingsGroupDivider(isTablet = isTablet)
                     SettingsNavigationRow(

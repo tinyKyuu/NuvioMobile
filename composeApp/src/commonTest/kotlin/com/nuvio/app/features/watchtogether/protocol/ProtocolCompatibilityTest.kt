@@ -2,7 +2,9 @@ package com.nuvio.app.features.watchtogether.protocol
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class ProtocolCompatibilityTest {
     @Test
@@ -14,6 +16,10 @@ class ProtocolCompatibilityTest {
         assertEquals(
             WATCH_TOGETHER_PROTOCOL_VERSION,
             assertIs<WatchTogetherCompatibility.Compatible>(result).protocolVersion,
+        )
+        assertEquals(
+            WatchTogetherTransportProfile.SupabaseDirectV1,
+            assertIs<WatchTogetherCompatibility.Compatible>(result).transport.profile,
         )
     }
 
@@ -40,8 +46,12 @@ class ProtocolCompatibilityTest {
     fun `invalid trust-sensitive manifest fields fall back to local playback`() {
         val insecure = WatchTogetherProtocolNegotiator.negotiate(
             manifest().copy(
-                endpoints = WatchTogetherServiceEndpoints(
-                    relayWebSocketUrl = "ws://relay.example.test/v1",
+                transports = listOf(
+                    WatchTogetherServiceTransport(
+                        profile = WatchTogetherTransportProfile.SupabaseDirectV1,
+                        projectUrl = "https://example-project.supabase.co?token=secret",
+                        publishableKey = "sb_publishable_example_public_key_0000000000",
+                    )
                 )
             )
         )
@@ -49,6 +59,56 @@ class ProtocolCompatibilityTest {
         assertEquals(
             WatchTogetherCompatibilityReason.InvalidManifest,
             assertIs<WatchTogetherCompatibility.LocalPlaybackOnly>(insecure).reason,
+        )
+    }
+
+    @Test
+    fun `validator rejects secret keys and duplicate transport profiles`() {
+        val validTransport = manifest().transports.single()
+        val secretKey = manifest().copy(
+            transports = listOf(
+                validTransport.copy(
+                    publishableKey = "sb_secret_this_must_never_appear_in_a_manifest",
+                )
+            )
+        )
+        val duplicateProfile = manifest().copy(
+            transports = listOf(validTransport, validTransport),
+        )
+
+        assertFalse(WatchTogetherContractValidator.validate(secretKey).isValid)
+        assertFalse(WatchTogetherContractValidator.validate(duplicateProfile).isValid)
+    }
+
+    @Test
+    fun `direct email OTP does not require a browser linking endpoint`() {
+        val directOtp = manifest().copy(
+            authentication = manifest().authentication.copy(
+                host = WatchTogetherHostAuthentication(
+                    mode = WatchTogetherHostAuthenticationMode.EmailOtp,
+                    accountRequired = true,
+                ),
+            ),
+        )
+        val deviceLink = directOtp.copy(
+            authentication = directOtp.authentication.copy(
+                host = WatchTogetherHostAuthentication(
+                    mode = WatchTogetherHostAuthenticationMode.EmailOtpDeviceLink,
+                    accountRequired = true,
+                ),
+            ),
+        )
+
+        assertTrue(WatchTogetherContractValidator.validate(directOtp).isValid)
+        assertFalse(WatchTogetherContractValidator.validate(deviceLink).isValid)
+        assertTrue(
+            WatchTogetherContractValidator.validate(
+                deviceLink.copy(
+                    endpoints = WatchTogetherServiceEndpoints(
+                        accountLinkUrl = "https://example.test/link",
+                    ),
+                )
+            ).isValid
         )
     }
 }
@@ -64,9 +124,14 @@ private fun manifest(
     description = "Example service",
     canonicalOrigin = "https://example.test",
     protocolVersions = protocolVersions,
-    endpoints = WatchTogetherServiceEndpoints(
-        relayWebSocketUrl = "wss://relay.example.test/v1",
+    transports = listOf(
+        WatchTogetherServiceTransport(
+            profile = WatchTogetherTransportProfile.SupabaseDirectV1,
+            projectUrl = "https://example-project.supabase.co",
+            publishableKey = "sb_publishable_example_public_key_0000000000",
+        )
     ),
+    endpoints = WatchTogetherServiceEndpoints(),
     operator = WatchTogetherServiceOperator(
         name = "Example",
         websiteUrl = "https://example.test",

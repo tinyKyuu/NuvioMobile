@@ -68,6 +68,7 @@ import com.nuvio.app.features.mdblist.MdbListSettingsRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsRepository
 import com.nuvio.app.features.notifications.EpisodeReleaseNotificationsUiState
 import com.nuvio.app.features.player.PlayerSettingsRepository
+import com.nuvio.app.features.player.WatchTogetherHostedLobbyDialog
 import com.nuvio.app.features.player.AndroidLibmpvVideoOutput
 import com.nuvio.app.features.player.AndroidPlaybackEngine
 import com.nuvio.app.features.profiles.ProfileRepository
@@ -268,6 +269,7 @@ fun SettingsScreen(
                 ?: SettingsPage.Root
         }
         val previousPage = page.previousPage()
+        var showWatchTogetherDialog by rememberSaveable { mutableStateOf(false) }
 
         fun openPage(targetPage: SettingsPage) {
             if (!targetPage.isEnabledByPolicy()) return
@@ -429,6 +431,7 @@ fun SettingsScreen(
                 posterCardStyleUiState = posterCardStyleUiState,
                 onSwitchProfile = onSwitchProfile,
                 onDownloadsClick = onDownloadsClick,
+                onWatchTogetherClick = { showWatchTogetherDialog = true },
                 onSupportersContributorsClick = openSupportersContributors,
                 onLicensesAttributionsClick = openLicensesAttributions,
                 onCheckForUpdatesClick = onCheckForUpdatesClick,
@@ -498,12 +501,18 @@ fun SettingsScreen(
                 onAddonsClick = openAddons,
                 onPluginsClick = openPlugins,
                 onDownloadsClick = onDownloadsClick,
+                onWatchTogetherClick = { showWatchTogetherDialog = true },
                 onAccountClick = openAccount,
                 onSupportersContributorsClick = openSupportersContributors,
                 onLicensesAttributionsClick = openLicensesAttributions,
                 onCheckForUpdatesClick = onCheckForUpdatesClick,
                 onTestUpdateBannerClick = onTestUpdateBannerClick,
                 onCollectionsClick = onCollectionsClick,
+            )
+        }
+        if (showWatchTogetherDialog) {
+            WatchTogetherHostedLobbyDialog(
+                onDismiss = { showWatchTogetherDialog = false },
             )
         }
     }
@@ -572,6 +581,7 @@ private fun MobileSettingsScreen(
     onAddonsClick: () -> Unit = {},
     onPluginsClick: () -> Unit = {},
     onDownloadsClick: () -> Unit = {},
+    onWatchTogetherClick: () -> Unit = {},
     onAccountClick: () -> Unit = {},
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
@@ -687,6 +697,7 @@ private fun MobileSettingsScreen(
                             onNotificationsClick = { onPageChange(SettingsPage.Notifications) },
                             onContentDiscoveryClick = { onPageChange(SettingsPage.ContentDiscovery) },
                             onIntegrationsClick = { onPageChange(SettingsPage.Integrations) },
+                            onWatchTogetherClick = onWatchTogetherClick,
                             onTrackingClick = { onPageChange(SettingsPage.TraktAuthentication) },
                             onSupportersContributorsClick = onSupportersContributorsClick,
                             onLicensesAttributionsClick = onLicensesAttributionsClick,
@@ -931,6 +942,7 @@ private fun TabletSettingsScreen(
     posterCardStyleUiState: PosterCardStyleUiState,
     onSwitchProfile: (() -> Unit)? = null,
     onDownloadsClick: () -> Unit = {},
+    onWatchTogetherClick: () -> Unit = {},
     onSupportersContributorsClick: () -> Unit = {},
     onLicensesAttributionsClick: () -> Unit = {},
     onCheckForUpdatesClick: (() -> Unit)? = null,
@@ -1103,6 +1115,7 @@ private fun TabletSettingsScreen(
                                 onNotificationsClick = { openInlinePage(SettingsPage.Notifications) },
                                 onContentDiscoveryClick = { openInlinePage(SettingsPage.ContentDiscovery) },
                                 onIntegrationsClick = { openInlinePage(SettingsPage.Integrations) },
+                                onWatchTogetherClick = onWatchTogetherClick,
                                 onTrackingClick = { openInlinePage(SettingsPage.TraktAuthentication) },
                                 onSupportersContributorsClick = { openInlinePage(SettingsPage.SupportersContributors) },
                                 onLicensesAttributionsClick = { openInlinePage(SettingsPage.LicensesAttributions) },

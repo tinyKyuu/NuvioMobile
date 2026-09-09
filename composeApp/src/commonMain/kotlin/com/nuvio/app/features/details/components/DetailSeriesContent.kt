@@ -539,7 +539,7 @@ private fun SeasonPosterScrollRow(
     }
 }
 
-private fun resolveSeasonPoster(
+internal fun resolveSeasonPoster(
     season: Int,
     groupedEpisodes: Map<Int, List<MetaVideo>>,
     meta: MetaDetails,

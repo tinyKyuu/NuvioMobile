@@ -119,13 +119,16 @@ internal object MetaDetailsParser {
 
     private fun JsonObject.ageRating(): String? {
         val appExtras = this["app_extras"] as? JsonObject
-        return listOf(
-            string("ageRating"),
-            appExtras?.string("certificationLocal"),
-            appExtras?.string("certification"),
-        ).firstNotNullOfOrNull { value ->
-            value?.trim()?.takeIf(String::isNotBlank)
-        }
+        return this["ageRating"].ratingValue()
+            ?: appExtras?.get("certificationLocal").ratingValue()
+            ?: appExtras?.get("certification").ratingValue()
+    }
+
+    private fun JsonElement?.ratingValue(): String? {
+        val value = this as? JsonPrimitive ?: return null
+        // Addons may send numeric ratings, but raw booleans are not ratings.
+        if (!value.isString && value.booleanOrNull != null) return null
+        return value.contentOrNull?.trim()?.takeIf(String::isNotBlank)
     }
 
     private fun JsonObject.directors(links: List<MetaLink>): List<String> {

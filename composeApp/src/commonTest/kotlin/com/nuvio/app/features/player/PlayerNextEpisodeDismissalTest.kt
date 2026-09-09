@@ -202,7 +202,10 @@ class PlayerNextEpisodeDismissalTest {
         assertNull(runtime.nextEpisodeAutoPlayJob)
     }
 
-    private fun runtime() = PlayerScreenRuntime(PlayerScreenArgs(
+    private fun runtime() = nextEpisodeTestRuntime()
+}
+
+internal fun nextEpisodeTestRuntime() = PlayerScreenRuntime(PlayerScreenArgs(
         profileId = 1, title = "Fixture", sourceUrl = "file:///episode.mp4",
         sourceAudioUrl = null, sourceHeaders = emptyMap(), sourceResponseHeaders = emptyMap(),
         streamType = null, providerName = "Fixture", streamTitle = "Episode", streamSubtitle = null,
@@ -214,4 +217,3 @@ class PlayerNextEpisodeDismissalTest {
         providerAddonId = null, torrentInfoHash = null, torrentFileIdx = null, torrentFilename = null,
         torrentTrackers = emptyList(), initialPositionMs = 0, initialProgressFraction = null,
     ))
-}

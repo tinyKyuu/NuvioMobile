@@ -548,7 +548,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
         nextEpisodeCardDismissed,
     ) {
         if (nextEpisodeInfo == null || playbackSnapshot.durationMs <= 0L) {
-            showNextEpisodeCard = false
+            if (nextEpisodeRequest == null) showNextEpisodeCard = false
             return@LaunchedEffect
         }
         val shouldShow = PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
@@ -563,7 +563,7 @@ private fun PlayerScreenRuntime.BindPlayerMetadataAndSkipEffects() {
             if (playerSettingsUiState.streamAutoPlayNextEpisodeEnabled && nextEpisodeInfo?.hasAired == true) {
                 playNextEpisode(automatic = true)
             }
-        } else if (!shouldShow) {
+        } else if (!shouldShow && nextEpisodeRequest == null) {
             showNextEpisodeCard = false
         }
     }

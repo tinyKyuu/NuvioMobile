@@ -37,7 +37,20 @@ internal fun PlayerScreenRuntime.resetNextEpisodeForCurrentMedia() {
 }
 
 internal fun PlayerScreenRuntime.showNextEpisodeIfEligible(eligible: Boolean): Boolean {
-    if (!eligible || showNextEpisodeCard || nextEpisodeCardDismissed) return false
+    if (!eligible || showNextEpisodeCard || nextEpisodeCardDismissed || nextEpisodeRequest != null) return false
     showNextEpisodeCard = true
     return true
+}
+
+internal fun PlayerScreenRuntime.finishNextEpisodeRequest(isCurrentRequest: () -> Boolean) {
+    if (!isCurrentRequest()) return
+    // Includes a failed/abandoned handoff. Manual selection can still retry;
+    // automatic progress/end effects wait for the next media identity.
+    nextEpisodeCardDismissed = true
+    showNextEpisodeCard = false
+    nextEpisodeRequest = null
+    nextEpisodeAutoPlayJob = null
+    nextEpisodeAutoPlaySearching = false
+    nextEpisodeAutoPlaySourceName = null
+    nextEpisodeAutoPlayCountdown = null
 }

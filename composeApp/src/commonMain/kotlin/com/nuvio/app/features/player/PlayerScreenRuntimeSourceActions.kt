@@ -306,6 +306,10 @@ internal fun PlayerScreenRuntime.switchToEpisodeStream(
             },
         )
     ) return
+    switchToResolvedEpisodeStream(stream, episode)
+}
+
+private fun PlayerScreenRuntime.switchToResolvedEpisodeStream(stream: StreamItem, episode: MetaVideo) {
     if (isP2pStream(stream)) {
         switchToP2pEpisodeStream(stream, episode)
         return
@@ -378,7 +382,7 @@ internal fun PlayerScreenRuntime.switchToDownloadedEpisode(downloadItem: Downloa
 }
 
 internal fun PlayerScreenRuntime.playNextEpisode(automatic: Boolean = false) {
-    if (automatic && nextEpisodeCardDismissed) return
+    if (automatic && (nextEpisodeCardDismissed || nextEpisodeRequest != null)) return
     cancelNextEpisodeAutoPlay()
     val isCurrentRequest = beginNextEpisodeRequest()
     scope.launchPlayerNextEpisodeAutoPlay(
@@ -396,22 +400,39 @@ internal fun PlayerScreenRuntime.playNextEpisode(automatic: Boolean = false) {
         onDownloadedEpisodeSelected = { item, episode ->
             if (isCurrentRequest()) switchToDownloadedEpisode(item, episode)
         },
-        onEpisodeStreamSelected = { stream, episode -> switchToEpisodeStream(stream, episode, isCurrentRequest) },
+        onEpisodeStreamSelected = { stream, episode ->
+            handoffNextEpisodeStream(
+                stream, episode, isCurrentRequest,
+                onResolved = { switchToResolvedEpisodeStream(it, episode) },
+                onUnresolved = { result ->
+                    result.toastMessage()?.let { NuvioToastController.show(it) }
+                    showNextEpisodeSources(episode)
+                    if (result == DirectDebridPlayableResult.Stale) {
+                        PlayerStreamsRepository.loadEpisodeStreams(
+                            type = contentType ?: parentMetaType, videoId = episode.id,
+                            season = episode.season, episode = episode.episode, forceRefresh = true,
+                        )
+                    }
+                },
+            )
+        },
         onManualSelectionRequired = { nextVideo ->
             if (!isCurrentRequest()) return@launchPlayerNextEpisodeAutoPlay
-            episodeStreamsPanelState = EpisodeStreamsPanelState(
-                showStreams = true,
-                selectedEpisode = nextVideo,
-            )
-            showEpisodesPanel = true
+            showNextEpisodeSources(nextVideo)
         },
+        onRequestFinished = { finishNextEpisodeRequest(isCurrentRequest) },
         onSearchingChanged = { if (isCurrentRequest()) nextEpisodeAutoPlaySearching = it },
         onSourceNameChanged = { if (isCurrentRequest()) nextEpisodeAutoPlaySourceName = it },
         onCountdownChanged = { if (isCurrentRequest()) nextEpisodeAutoPlayCountdown = it },
         onNextEpisodeCardVisibleChanged = { if (isCurrentRequest()) showNextEpisodeCard = it },
     )?.let { job ->
-        nextEpisodeAutoPlayJob = job
+        if (isCurrentRequest()) nextEpisodeAutoPlayJob = job
     }
+}
+
+private fun PlayerScreenRuntime.showNextEpisodeSources(episode: MetaVideo) {
+    episodeStreamsPanelState = EpisodeStreamsPanelState(showStreams = true, selectedEpisode = episode)
+    showEpisodesPanel = true
 }
 
 internal fun PlayerScreenRuntime.openSourcesPanel() {

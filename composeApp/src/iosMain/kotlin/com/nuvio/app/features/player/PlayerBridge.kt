@@ -82,6 +82,8 @@ interface NuvioPlayerBridge {
     fun getBufferedMs(): Long
     fun getPlaybackSpeed(): Float
     fun getErrorMessage(): String
+    fun setKeyboardShortcutsEnabled(enabled: Boolean)
+    fun setKeyboardShortcutHandler(handler: ((String) -> Unit)?)
     fun destroy()
 }
 

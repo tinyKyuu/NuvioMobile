@@ -178,6 +178,22 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         playerController?.applySubtitleStyle(subtitleStyle)
     }
 
+    DisposableEffect(playerController) {
+        // Capture this controller, not the mutable runtime property, for disposal
+        // after a source replacement. Old listeners also recheck current ownership.
+        val controller = playerController
+        controller?.setKeyboardShortcutHandler { shortcut ->
+            if (playerController === controller) handleKeyboardShortcut(shortcut)
+        }
+        onDispose {
+            controller?.setKeyboardShortcutsEnabled(false)
+            controller?.setKeyboardShortcutHandler(null)
+        }
+    }
+    androidx.compose.runtime.SideEffect {
+        playerController?.setKeyboardShortcutsEnabled(keyboardShortcutsEnabled)
+    }
+
     val subtitlePreferenceKey = listOf(
         playerSettingsUiState.preferredSubtitleLanguage,
         playerSettingsUiState.secondaryPreferredSubtitleLanguage.orEmpty(),

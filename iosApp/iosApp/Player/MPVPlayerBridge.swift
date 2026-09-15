@@ -9,6 +9,8 @@ import ComposeApp
 final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
 
     private var playerVC: MPVPlayerViewController?
+    private var keyboardShortcutsEnabled = false
+    private var keyboardShortcutHandler: ((String) -> Void)?
 
     func createPlayerViewController() -> UIViewController {
         return ensurePlayerViewController()
@@ -17,6 +19,8 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     private func ensurePlayerViewController() -> MPVPlayerViewController {
         if let playerVC { return playerVC }
         let vc = MPVPlayerViewController()
+        vc.setKeyboardShortcutHandler(keyboardShortcutHandler)
+        vc.setKeyboardShortcutsEnabled(keyboardShortcutsEnabled)
         self.playerVC = vc
         return vc
     }
@@ -192,7 +196,21 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func getPlaybackSpeed() -> Float { playerVC?.currentSpeed ?? 1.0 }
     func getErrorMessage() -> String { playerVC?.currentErrorMessage ?? "" }
 
+    func setKeyboardShortcutsEnabled(enabled: Bool) {
+        keyboardShortcutsEnabled = enabled
+        playerVC?.setKeyboardShortcutsEnabled(enabled)
+    }
+
+    func setKeyboardShortcutHandler(handler: ((String) -> Void)?) {
+        keyboardShortcutHandler = handler
+        playerVC?.setKeyboardShortcutHandler(handler)
+    }
+
     func destroy() {
+        keyboardShortcutsEnabled = false
+        keyboardShortcutHandler = nil
+        playerVC?.setKeyboardShortcutsEnabled(false)
+        playerVC?.setKeyboardShortcutHandler(nil)
         playerVC?.destroyPlayer()
         playerVC = nil
     }
@@ -287,6 +305,9 @@ final class MPVPlayerViewController: UIViewController {
         return _currentErrorMessage ?? ""
     }
     private var _currentErrorMessage: String?
+    private var keyboardShortcutsEnabled = false
+    private var keyboardShortcutHandler: ((String) -> Void)?
+    private var pressedKeyboardUsages = Set<Int>()
 
     override var canBecomeFirstResponder: Bool {
         true
@@ -357,6 +378,90 @@ final class MPVPlayerViewController: UIViewController {
         syncVideoSurfaceLayout()
         refreshImmersiveSystemUI()
         attemptStartPendingLoad()
+    }
+
+    // MARK: - Hardware keyboard shortcuts
+
+    private enum KeyboardShortcut: String {
+        case togglePlayback = "toggle_playback"
+        case seekBackward = "seek_backward"
+        case seekForward = "seek_forward"
+        case exit
+
+        init?(key: UIKey) {
+            switch key.keyCode {
+            case .keyboardSpacebar: self = .togglePlayback
+            case .keyboardLeftArrow: self = .seekBackward
+            case .keyboardRightArrow: self = .seekForward
+            case .keyboardEscape: self = .exit
+            default: return nil
+            }
+        }
+    }
+
+    func setKeyboardShortcutsEnabled(_ enabled: Bool) {
+        guard keyboardShortcutsEnabled != enabled else { return }
+        keyboardShortcutsEnabled = enabled
+        if !enabled {
+            pressedKeyboardUsages.removeAll()
+            return
+        }
+        guard UIApplication.shared.applicationState == .active,
+              isViewLoaded, view.window != nil
+        else { return }
+        becomeFirstResponder()
+    }
+
+    func setKeyboardShortcutHandler(_ handler: ((String) -> Void)?) {
+        keyboardShortcutHandler = handler
+        if handler == nil { pressedKeyboardUsages.removeAll() }
+    }
+
+    override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        var unhandled = Set<UIPress>()
+        for press in presses {
+            guard keyboardShortcutsEnabled,
+                  let handler = keyboardShortcutHandler,
+                  let key = press.key,
+                  !key.modifierFlags.contains(.shift),
+                  !key.modifierFlags.contains(.control),
+                  !key.modifierFlags.contains(.alternate),
+                  !key.modifierFlags.contains(.command),
+                  let shortcut = KeyboardShortcut(key: key)
+            else {
+                unhandled.insert(press)
+                continue
+            }
+            let usage = Int(key.keyCode.rawValue)
+            if pressedKeyboardUsages.insert(usage).inserted {
+                handler(shortcut.rawValue)
+            }
+        }
+        if !unhandled.isEmpty { super.pressesBegan(unhandled, with: event) }
+    }
+
+    override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let unhandled = releaseKeyboardPresses(presses)
+        if !unhandled.isEmpty { super.pressesEnded(unhandled, with: event) }
+    }
+
+    override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        let unhandled = releaseKeyboardPresses(presses)
+        if !unhandled.isEmpty { super.pressesCancelled(unhandled, with: event) }
+    }
+
+    private func releaseKeyboardPresses(_ presses: Set<UIPress>) -> Set<UIPress> {
+        var unhandled = Set<UIPress>()
+        for press in presses {
+            guard let key = press.key,
+                  KeyboardShortcut(key: key) != nil,
+                  pressedKeyboardUsages.remove(Int(key.keyCode.rawValue)) != nil
+            else {
+                unhandled.insert(press)
+                continue
+            }
+        }
+        return unhandled
     }
 
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
@@ -851,6 +956,9 @@ final class MPVPlayerViewController: UIViewController {
         NotificationCenter.default.removeObserver(self)
         UIApplication.shared.endReceivingRemoteControlEvents()
         resignFirstResponder()
+        keyboardShortcutsEnabled = false
+        keyboardShortcutHandler = nil
+        pressedKeyboardUsages.removeAll()
         pendingLoadRetryWorkItem?.cancel()
         pendingLoadRetryWorkItem = nil
         pendingSurfaceLayoutWorkItems.forEach { $0.cancel() }

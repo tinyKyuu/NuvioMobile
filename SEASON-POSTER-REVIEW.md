@@ -4,6 +4,8 @@ Base: `9f7bc7a320abccd6252ff63c2193419bad8db633`
 
 Branch: `codex/season-poster-null-specials`
 
+Pull request: `https://github.com/tinyKyuu/NuvioMobile/pull/13`
+
 Upstream source: `60e6a1b5ba925dd90fac7d1dca18f5662cfb60ef` (`fix(details): handle null specials poster placeholders`)
 
 This is a focused follow-up to the U16 season-poster work merged in PR #10. It is not a new U-number. The shared organizer files were read from `/Users/muharrem/Documents/ChatGPT/Nuvio iOS` and remain unchanged.

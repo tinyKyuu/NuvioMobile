@@ -52,4 +52,47 @@ Applied all production and test hunks from upstream `60e6a1b5ba925dd90fac7d1dca1
 
 Fresh host rerun of `SeasonPosterParsingTest` passed all six tests with zero failures, errors, or skips. Evidence: `build/season-poster-evidence/regression-after-fix/`.
 
-Final host, Kotlin/Native, build, and manual-validation results pending.
+The combined production-and-test stable patch ID is `c884185ded725cc446edab7854f455354bf0ac6c`, matching the upstream source patch exactly. The production-only stable patch ID also matches upstream at `282620dd52baa8e941a923a2bc2b52ee97581eef`.
+
+### Final host verification at `bba8024d`
+
+Forced a fresh Android host execution of every `com.nuvio.app.features.details.*` test. All 57 tests passed with zero failures, errors, or skips:
+
+- `HeroTrailerSelectorTest`: 5
+- `MetaDetailsCertificationTest`: 9
+- `MetaDetailsParserTest`: 9
+- `MetaDetailsReleaseLineTest`: 6
+- `SeasonPosterParsingTest`: 6
+- `SeasonPosterTest`: 12
+- `SeriesPlaybackResolverTest`: 7
+- `SeriesSeasonSupportTest`: 3
+
+Evidence: `build/season-poster-evidence/final-host-bba8024d/`.
+
+### Kotlin/Native iOS Simulator verification at `bba8024d`
+
+Ran `scripts/test-ios-player-regressions.sh` against the dedicated `Nuvio Season Poster Review` iPhone 17 Pro simulator (`79C9658E-5D8B-4162-AACA-BC5A447D14E8`) while forcing a fresh execution of every `com.nuvio.app.features.details.*` test. The same 57 tests passed with zero failures, errors, or skips. The log contains known cryptography module-cache debug warnings, but no test or build failure.
+
+Evidence: `build/season-poster-evidence/final-native-bba8024d/`.
+
+### Full-distribution simulator build at `bba8024d`
+
+Built the full iOS app with the normal `iosApp` scheme, Debug configuration, generic iOS Simulator destination, automatic package resolution disabled, and code signing disabled. Xcode 26.6 with the iOS 26.5 SDK completed successfully (`** BUILD SUCCEEDED **`, exit code 0). The resulting app is `build/ios-derived-season-poster/Build/Products/Debug-iphonesimulator/Nuvio.app`.
+
+Evidence: `build/season-poster-evidence/final-build-bba8024d/`.
+
+### Targeted synthetic visual check
+
+Installed the committed build on the same dedicated simulator and configured only that simulator with a local synthetic add-on. The series fixture returns observed seasons 1, 2, and 3 plus `seasonPosters` containing a leading JSON null followed by distinct red, blue, and green artwork for seasons 1, 2, and 3. The detail screen visibly rendered exactly three cards in the correct order: red Season 1, blue Season 2, and green Season 3. Accessibility state identified only Season 1, Season 2, and Season 3 cards, and the local server recorded requests for `/season-1.svg`, `/season-2.svg`, and `/season-3.svg`.
+
+Screenshot: `build/season-poster-evidence/synthetic-addon/final-season-posters.png`.
+
+This is a narrow visual confirmation of the parser result reaching the season-card UI. It does not replace real-provider artwork, loading/caching, existing-device upgrade, or physical-device validation.
+
+## Preservation and deferred checks
+
+- The base-to-implementation diff contains only this review note, the four-line parser guard, and the 77-line regression test file. No UI, certification, player, account, download, signing, distribution, versioning, Watch Together, or unrelated parser file changed.
+- Existing equal-count, explicit season 0, nonconsecutive-season, missing-metadata, absent-artwork, and ordinary one-based fallback behavior remains covered by the passing focused suites.
+- A physical-device install was not performed. No TestFlight upload, release, merge, or auto-merge was performed.
+- Real add-on artwork/loading behavior and migration from existing on-device data remain for review if maintainers want broader end-to-end coverage.
+- PR #10's earlier deferrals are not treated as a blanket waiver. The U35 accessibility work and the native EOF/backward-seek concern are separate from this follow-up and are not claimed fixed here.

@@ -51,6 +51,33 @@ class HomeCatalogParserTest {
     }
 
     @Test
+    fun `parse catalog response skips invalid metas before reaching max item cap`() {
+        val result = HomeCatalogParser.parseCatalogResponse(
+            payload = """
+                {
+                  "metas": [
+                    "not-an-object",
+                    { "type": "movie", "name": "Missing id" },
+                    { "id": "", "type": "movie", "name": "Blank id" },
+                    { "id": "tt0", "type": "", "name": "Blank type" },
+                    { "id": "tt0", "type": "movie", "name": "" },
+                    { "id": "tt1", "type": "movie", "name": "One" },
+                    { "id": "tt2", "type": "series", "name": "Two" },
+                    { "id": "tt3", "type": "movie", "name": "Three" }
+                  ]
+                }
+            """.trimIndent(),
+            maxItems = 2,
+        )
+
+        assertEquals(8, result.rawItemCount)
+        assertEquals(
+            listOf("movie:tt1", "series:tt2"),
+            result.items.map { it.stableKey() },
+        )
+    }
+
+    @Test
     fun `parse catalog response keeps raw released date for unreleased filtering`() {
         val result = HomeCatalogParser.parseCatalogResponse(
             payload = """

@@ -852,6 +852,16 @@ internal fun MainAppContent(
             navController.navigate(PlayerRoute(launchId = launchId, title = playerLaunch.title))
         }
 
+        fun openDownloadedDetails(item: DownloadItem) {
+            navController.navigate(
+                DetailRoute(
+                    type = item.parentMetaType.ifBlank { item.contentType },
+                    id = item.parentMetaId,
+                    title = item.title,
+                ),
+            )
+        }
+
         fun openExternalStreamUrl(url: String): Boolean {
             val opened = runCatching {
                 uriHandler.openUri(url)
@@ -1497,14 +1507,14 @@ internal fun MainAppContent(
                         route = route,
                         navController = navController,
                         useNativeNavigation = useNativeNavigation,
-                        onOpenDownload = ::openDownloadedItem,
+                        onOpenDownload = ::openDownloadedDetails,
                     )
                 }
                 entry<DownloadShowRoute> { route ->
                     DownloadShowDestination(
                         route = route,
                         navController = navController,
-                        onOpenDownload = ::openDownloadedItem,
+                        onOpenDownload = ::openDownloadedDetails,
                     )
                 }
                 entry<AddonsSettingsRoute> { route ->

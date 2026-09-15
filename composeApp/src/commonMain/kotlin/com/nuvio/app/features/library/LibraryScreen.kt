@@ -84,6 +84,7 @@ import com.nuvio.app.features.cloud.CloudLibraryItemType
 import com.nuvio.app.features.cloud.CloudLibraryRepository
 import com.nuvio.app.features.cloud.CloudLibraryUiState
 import com.nuvio.app.features.debrid.DebridSettingsRepository
+import com.nuvio.app.features.downloads.OfflineLibraryRepository
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.components.HomePosterCard
 import com.nuvio.app.features.home.components.HomeSkeletonRow
@@ -129,6 +130,11 @@ fun LibraryScreen(
         LibraryDisplaySettingsRepository.uiState
     }.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    val offlineLibraryUiState by remember {
+        OfflineLibraryRepository.ensureLoaded()
+        OfflineLibraryRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val downloadedTitle = stringResource(Res.string.offline_downloaded_title)
     var observedOfflineState by remember { mutableStateOf(false) }
     var sourceModeName by rememberSaveable { mutableStateOf(LibraryViewMode.Saved.name) }
     val sourceMode = remember(sourceModeName) {
@@ -191,6 +197,7 @@ fun LibraryScreen(
             }
 
             NetworkCondition.Online -> {
+                OfflineLibraryRepository.refreshMissingAndStale()
                 if (!observedOfflineState) return@LaunchedEffect
                 observedOfflineState = false
                 if (isRemoteSource) {
@@ -259,6 +266,8 @@ fun LibraryScreen(
                         NuvioScreenHeader(
                             title = if (sourceMode == LibraryViewMode.Cloud) {
                                 stringResource(Res.string.library_title)
+                            } else if (sourceMode == LibraryViewMode.Downloaded) {
+                                stringResource(Res.string.offline_downloaded_title)
                             } else {
                                 when (uiState.sourceMode) {
                                     LibrarySourceMode.LOCAL -> stringResource(Res.string.library_title)
@@ -325,7 +334,45 @@ fun LibraryScreen(
                 }
             }
 
-            if (sourceMode == LibraryViewMode.Cloud) {
+            if (sourceMode == LibraryViewMode.Downloaded) {
+                val downloadedItems = offlineLibraryUiState.titles
+                    .filter { it.isPlayable }
+                    .map { it.toLibraryItem() }
+                if (downloadedItems.isEmpty()) {
+                    item {
+                        HomeEmptyStateCard(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            title = stringResource(Res.string.offline_library_empty_title),
+                            message = stringResource(Res.string.offline_library_empty_message),
+                        )
+                    }
+                } else {
+                    librarySections(
+                        displaySections = listOf(
+                            LibraryDisplaySection(
+                                source = null,
+                                type = "downloaded",
+                                displayTitle = downloadedTitle,
+                                previewEntries = downloadedItems.map { item ->
+                                    LibraryDisplayEntry(
+                                        globalKey = "downloaded|${item.type}|${item.id}",
+                                        item = item,
+                                        section = null,
+                                        exiting = false,
+                                    )
+                                },
+                            ),
+                        ),
+                        watchedKeys = watchedUiState.watchedKeys,
+                        fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                        sortOption = effectiveSortOption,
+                        onPosterClick = onPosterClick,
+                        onSectionViewAllClick = null,
+                        onPosterLongClick = null,
+                        onDisintegrated = {},
+                    )
+                }
+            } else if (sourceMode == LibraryViewMode.Cloud) {
                 cloudLibraryContent(
                     uiState = cloudUiState,
                     selectedProviderId = selectedProviderId,
@@ -658,13 +705,20 @@ private fun LibrarySourceSwitch(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         LibraryChip(
             label = stringResource(Res.string.library_source_saved),
             selected = selectedMode == LibraryViewMode.Saved,
             onClick = { onModeSelected(LibraryViewMode.Saved) },
+        )
+        LibraryChip(
+            label = stringResource(Res.string.offline_downloaded_title),
+            selected = selectedMode == LibraryViewMode.Downloaded,
+            onClick = { onModeSelected(LibraryViewMode.Downloaded) },
         )
         LibraryChip(
             label = stringResource(Res.string.library_source_cloud),
@@ -1190,6 +1244,7 @@ private fun CloudSkeletonBlock(
 
 private enum class LibraryViewMode {
     Saved,
+    Downloaded,
     Cloud,
 }
 

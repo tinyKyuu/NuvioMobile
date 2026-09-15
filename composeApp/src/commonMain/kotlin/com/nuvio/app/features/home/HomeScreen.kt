@@ -25,6 +25,7 @@ import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
+import com.nuvio.app.core.ui.NuvioShelfSection
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.rememberHeroStretchState
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
@@ -47,6 +48,7 @@ import com.nuvio.app.features.home.components.HomeHeroReservedSpace
 import com.nuvio.app.features.home.components.HomeHeroSection
 import com.nuvio.app.features.home.components.HomeSkeletonHero
 import com.nuvio.app.features.home.components.HomeSkeletonRow
+import com.nuvio.app.features.home.components.HomePosterCard
 import com.nuvio.app.features.home.components.HomeContinueWatchingSectionBottomPadding
 import com.nuvio.app.features.home.components.ContinueWatchingLayout
 import com.nuvio.app.features.tracking.TrackingSettingsRepository
@@ -85,6 +87,10 @@ import com.nuvio.app.features.watching.domain.WatchingContentRef
 import com.nuvio.app.features.watching.domain.isReleasedBy
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.profiles.ProfileRepository
+import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.OfflineLibraryRepository
+import com.nuvio.app.features.downloads.canonicalOfflineMetaType
 import com.nuvio.app.features.home.components.HomeCollectionRowSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -146,6 +152,14 @@ fun HomeScreen(
     val effectiveWatchProgressSource = watchProgressUiState.source
     val cloudLibraryUiState by CloudLibraryRepository.uiState.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    val downloadsUiState by remember {
+        DownloadsRepository.ensureLoaded()
+        DownloadsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val offlineLibraryUiState by remember {
+        OfflineLibraryRepository.ensureLoaded()
+        OfflineLibraryRepository.uiState
+    }.collectAsStateWithLifecycle()
     val trackingSettingsUiState by remember {
         TrackingSettingsRepository.ensureLoaded()
         TrackingSettingsRepository.uiState
@@ -167,6 +181,7 @@ fun HomeScreen(
             }
 
             NetworkCondition.Online -> {
+                OfflineLibraryRepository.refreshMissingAndStale()
                 if (observedOfflineState) {
                     observedOfflineState = false
                     HomeRepository.refresh(addonsUiState.addons.enabledAddons(), force = true)
@@ -469,12 +484,23 @@ fun HomeScreen(
             cloudLibraryUiState = cloudLibraryUiState,
         )
     }
-    val (continueWatchingItems, upcomingItems) = remember(
+    val locallyPlayableContinueWatchingItems = remember(
         allContinueWatchingItems,
+        networkStatusUiState.condition,
+        downloadsUiState.completedItems,
+    ) {
+        if (!networkStatusUiState.isOfflineLike) {
+            allContinueWatchingItems
+        } else {
+            filterHomeContinueWatchingForOffline(allContinueWatchingItems, downloadsUiState.completedItems)
+        }
+    }
+    val (continueWatchingItems, upcomingItems) = remember(
+        locallyPlayableContinueWatchingItems,
         continueWatchingPreferences.sortMode,
     ) {
         splitUpcomingItems(
-            items = allContinueWatchingItems,
+            items = locallyPlayableContinueWatchingItems,
             mode = continueWatchingPreferences.sortMode,
         )
     }
@@ -807,15 +833,30 @@ fun HomeScreen(
     }
 
     val hasActiveAddons = enabledAddons.any { it.manifest != null }
-    val showHeroSlot = homeSettingsUiState.heroEnabled
+    val downloadedTitles = remember(offlineLibraryUiState.titles) {
+        offlineLibraryUiState.titles.filter { it.isPlayable }.map { it.toMetaPreview() }
+    }
+    val showHeroSlot = homeSettingsUiState.heroEnabled && !(
+        networkStatusUiState.isOfflineLike &&
+            downloadedTitles.isNotEmpty() &&
+            homeUiState.heroItems.isEmpty()
+        )
     val isResolvingHeroSources = enabledAddons.any { it.isRefreshing } || homeUiState.isLoading
     val showHeroSkeleton = showHeroSlot &&
         homeUiState.heroItems.isEmpty() &&
         isResolvingHeroSources
     var firstCatalogReported by remember { mutableStateOf(false) }
 
-    LaunchedEffect(homeUiState.sections.firstOrNull()?.key, onFirstCatalogRendered) {
-        if (firstCatalogReported || homeUiState.sections.isEmpty()) return@LaunchedEffect
+    LaunchedEffect(
+        homeUiState.sections.firstOrNull()?.key,
+        downloadedTitles.isNotEmpty(),
+        hasActiveAddons,
+        onFirstCatalogRendered,
+    ) {
+        val hasInitialContent = homeUiState.sections.isNotEmpty() ||
+            downloadedTitles.isNotEmpty() ||
+            !hasActiveAddons
+        if (firstCatalogReported || !hasInitialContent) return@LaunchedEffect
         firstCatalogReported = true
         onFirstCatalogRendered?.invoke()
     }
@@ -849,7 +890,6 @@ fun HomeScreen(
             item.isCollection && collectionsMap[item.key] != null
         }
     }
-
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val homeSectionPadding = homeSectionHorizontalPaddingForWidth(maxWidth.value)
         val continueWatchingLayout = rememberContinueWatchingLayout(maxWidth.value)
@@ -926,7 +966,7 @@ fun HomeScreen(
             }
 
             when {
-                !hasActiveAddons && !hasRenderableCollectionRows -> {
+                !hasActiveAddons && !hasRenderableCollectionRows && downloadedTitles.isEmpty() -> {
                     homeContinueWatchingSections(
                         preferences = continueWatchingPreferences,
                         continueWatchingItems = continueWatchingItems,
@@ -972,7 +1012,7 @@ fun HomeScreen(
 
                 homeUiState.sections.isEmpty() && homeUiState.heroItems.isEmpty() &&
                     (!continueWatchingPreferences.isVisible || !hasContinueWatchingRows) &&
-                    !hasRenderableCollectionRows -> {
+                    !hasRenderableCollectionRows && downloadedTitles.isEmpty() -> {
                     item {
                         if (networkStatusUiState.isOfflineLike) {
                             NuvioNetworkOfflineCard(
@@ -995,6 +1035,24 @@ fun HomeScreen(
                 }
 
                 else -> {
+                    if (networkStatusUiState.isOfflineLike) {
+                        item(key = "home-offline-notice") {
+                            NuvioNetworkOfflineCard(
+                                condition = networkStatusUiState.condition,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                onRetry = {
+                                    NetworkStatusRepository.requestRefresh(force = true)
+                                    OfflineLibraryRepository.refreshMissingAndStale()
+                                },
+                            )
+                        }
+                        homeDownloadedSection(
+                            items = downloadedTitles,
+                            sectionPadding = homeSectionPadding,
+                            onPosterClick = onPosterClick,
+                        )
+                    }
+
                     homeContinueWatchingSections(
                         preferences = continueWatchingPreferences,
                         continueWatchingItems = continueWatchingItems,
@@ -1008,6 +1066,14 @@ fun HomeScreen(
                         onItemLongPress = onContinueWatchingLongPress,
                         disintegrationRequest = continueWatchingDisintegrationRequest,
                     )
+
+                    if (!networkStatusUiState.isOfflineLike) {
+                        homeDownloadedSection(
+                            items = downloadedTitles,
+                            sectionPadding = homeSectionPadding,
+                            onPosterClick = onPosterClick,
+                        )
+                    }
 
                     keyedEnabledHomeItems.forEach { keyedSettingsItem ->
                         val settingsItem = keyedSettingsItem.value
@@ -1049,6 +1115,29 @@ fun HomeScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+private fun LazyListScope.homeDownloadedSection(
+    items: List<MetaPreview>,
+    sectionPadding: Dp,
+    onPosterClick: ((MetaPreview) -> Unit)?,
+) {
+    if (items.isEmpty()) return
+    item(key = "home-downloaded") {
+        NuvioShelfSection(
+            title = stringResource(Res.string.offline_downloaded_title),
+            entries = items,
+            modifier = Modifier.padding(bottom = 12.dp),
+            headerHorizontalPadding = sectionPadding,
+            rowContentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = sectionPadding),
+            key = MetaPreview::stableKey,
+        ) { item ->
+            HomePosterCard(
+                item = item,
+                onClick = onPosterClick?.let { { it(item) } },
+            )
         }
     }
 }
@@ -1484,6 +1573,22 @@ internal fun buildHomeContinueWatchingItems(
         ContinueWatchingSortMode.SPLIT_UPCOMING,
         -> deduplicated.map(HomeContinueWatchingCandidate::item)
         ContinueWatchingSortMode.STREAMING_STYLE -> applyStreamingStyleSort(deduplicated, todayIsoDate)
+    }
+}
+
+internal fun filterHomeContinueWatchingForOffline(
+    items: List<ContinueWatchingItem>,
+    downloads: List<DownloadItem>,
+): List<ContinueWatchingItem> = items.filter { item ->
+    downloads.any { download ->
+        download.isPlayable &&
+            download.parentMetaId == item.parentMetaId &&
+            canonicalOfflineMetaType(download.parentMetaType) == canonicalOfflineMetaType(item.parentMetaType) &&
+            (
+                download.videoId == item.videoId ||
+                    download.seasonNumber == item.seasonNumber &&
+                    download.episodeNumber == item.episodeNumber
+                )
     }
 }
 

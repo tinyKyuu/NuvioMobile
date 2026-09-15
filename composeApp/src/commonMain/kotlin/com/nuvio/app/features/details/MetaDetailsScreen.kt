@@ -37,8 +37,11 @@ import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -105,6 +108,7 @@ import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.features.details.components.SeasonWatchedActionSheet
 import com.nuvio.app.features.details.components.TrailerPlayerPopup
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.OfflineLibraryRepository
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.library.PendingTrackingMembershipRemoval
@@ -166,7 +170,15 @@ fun MetaDetailsScreen(
     modifier: Modifier = Modifier,
 ) {
     val uiState by MetaDetailsRepository.uiState.collectAsStateWithLifecycle()
+    val offlineLibraryUiState by remember {
+        OfflineLibraryRepository.ensureLoaded()
+        OfflineLibraryRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val offlineMeta = remember(offlineLibraryUiState.titles, type, id) {
+        OfflineLibraryRepository.details(type, id)
+    }
     val displayedMeta = uiState.meta?.takeIf { it.type == type && it.id == id }
+        ?: offlineMeta
         ?: MetaDetailsRepository.peek(type, id)
     val metaScreenSettingsUiState by remember {
         MetaScreenSettingsRepository.ensureLoaded()
@@ -381,6 +393,9 @@ fun MetaDetailsScreen(
             }
 
             NetworkCondition.Online -> {
+                if (offlineMeta != null) {
+                    OfflineLibraryRepository.refresh(type, id)
+                }
                 if (!observedOfflineState) return@LaunchedEffect
                 observedOfflineState = false
                 if (displayedMeta == null && !uiState.isLoading) {
@@ -1150,6 +1165,14 @@ fun MetaDetailsScreen(
                             backgroundColor = dominantBackdropColor.takeIf { dominantColorEnabled },
                             onBack = onBackFromDetails,
                             onToggleSaved = toggleSaved,
+                            onRefresh = if (offlineMeta != null) {
+                                {
+                                    OfflineLibraryRepository.refresh(type, id, manual = true)
+                                    NetworkStatusRepository.requestRefresh(force = true)
+                                }
+                            } else {
+                                null
+                            },
                         )
 
                         selectedEpisodeForActions
@@ -1597,6 +1620,7 @@ private fun DetailHeaderOverlay(
     backgroundColor: Color?,
     onBack: () -> Unit,
     onToggleSaved: () -> Unit,
+    onRefresh: (() -> Unit)?,
 ) {
     val headerTarget = if (isHeroCollapsed.value) 1f else 0f
     val headerProgress by animateFloatAsState(
@@ -1608,29 +1632,49 @@ private fun DetailHeaderOverlay(
         label = "detail_floating_header_progress",
     )
 
-    if (headerProgress <= 0.05f) {
-        NuvioBackButton(
-            onClick = onBack,
-            modifier = Modifier
-                .padding(
-                    start = 12.dp,
-                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
-                )
-                .zIndex(2f),
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onBackground,
+    Box(modifier = Modifier.fillMaxWidth()) {
+        if (headerProgress <= 0.05f) {
+            NuvioBackButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .padding(
+                        start = 12.dp,
+                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
+                    )
+                    .zIndex(2f),
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onBackground,
+            )
+            if (onRefresh != null) {
+                IconButton(
+                    onClick = onRefresh,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(
+                            end = 12.dp,
+                            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
+                        )
+                        .zIndex(2f),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Refresh,
+                        contentDescription = stringResource(Res.string.offline_metadata_refresh),
+                        tint = MaterialTheme.colorScheme.onBackground,
+                    )
+                }
+            }
+        }
+
+        DetailFloatingHeader(
+            meta = meta,
+            isSaved = isSaved,
+            progress = headerProgress,
+            backgroundColor = backgroundColor,
+            onBack = onBack,
+            onToggleSaved = onToggleSaved,
+            modifier = Modifier.zIndex(2f),
         )
     }
-
-    DetailFloatingHeader(
-        meta = meta,
-        isSaved = isSaved,
-        progress = headerProgress,
-        backgroundColor = backgroundColor,
-        onBack = onBack,
-        onToggleSaved = onToggleSaved,
-        modifier = Modifier.zIndex(2f),
-    )
 }
 
 @Composable

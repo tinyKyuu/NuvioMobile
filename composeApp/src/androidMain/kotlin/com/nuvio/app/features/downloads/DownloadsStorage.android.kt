@@ -14,6 +14,7 @@ internal actual object DownloadsStorage {
         preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
         DownloadsDatabaseDriverFactory.initialize(context)
         DownloadsRequestStorage.initialize(context)
+        OfflineArtworkPlatform.initialize(context)
     }
 
     actual fun loadLegacyPayload(profileId: Int): String? =

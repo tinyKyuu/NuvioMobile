@@ -126,9 +126,11 @@ private inline fun <reified T : Enum<T>> enumValueOrNull(value: String): T? =
     enumValues<T>().firstOrNull { it.name == value }
 
 internal object DownloadsCatalogStoreProvider {
+    val database: DownloadsDatabase by lazy {
+        DownloadsDatabase(DownloadsDatabaseDriverFactory.createDriver())
+    }
+
     val store: DownloadsCatalogStore by lazy {
-        SqlDownloadsCatalogStore(
-            DownloadsDatabase(DownloadsDatabaseDriverFactory.createDriver()),
-        )
+        SqlDownloadsCatalogStore(database)
     }
 }

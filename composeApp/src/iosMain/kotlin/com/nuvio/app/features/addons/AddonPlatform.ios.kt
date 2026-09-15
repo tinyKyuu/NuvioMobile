@@ -11,11 +11,14 @@ import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.request.url
 import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.isSuccess
+import io.ktor.utils.io.readRemaining
 import kotlinx.coroutines.runBlocking
+import kotlinx.io.readByteArray
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.network_empty_response_body
 import nuvio.composeapp.generated.resources.network_request_failed_http
@@ -181,11 +184,17 @@ actual suspend fun httpRequestRaw(
             }
         }
         .let { response ->
+            val bodyLimit = maxResponseBodyBytes.coerceAtLeast(0)
+            val bodyBytes = response.bodyAsChannel()
+                .readRemaining(bodyLimit.toLong() + 1L)
+                .readByteArray()
+            val truncated = bodyBytes.size > bodyLimit
+            val limitedBytes = if (truncated) bodyBytes.copyOf(bodyLimit) else bodyBytes
             RawHttpResponse(
                 status = response.status.value,
                 statusText = response.status.description,
                 url = response.call.request.url.toString(),
-                body = response.bodyAsText(),
+                body = limitedBytes.decodeToString() + if (truncated) "\n...[truncated]" else "",
                 headers = response.headers.entries().associate { (name, values) ->
                     name.lowercase() to values.joinToString(",")
                 },

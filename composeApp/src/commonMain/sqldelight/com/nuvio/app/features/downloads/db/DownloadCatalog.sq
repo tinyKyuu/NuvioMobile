@@ -68,3 +68,56 @@ WHERE download_id = ?;
 deleteForProfile:
 DELETE FROM download_catalog_entry
 WHERE owner_profile_key = ?;
+
+CREATE TABLE offline_title_record (
+    record_key TEXT NOT NULL PRIMARY KEY,
+    owner_profile_key TEXT NOT NULL,
+    meta_type TEXT NOT NULL,
+    meta_id TEXT NOT NULL,
+    record_version INTEGER NOT NULL,
+    generation INTEGER NOT NULL,
+    payload TEXT NOT NULL,
+    created_at_epoch_ms INTEGER NOT NULL,
+    updated_at_epoch_ms INTEGER NOT NULL
+);
+
+CREATE INDEX offline_title_record_profile
+ON offline_title_record(owner_profile_key, updated_at_epoch_ms);
+
+selectOfflineTitlesForProfile:
+SELECT *
+FROM offline_title_record
+WHERE owner_profile_key = ?
+ORDER BY updated_at_epoch_ms DESC, record_key ASC;
+
+selectOfflineTitleByKey:
+SELECT *
+FROM offline_title_record
+WHERE record_key = ?;
+
+selectAllOfflineTitles:
+SELECT *
+FROM offline_title_record
+ORDER BY updated_at_epoch_ms DESC, record_key ASC;
+
+upsertOfflineTitle:
+INSERT OR REPLACE INTO offline_title_record(
+    record_key,
+    owner_profile_key,
+    meta_type,
+    meta_id,
+    record_version,
+    generation,
+    payload,
+    created_at_epoch_ms,
+    updated_at_epoch_ms
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+deleteOfflineTitleByKey:
+DELETE FROM offline_title_record
+WHERE record_key = ?;
+
+deleteOfflineTitlesForProfile:
+DELETE FROM offline_title_record
+WHERE owner_profile_key = ?;

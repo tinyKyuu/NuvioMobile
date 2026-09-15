@@ -1,0 +1,14 @@
+CREATE TABLE offline_title_record (
+    record_key TEXT NOT NULL PRIMARY KEY,
+    owner_profile_key TEXT NOT NULL,
+    meta_type TEXT NOT NULL,
+    meta_id TEXT NOT NULL,
+    record_version INTEGER NOT NULL,
+    generation INTEGER NOT NULL,
+    payload TEXT NOT NULL,
+    created_at_epoch_ms INTEGER NOT NULL,
+    updated_at_epoch_ms INTEGER NOT NULL
+);
+
+CREATE INDEX offline_title_record_profile
+ON offline_title_record(owner_profile_key, updated_at_epoch_ms);

@@ -493,7 +493,7 @@ object OfflineLibraryRepository {
                 }
                 .sortedWith(
                     compareByDescending<OfflineTitle> { title ->
-                        title.downloads.maxOfOrNull(DownloadItem::updatedAtEpochMs) ?: title.record.updatedAtEpochMs
+                        title.latestPlayableDownloadUpdatedAtEpochMs ?: title.record.updatedAtEpochMs
                     }.thenBy { it.record.metadata.name.lowercase() },
                 ),
             refreshingKeys = activeRefreshes.filterValues(Job::isActive).keys,

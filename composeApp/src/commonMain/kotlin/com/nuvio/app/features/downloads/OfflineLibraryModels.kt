@@ -7,6 +7,7 @@ import com.nuvio.app.features.details.MetaPerson
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.PosterShape
+import com.nuvio.app.features.library.LibraryArtworkFallback
 import com.nuvio.app.features.library.LibraryItem
 import kotlinx.serialization.Serializable
 
@@ -126,6 +127,8 @@ internal data class OfflineTitle(
 ) {
     val playableDownloads: List<DownloadItem> = downloads.filter(DownloadItem::isPlayable)
     val isPlayable: Boolean get() = playableDownloads.isNotEmpty()
+    val latestPlayableDownloadUpdatedAtEpochMs: Long?
+        get() = playableDownloads.maxOfOrNull(DownloadItem::updatedAtEpochMs)
 
     fun toMetaDetails(): MetaDetails = record.metadata.toMetaDetails(record.artwork).copy(
         id = record.metaId,
@@ -164,7 +167,7 @@ internal data class OfflineTitle(
             genres = meta.genres,
             posterShape = PosterShape.Poster,
             imdbId = meta.id.takeIf { it.startsWith("tt") },
-            savedAtEpochMs = record.createdAtEpochMs,
+            savedAtEpochMs = latestPlayableDownloadUpdatedAtEpochMs ?: record.createdAtEpochMs,
         )
     }
 }
@@ -173,6 +176,24 @@ internal data class OfflineLibraryUiState(
     val titles: List<OfflineTitle> = emptyList(),
     val refreshingKeys: Set<String> = emptySet(),
 )
+
+internal fun OfflineTitle.toLibraryArtworkFallback(): LibraryArtworkFallback? {
+    val poster = record.artwork.localArtwork(offlinePosterRole)
+    val banner = record.artwork.localArtwork(offlineBackgroundRole)
+    val logo = record.artwork.localArtwork(offlineLogoRole)
+    if (poster == null && banner == null && logo == null) return null
+    return LibraryArtworkFallback(
+        type = record.metaType,
+        ids = buildSet {
+            add(record.metaId)
+            add(record.metadata.id)
+            addAll(record.providerMetaIds)
+        },
+        poster = poster,
+        banner = banner,
+        logo = logo,
+    )
+}
 
 internal fun offlineTitleKey(ownerProfileKey: String, type: String, id: String): String =
     listOf(ownerProfileKey.trim(), type.trim().lowercase(), id.trim()).joinToString("|")
@@ -247,7 +268,14 @@ internal fun OfflineMetaSnapshot.toMetaDetails(artwork: Map<String, OfflineArtwo
         genres = genres,
         director = director,
         writer = writer,
-        cast = cast.map { MetaPerson(it.name, it.role, it.photo, it.tmdbId) },
+        cast = cast.mapIndexed { index, person ->
+            MetaPerson(
+                name = person.name,
+                role = person.role,
+                photo = artwork.localArtwork(offlineCastPhotoRole(index, person)) ?: person.photo,
+                tmdbId = person.tmdbId,
+            )
+        },
         productionCompanies = productionCompanies.map { MetaCompany(it.name, it.logo, it.tmdbId) },
         networks = networks.map { MetaCompany(it.name, it.logo, it.tmdbId) },
         country = country,
@@ -286,6 +314,9 @@ private fun Map<String, OfflineArtworkRef>.localArtwork(role: String): String? =
 internal const val offlinePosterRole = "poster"
 internal const val offlineBackgroundRole = "background"
 internal const val offlineLogoRole = "logo"
+internal const val maxOfflineCastPhotos = 16
 internal fun offlineSeasonPosterRole(season: Int): String = "season:$season"
 internal fun offlineEpisodeThumbnailRole(season: Int?, episode: Int?): String =
     "episode:${season ?: -1}:${episode ?: -1}"
+internal fun offlineCastPhotoRole(index: Int, person: OfflinePerson): String =
+    person.tmdbId?.takeIf { it > 0 }?.let { "cast:tmdb:$it" } ?: "cast:index:$index"

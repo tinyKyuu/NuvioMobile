@@ -85,6 +85,8 @@ import com.nuvio.app.features.cloud.CloudLibraryRepository
 import com.nuvio.app.features.cloud.CloudLibraryUiState
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.downloads.OfflineLibraryRepository
+import com.nuvio.app.features.downloads.canonicalOfflineMetaType
+import com.nuvio.app.features.downloads.toLibraryArtworkFallback
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.components.HomePosterCard
 import com.nuvio.app.features.home.components.HomeSkeletonRow
@@ -134,7 +136,6 @@ fun LibraryScreen(
         OfflineLibraryRepository.ensureLoaded()
         OfflineLibraryRepository.uiState
     }.collectAsStateWithLifecycle()
-    val downloadedTitle = stringResource(Res.string.offline_downloaded_title)
     var observedOfflineState by remember { mutableStateOf(false) }
     var sourceModeName by rememberSaveable { mutableStateOf(LibraryViewMode.Saved.name) }
     val sourceMode = remember(sourceModeName) {
@@ -152,31 +153,98 @@ fun LibraryScreen(
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val isRemoteSource = uiState.sourceMode != LibrarySourceMode.LOCAL
+    val offlineArtworkFallbacks = remember(offlineLibraryUiState.titles) {
+        offlineLibraryUiState.titles.mapNotNull { title -> title.toLibraryArtworkFallback() }
+    }
+    val savedSections = remember(uiState.sections, offlineArtworkFallbacks) {
+        uiState.sections.map { section ->
+            section.copy(
+                items = section.items.map { item -> item.withArtworkFallback(offlineArtworkFallbacks) },
+            )
+        }
+    }
     val effectiveSortOption = effectiveLibrarySortOption(
         selected = displaySettings.sortOption,
         sourceMode = uiState.sourceMode,
     )
-    val sortedSections = remember(uiState.sections, displaySettings.sortOption, uiState.sourceMode) {
+    val sortedSections = remember(savedSections, displaySettings.sortOption, uiState.sourceMode) {
         sortLibrarySections(
-            sections = uiState.sections,
+            sections = savedSections,
             selected = displaySettings.sortOption,
             sourceMode = uiState.sourceMode,
         )
     }
     val verticalProjection = remember(
-        uiState.sections,
+        savedSections,
         uiState.sourceMode,
         selectedLibrarySectionKey,
         selectedLibraryType,
         displaySettings.sortOption,
     ) {
         buildLibraryVerticalProjection(
-            sections = uiState.sections,
+            sections = savedSections,
             sourceMode = uiState.sourceMode,
             selectedSectionKey = selectedLibrarySectionKey,
             selectedType = selectedLibraryType,
             sortOption = displaySettings.sortOption,
         )
+    }
+    val downloadedItems = remember(offlineLibraryUiState.titles) {
+        offlineLibraryUiState.titles
+            .filter { title -> title.isPlayable }
+            .map { title -> title.toLibraryItem() }
+    }
+    val downloadedMovieTitle = stringResource(Res.string.media_movies)
+    val downloadedSeriesTitle = stringResource(Res.string.media_series)
+    val downloadedSections = remember(downloadedItems, downloadedMovieTitle, downloadedSeriesTitle) {
+        downloadedItems
+            .groupBy { item -> canonicalOfflineMetaType(item.type) }
+            .map { (type, items) ->
+                LibrarySection(
+                    type = type,
+                    displayTitle = when (type) {
+                        "movie" -> downloadedMovieTitle
+                        "series", "show", "tv", "tvshow" -> downloadedSeriesTitle
+                        else -> type.toLibraryDisplayTitle()
+                    },
+                    items = items,
+                )
+            }
+            .sortedBy { section -> section.displayTitle }
+    }
+    val downloadedSortOption = LibrarySortOption.ADDED_DESC
+    val sortedDownloadedSections = remember(downloadedSections) {
+        sortLibrarySections(
+            sections = downloadedSections,
+            selected = downloadedSortOption,
+            sourceMode = LibrarySourceMode.LOCAL,
+        )
+    }
+    val downloadedVerticalProjection = remember(downloadedSections) {
+        buildLibraryVerticalProjection(
+            sections = downloadedSections,
+            sourceMode = LibrarySourceMode.LOCAL,
+            selectedSectionKey = null,
+            selectedType = null,
+            sortOption = downloadedSortOption,
+        )
+    }
+    val downloadedHorizontalSections = remember(sortedDownloadedSections) {
+        sortedDownloadedSections.map { section ->
+            LibraryDisplaySection(
+                source = section,
+                type = "downloaded:${section.type}",
+                displayTitle = section.displayTitle,
+                previewEntries = section.items.map { item ->
+                    LibraryDisplayEntry(
+                        globalKey = "downloaded|${item.type}|${item.id}",
+                        item = item,
+                        section = section,
+                        exiting = false,
+                    )
+                },
+            )
+        }
     }
     val retryLibraryLoad: () -> Unit = {
         NetworkStatusRepository.requestRefresh(force = true)
@@ -264,10 +332,11 @@ fun LibraryScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         NuvioScreenHeader(
-                            title = if (sourceMode == LibraryViewMode.Cloud) {
+                            title = if (
+                                sourceMode == LibraryViewMode.Cloud ||
+                                sourceMode == LibraryViewMode.Downloaded
+                            ) {
                                 stringResource(Res.string.library_title)
-                            } else if (sourceMode == LibraryViewMode.Downloaded) {
-                                stringResource(Res.string.offline_downloaded_title)
                             } else {
                                 when (uiState.sourceMode) {
                                     LibrarySourceMode.LOCAL -> stringResource(Res.string.library_title)
@@ -288,7 +357,7 @@ fun LibraryScreen(
                                         )
                                     }
                                 }
-                                if (sourceMode == LibraryViewMode.Saved) {
+                                if (sourceMode != LibraryViewMode.Cloud) {
                                     val targetLayout = if (displaySettings.layoutMode == LibraryLayoutMode.HORIZONTAL) {
                                         LibraryLayoutMode.VERTICAL
                                     } else {
@@ -335,9 +404,6 @@ fun LibraryScreen(
             }
 
             if (sourceMode == LibraryViewMode.Downloaded) {
-                val downloadedItems = offlineLibraryUiState.titles
-                    .filter { it.isPlayable }
-                    .map { it.toLibraryItem() }
                 if (downloadedItems.isEmpty()) {
                     item {
                         HomeEmptyStateCard(
@@ -347,30 +413,26 @@ fun LibraryScreen(
                         )
                     }
                 } else {
-                    librarySections(
-                        displaySections = listOf(
-                            LibraryDisplaySection(
-                                source = null,
-                                type = "downloaded",
-                                displayTitle = downloadedTitle,
-                                previewEntries = downloadedItems.map { item ->
-                                    LibraryDisplayEntry(
-                                        globalKey = "downloaded|${item.type}|${item.id}",
-                                        item = item,
-                                        section = null,
-                                        exiting = false,
-                                    )
-                                },
-                            ),
-                        ),
-                        watchedKeys = watchedUiState.watchedKeys,
-                        fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
-                        sortOption = effectiveSortOption,
-                        onPosterClick = onPosterClick,
-                        onSectionViewAllClick = null,
-                        onPosterLongClick = null,
-                        onDisintegrated = {},
-                    )
+                    when (displaySettings.layoutMode) {
+                        LibraryLayoutMode.HORIZONTAL -> librarySections(
+                            displaySections = downloadedHorizontalSections,
+                            watchedKeys = watchedUiState.watchedKeys,
+                            fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                            sortOption = downloadedSortOption,
+                            onPosterClick = onPosterClick,
+                            onSectionViewAllClick = null,
+                            onPosterLongClick = null,
+                            onDisintegrated = {},
+                        )
+                        LibraryLayoutMode.VERTICAL -> libraryVerticalContent(
+                            projection = downloadedVerticalProjection,
+                            columns = gridColumns,
+                            watchedKeys = watchedUiState.watchedKeys,
+                            fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                            onPosterClick = onPosterClick,
+                            onPosterLongClick = null,
+                        )
+                    }
                 }
             } else if (sourceMode == LibraryViewMode.Cloud) {
                 cloudLibraryContent(

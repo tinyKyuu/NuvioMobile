@@ -217,6 +217,28 @@ internal class PlayerScreenRuntime(
     var subtitleDelayMs by mutableStateOf(0)
     var subtitleAutoSyncState by mutableStateOf(SubtitleAutoSyncUiState())
 
+    var keyboardSessionActive by mutableStateOf(false)
+    var keyboardExitRequested by mutableStateOf(false)
+
+    val keyboardOverlayVisible: Boolean
+        get() = showAudioModal || showSubtitleModal || showVideoSettingsModal ||
+            showWatchTogetherPanel || showSourcesPanel || showEpisodesPanel ||
+            showSubmitIntroModal || showParentalGuide || episodeStreamsPanelState.showStreams ||
+            playerDownloadSheetRequest != null || playerDownloadSheetItemId != null ||
+            playerDownloadPendingDeletionId != null || playerDownloadPendingReplacement != null ||
+            pendingP2pSwitch != null || nextEpisodeAutoPlaySearching ||
+            nextEpisodeAutoPlayCountdown != null
+
+    val keyboardShortcutsEnabled: Boolean
+        get() = keyboardSessionActive && !keyboardExitRequested &&
+            !keyboardOverlayVisible && !playerControlsLocked && !isScrubbingTimeline &&
+            !isHoldToSpeedGestureActive
+
+    fun canHandleKeyboardShortcut(shortcut: PlayerKeyboardShortcut): Boolean =
+        keyboardShortcutsEnabled && (shortcut == PlayerKeyboardShortcut.Exit ||
+            (playerController != null && playerControllerSourceUrl == activeSourceUrl &&
+                initialLoadCompleted && initialSeekApplied && errorMessage == null))
+
     var lastSyncedSettingsResizeMode: PlayerResizeMode? = null
     var lastResetPlaybackIdentity: String? = null
     var lastResetVideoIdentity: String? = null

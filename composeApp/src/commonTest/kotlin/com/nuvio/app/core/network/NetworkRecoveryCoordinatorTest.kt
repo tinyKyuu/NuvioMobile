@@ -4,12 +4,14 @@ import com.nuvio.app.features.addons.collectManifestRecoveryResults
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -298,29 +300,121 @@ class NetworkRecoveryCoordinatorTest {
     }
 
     @Test
-    fun `rapid reconnects and repeated retry requests stay coalesced`() {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val gate = NetworkRecoveryRequestGate()
-        val hold = CompletableDeferred<Unit>()
-        val tracker = NetworkRecoveryTransitionTracker()
+    fun `second confirmed reconnect replaces held run and rejects its late success`(): Unit = runBlocking {
+        assertInterruptedRecovery(lateFailure = false)
+    }
 
-        assertFalse(tracker.onCondition(NetworkCondition.NoInternet))
-        assertTrue(tracker.onCondition(NetworkCondition.Online))
-        val reconnect = gate.launch(scope, profileId = 1) { hold.await() }
+    @Test
+    fun `second confirmed reconnect replaces held run and rejects its late failure`(): Unit = runBlocking {
+        assertInterruptedRecovery(lateFailure = true)
+    }
 
-        assertFalse(tracker.onCondition(NetworkCondition.ServersUnreachable))
-        assertTrue(tracker.onCondition(NetworkCondition.Online))
-        val rapidReconnect = gate.launch(scope, profileId = 1) { error("must coalesce") }
-        val retry = gate.launch(scope, profileId = 1) { error("must coalesce") }
+    private suspend fun assertInterruptedRecovery(lateFailure: Boolean) {
+        val fixture = ReconnectFixture()
+        try {
+            fixture.reconnect()
+            val first = fixture.controller.uiState.value.generation
+            fixture.reconnect()
+            val second = fixture.controller.uiState.value.generation
+            assertTrue(second > first)
+            assertEquals(listOf(first, second), fixture.attempts.map { it.second })
 
-        assertEquals(NetworkRecoveryRequestResult.Started, reconnect.first)
-        assertEquals(NetworkRecoveryRequestResult.Coalesced, rapidReconnect.first)
-        assertEquals(NetworkRecoveryRequestResult.Coalesced, retry.first)
-        assertEquals(reconnect.second, rapidReconnect.second)
-        assertEquals(reconnect.second, retry.second)
+            repeat(3) {
+                fixture.controller.onNetworkState(NetworkStatusUiState(NetworkCondition.Online, 10L))
+                fixture.controller.retry()
+                fixture.controller.onNetworkState(NetworkStatusUiState(NetworkCondition.Online, 10L))
+            }
+            assertEquals(2, fixture.attempts.size)
+            fixture.holds.getValue(first).complete(lateFailure)
+            assertEquals(second, fixture.controller.uiState.value.generation)
+            assertEquals(NetworkRecoveryPhase.RestoringAddons, fixture.controller.uiState.value.phase)
+            assertTrue(fixture.publications.isEmpty())
 
-        gate.invalidate()
-        scope.cancel()
+            fixture.holds.getValue(second).complete(false)
+            withTimeout(5_000L) {
+                fixture.controller.uiState.first { it.phase == NetworkRecoveryPhase.Completed }
+            }
+            assertEquals(listOf(1 to second, 1 to second), fixture.publications)
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun `rapid confirmed cycles and profile switch publish only the latest owned generation`(): Unit = runBlocking {
+        val fixture = ReconnectFixture()
+        try {
+            repeat(3) { fixture.reconnect() }
+            val oldGenerations = fixture.attempts.map { it.second }
+            assertEquals(3, oldGenerations.distinct().size)
+            fixture.profileId = 2
+            fixture.controller.onProfileChanged(2)
+            fixture.reconnect()
+            val latest = fixture.controller.uiState.value.generation
+
+            oldGenerations.forEachIndexed { index, generation ->
+                fixture.holds.getValue(generation).complete(index % 2 == 0)
+            }
+            assertTrue(fixture.publications.isEmpty())
+            assertEquals(2, fixture.controller.uiState.value.profileId)
+            assertEquals(latest, fixture.controller.uiState.value.generation)
+            fixture.holds.getValue(latest).complete(false)
+            withTimeout(5_000L) {
+                fixture.controller.uiState.first { it.phase == NetworkRecoveryPhase.Completed }
+            }
+            assertEquals(listOf(2 to latest, 2 to latest), fixture.publications)
+        } finally {
+            fixture.close()
+        }
+    }
+
+    private class ReconnectFixture {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var profileId = 1
+        val attempts = mutableListOf<Pair<Int, Long>>()
+        val publications = mutableListOf<Pair<Int, Long>>()
+        val holds = mutableMapOf<Long, CompletableDeferred<Boolean>>()
+        val controller = NetworkRecoveryController(
+            scope = scope,
+            activeProfileId = { profileId },
+            requestFreshProbe = { 10L },
+            operations = object : NetworkRecoveryOperations {
+                override suspend fun recoverManifests(
+                    profileId: Int,
+                    generation: Long,
+                    forceAll: Boolean,
+                    onManifestRecovered: suspend (String) -> Unit,
+                ): ManifestRecoveryOutcome {
+                    attempts += profileId to generation
+                    val hold = CompletableDeferred<Boolean>().also { holds[generation] = it }
+                    // Model an already-dispatched transport callback that ignores cancellation.
+                    return withContext(NonCancellable) {
+                        val fail = hold.await()
+                        if (fail) error("late transport failure")
+                        onManifestRecovered("healthy")
+                        ManifestRecoveryOutcome(recoveredUrls = setOf("healthy"))
+                    }
+                }
+
+                override suspend fun refreshCatalogs(
+                    profileId: Int,
+                    generation: Long,
+                    readyManifestUrls: Set<String>?,
+                ) {
+                    publications += profileId to generation
+                }
+            },
+        )
+
+        fun reconnect() {
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.NoInternet, 1L))
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.Online, 2L))
+        }
+
+        fun close() {
+            scope.cancel()
+            holds.values.forEach { it.complete(false) }
+        }
     }
 
     @Test

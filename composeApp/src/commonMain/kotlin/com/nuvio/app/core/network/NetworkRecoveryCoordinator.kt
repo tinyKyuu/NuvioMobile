@@ -260,7 +260,7 @@ object NetworkRecoveryCoordinator {
                 readyManifestUrls = readyManifestUrls,
             )
             HomeRepository.refresh(readyAddons, force = true, partial = readyManifestUrls != null)
-            SearchRepository.refreshAfterRecovery(readyAddons)
+            SearchRepository.refreshAfterRecovery(enabledAddons, readyManifestUrls)
             if (readyManifestUrls != null) return
             OfflineLibraryRepository.refreshMissingAndStale()
             CatalogRepository.onRecoveryGeneration(generation)
@@ -344,9 +344,10 @@ internal class NetworkRecoveryController(
     fun onNetworkState(state: NetworkStatusUiState) {
         var shouldRecover = false
         var forceAll = false
+        var reconnected = false
         var trigger = NetworkRecoveryTrigger.Reconnect
         synchronized(transitionLock) {
-            val reconnected = transitionTracker.onCondition(state.condition)
+            reconnected = transitionTracker.onCondition(state.condition)
             if (state.isOnline) {
                 val retryReady = retryProbeGeneration?.let { state.probeGeneration >= it } == true
                 shouldRecover = reconnected || retryReady
@@ -363,6 +364,7 @@ internal class NetworkRecoveryController(
             requestRecovery(
                 trigger = trigger,
                 forceAllManifests = forceAll,
+                replaceActiveSameProfile = reconnected || forceAll,
             )
         }
     }
@@ -370,12 +372,15 @@ internal class NetworkRecoveryController(
     private fun requestRecovery(
         trigger: NetworkRecoveryTrigger,
         forceAllManifests: Boolean,
+        replaceActiveSameProfile: Boolean,
     ) {
         val profileId = activeProfileId()
         val (result, generation) = requestGate.launch(
             scope = scope,
             profileId = profileId,
-            replaceActiveSameProfile = forceAllManifests,
+            // A new confirmed outage interrupts the old attempt. Duplicate Online and
+            // repeated Retry requests can still share an uninterrupted active attempt.
+            replaceActiveSameProfile = replaceActiveSameProfile,
         ) { runGeneration ->
             try {
                 runOrderedNetworkRecovery(

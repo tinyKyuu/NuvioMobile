@@ -1,11 +1,11 @@
 # F07 network recovery review
 
-Status: implementation complete on `codex/f07-network-recovery`; pull request pending review. Do not merge or release from this note.
+Status: implementation complete on `codex/f07-network-recovery`; [PR #26](https://github.com/tinyKyuu/NuvioMobile/pull/26) is pending review. Do not merge or release from this note.
 
 - Stable base: `a5d37a02ccd5ff37f5511e2e90ffe40117f4d5ce` (`0.4.12`, build `122`)
 - Tested implementation commit: `7a833999`
 - Review date: September 16, 2026
-- Pull request: pending
+- Pull request: [#26](https://github.com/tinyKyuu/NuvioMobile/pull/26)
 
 ## Scope and behavior
 

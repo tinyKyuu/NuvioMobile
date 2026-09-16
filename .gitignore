@@ -23,7 +23,8 @@ iosApp/Configuration/Signing.local.xcconfig
 node_modules/
 logs/
 analysis/
-Docs
+Docs/*
+!Docs/feature-status.md
 SUPPORTER_COSMETICS.md
 supabase/migrations/
 keystore/

@@ -3,7 +3,7 @@
 Status: implementation complete on `codex/f07-network-recovery`; [PR #26](https://github.com/tinyKyuu/NuvioMobile/pull/26) is pending review. Do not merge or release from this note.
 
 - Stable base: `a5d37a02ccd5ff37f5511e2e90ffe40117f4d5ce` (`0.4.12`, build `122`)
-- Tested implementation head: `1530d20b`
+- Tested implementation head: `0ec271ae5231418c963a96c2d13a6f59c1a67bdf`
 - Review date: September 16, 2026
 - Pull request: [#26](https://github.com/tinyKyuu/NuvioMobile/pull/26)
 
@@ -15,7 +15,11 @@ F07 adds one profile-aware recovery path for connectivity restoration. It observ
 2. Resynchronize Home catalog settings.
 3. Refresh Home, Search, offline-library metadata, catalog, and detail repositories.
 
-The coordinator exposes `Idle`, `RestoringAddons`, `RefreshingCatalogs`, `Completed`, and `Failed` phases. Each successful manifest starts a partial catalog reconciliation as soon as it publishes, so a hanging provider cannot hold healthy Home or Search content behind its timeout. One final reconciliation runs after every manifest attempt settles. Reconnect and Retry requests coalesce while the same profile is already recovering. A manual add-on refresh replaces an active same-profile run and forces all enabled manifests through the same ordered path. Profile changes cancel and invalidate the prior generation so late results cannot repopulate the new profile.
+The coordinator exposes `Idle`, `RestoringAddons`, `RefreshingCatalogs`, `Completed`, and `Failed` phases. Each successful manifest starts a partial catalog reconciliation. One final reconciliation runs after every manifest attempt settles, including when fresh cached manifests need no refresh.
+
+Home allows up to four catalog requests at once and publishes each result when it completes. A completed healthy catalog no longer waits for another request in its batch. Partial passes merge recovered providers without pruning other providers' valid warm rows. Transient manifest loading and error flags do not invalidate catalog cache keys. Final refreshes retain those rows if their catalog request hangs or fails. Home catalog settings still synchronize against the complete enabled add-on list.
+
+Retry and manual refresh wait for a new connectivity probe to report Online. An older Online value cannot start recovery. Reconnect and Retry requests coalesce while a genuine same-profile recovery is active. A manual add-on refresh replaces that run and forces all enabled manifests through the ordered path. Profile changes cancel and invalidate the prior generation.
 
 Retry actions now enter this central path. Screens no longer maintain independent offline flags, and repositories keep warm content only when it belongs to the current query or target. Starting a different Search query clears the previous query's rows; a same-request recovery may retain them. Home keeps playable local rows visible offline, avoids a blank hero, and separates loading from the absence of an active profile.
 
@@ -31,7 +35,9 @@ The cache stores each profile independently under `addon_manifest_cache_<profile
 
 An individual add-on failure does not block healthy add-ons or their catalog refresh. A previously valid cached manifest remains usable when a background refresh fails. Explicit refresh may still present the add-on error.
 
-Manifest requests use per-URL single-flight work. A reconnect generation replaces a background request that began while the app was offline, while duplicate work in the same recovery generation joins the active request. Profile and generation checks guard add-on, Home, Search, catalog, and detail publication so cancellation or a late response cannot overwrite a newer request.
+Manifest requests use per-URL single-flight work. A reconnect generation replaces a background request that began while the app was offline, while duplicate work in the same recovery generation joins the active request. Add-on, Home, Search, catalog, and detail repositories check profile or request generations before publishing results.
+
+Manifest-cache ownership, mutation, serialization, and persistence share a lock. Every completion carries its captured profile ID and generation, rechecks that ownership under the lock, and persists under the captured profile. Profile changes use the same lock. Parallel successful completions retain both entries; a completion from a discarded profile cannot mutate or persist the new profile's cache.
 
 ## Upstream and donor review
 
@@ -55,7 +61,7 @@ ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
   --rerun-tasks --console=plain
 
 BUILD SUCCESSFUL in 1m 38s
-1,006 tests, 0 failures, 0 errors, 0 skipped
+1,013 tests, 0 failures, 0 errors, 0 skipped
 ```
 
 The Play Store variant passed in its required separate distribution invocation:
@@ -68,10 +74,10 @@ ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
   :androidApp:assemblePlaystoreDebug \
   --rerun-tasks --console=plain
 
-BUILD SUCCESSFUL in 1m 20s
+BUILD SUCCESSFUL in 1m 18s
 ```
 
-The generated APKs were `androidApp-full-debug.apk` and `androidApp-playstore-debug.apk`. Focused Home batching, cache, coordinator, manifest-recovery, and Search request-state tests passed with this command:
+The generated APKs were `androidApp-full-debug.apk` and `androidApp-playstore-debug.apk`. Focused Home publication, cache, coordinator, manifest-recovery, and Search request-state tests passed with this command:
 
 ```text
 JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
@@ -79,18 +85,24 @@ ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
 ./gradlew -Pnuvio.ios.distribution=appstore \
   -Pnuvio.android.distribution=playstore \
   :composeApp:testAndroidHostTest \
-  --tests 'com.nuvio.app.core.network.NetworkRecoveryHomeIntegrationTest' \
+  --tests 'com.nuvio.app.core.network.NetworkRecovery*Test' \
   --tests 'com.nuvio.app.features.addons.ManifestRecoveryTest' \
-  --tests 'com.nuvio.app.features.addons.AddonManifestCacheTest' \
-  --tests 'com.nuvio.app.core.network.NetworkRecoveryCoordinatorTest' \
+  --tests 'com.nuvio.app.features.addons.AddonManifestCache*Test' \
   --tests 'com.nuvio.app.features.search.SearchRequestStateTest' \
   --console=plain
 
-BUILD SUCCESSFUL in 51s
-27 tests, 0 failures, 0 errors, 0 skipped
+BUILD SUCCESSFUL in 52s
+34 tests, 0 failures, 0 errors, 0 skipped
 ```
 
-The integration test drives the production recovery ordering and `HomeRepository` batching path. Its partial pass contains only the recovered provider, publishes that provider's Home row before a stale provider's catalog request starts, and still includes the stale provider in the final reconciliation after its manifest attempt settles. The focused tests also cover selecting a missing manifest when the cache is empty, replacing a suspended background manifest request with a reconnect-generation request in the same process, rapid reconnect and Retry coalescing, profile invalidation, and clearing rows when the Search query changes. They do not model a complete cold offline app launch and reconnect orchestration.
+The focused regressions exercise these boundaries:
+
+- Fresh manifest cache entries produce no manifest attempts. The production Home loader publishes a healthy row while another catalog remains suspended. The earlier partial-manifest and final-reconciliation test remains in the suite.
+- A seeded warm row for a pending provider remains visible during a partial refresh, a suspended final catalog refresh, and that request's eventual failure. Test definitions use the production descriptor signature.
+- The production recovery controller ignores stale Online after Retry, receives confirmed NoInternet, then completes a recovery generation after Online. A separate case verifies genuine duplicate Retry coalescing.
+- The production manifest-cache store serializes simultaneous completions and a profile switch during persistence. Tests decode persisted blobs to verify both successful entries and profile isolation, and reject a completion released after its profile was replaced.
+
+Home tests inject catalog definitions and loaders to avoid platform resources and HTTP. Cache-store tests inject storage; they do not exercise platform preferences. Other unit coverage verifies empty-cache manifest selection, replacement of a suspended background request by reconnect recovery, profile invalidation, and Search query replacement. This is not a complete cold offline app-launch and reconnect test.
 
 Kotlin/Native test compilation passed:
 
@@ -103,10 +115,10 @@ NUVIO_ENGINE_ROOT='/Users/muharrem/Documents/ChatGPT/Nuvio iOS/build/nuvio-engin
   :composeApp:compileTestKotlinIosSimulatorArm64 \
   --rerun-tasks --console=plain
 
-BUILD SUCCESSFUL in 48s
+BUILD SUCCESSFUL in 47s
 ```
 
-The first Xcode attempt correctly failed because the pinned MPVKit submodule was absent. After initializing repository-pinned MPVKit commit `d5cf091c80368bbbc1bbf2d195fbc55d926df888`, the complete unsigned iOS simulator build passed:
+The complete unsigned iOS simulator build used repository-pinned MPVKit commit `d5cf091c80368bbbc1bbf2d195fbc55d926df888`:
 
 ```text
 NUVIO_IOS_DISTRIBUTION=full \
@@ -124,7 +136,7 @@ xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp \
 
 ## Runtime evidence
 
-Android transition testing used a headless Pixel 8 API 36 emulator and a disposable profile with two local manifest servers. Both manifests were cached while healthy, the second server was then stopped, and the emulator clock was advanced seven hours to make the cache stale.
+The initial F07 runtime pass used a headless Pixel 8 API 36 emulator and a disposable profile with two local manifest servers. These Android transition checks predate the four follow-up fixes. Both manifests were cached while healthy, the second server was then stopped, and the emulator clock was advanced seven hours to make the cache stale.
 
 - A cold launch completed in 1.947 seconds with no fatal exception or ANR.
 - Airplane mode plus a background/foreground cycle produced the existing confirmed offline state and kept Retry available without restarting the process.
@@ -133,13 +145,15 @@ Android transition testing used a headless Pixel 8 API 36 emulator and a disposa
 - Home displayed `Recovered Fixture`; Search displayed the fixture; its details page opened with the fixture description.
 - Phone and simulated Android tablet layouts rendered recovered Home content.
 
-The rebuilt app cold-launched on the iPhone simulator and rendered its no-add-on Home state without a crash. The initial pass also checked the iPad simulator layout. Simulator has no supported per-device command that reliably disconnects the public and Supabase probes, so the follow-up did not claim an interactive iOS offline-to-online transition.
+The rebuilt app cold-launched on the iPhone simulator and rendered its no-add-on Home state without a crash. The initial pass also checked the iPad simulator layout. Interactive iOS offline-to-online transitions were not performed in this follow-up.
 
-A physical Samsung SM-A528B accepted the full debug APK and cold-launched it without a fatal exception or ANR. The device was locked, so no visible interaction or network-transition claim is made.
+The launch check used device `68A42C7D-B136-4518-A02B-F4CED41E2986`, installed `/private/tmp/nuvio-f07-final-derived/Build/Products/Debug-iphonesimulator/Nuvio.app`, and ran `xcrun simctl launch --terminate-running-process 68A42C7D-B136-4518-A02B-F4CED41E2986 com.tinykyuu.nuvio.internal`. The simulator was shut down after visual verification.
+
+During the initial F07 pass, a physical Samsung SM-A528B accepted the full debug APK and cold-launched it without a fatal exception or ANR. The device was locked, so no visible interaction or network-transition claim is made.
 
 ## Deferred release checks
 
-- Execute the complete offline-to-online and partial-add-on recovery scenario on a physical iPad.
+- Physical-device Wi-Fi transitions remain deferred. Execute the complete offline-to-online and partial-add-on recovery scenario on a physical iPad.
 - Run the interactive transition on iPhone and iPadOS, including Retry and manual refresh.
 - Repeat visible Android interaction on an unlocked physical device.
 - Manually recheck Continue Watching, Downloads, and offline playback in a release candidate. Their automated regression coverage passed, but this disposable fixture did not exercise those flows.

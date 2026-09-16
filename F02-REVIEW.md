@@ -2,9 +2,9 @@
 
 ## Scope
 
-This change makes completed downloads browsable when Nuvio has no network connection. It persists one metadata snapshot per profile and parent title, caches the artwork needed by that snapshot, and exposes downloaded titles on Home, in a third Library source, and through the normal details route.
+This change makes completed downloads browsable when Nuvio cannot reach its servers. It persists one metadata snapshot per profile and parent title, caches the artwork needed by that snapshot, and exposes downloaded titles on Home, in a third Library source, and through the normal details route.
 
-The work started from approved baseline `1392a98ee16e517c2b223cd31d18287719641afc` on `codex/testflight-internal` and addresses the cover, season, and episode information requested in [issue #1262](https://github.com/tinyKyuu/NuvioMobile/issues/1262).
+The feature started from approved baseline `1392a98ee16e517c2b223cd31d18287719641afc` on `codex/testflight-internal` and addresses the cover, season, and episode information requested in [issue #1262](https://github.com/tinyKyuu/NuvioMobile/issues/1262). The review branch now includes the current integration base `adc32f5c98924d1bd6fdea62ab8f9c05b6cffe74`, including PRs #16 and #17, through merge commit `d2f70db0`.
 
 The `MetaDetails` snapshot conversion shape was adapted from `AKRusso/NuvioMobile-Enhanced` at `ac03c46a159e7e4bbbcd77ad4bdf6ea604b34107`. Nuvio's implementation uses a different ownership and storage model: snapshots belong to one profile/title record, while download records remain the source of truth for playable files.
 
@@ -13,40 +13,53 @@ The `MetaDetails` snapshot conversion shape was adapted from `AKRusso/NuvioMobil
 - Completed movie variants and series episodes reconcile into one title record per profile, media type, and downloaded parent ID.
 - Provider IDs and the downloaded parent identity are stored separately. Offline navigation always uses the downloaded parent identity.
 - Metadata captured during normal details browsing is saved immediately. Missing or stale records refresh through preferred add-ons with conditional requests and TMDB fallback.
-- Successful metadata is fresh for 24 hours. Automatic failures retry with exponential backoff from 30 seconds to 30 minutes. A run starts at most eight metadata refreshes and permits two metadata or artwork requests at once; manual refresh bypasses freshness and backoff.
+- Successful metadata is fresh for 24 hours. Automatic failures retry with exponential backoff from 30 seconds to 30 minutes. A run starts at most eight metadata refreshes and eight artwork refreshes, excludes work already in flight, and permits two network requests at once.
 - Metadata responses are capped at 4 MiB. Artwork responses are capped at 8 MiB and must have an image content type when supplied plus a supported file signature before an atomic local save.
 - Poster, background, logo, season posters, and thumbnails for downloaded episodes are retained in app storage. Unreferenced artwork is deleted only after checking all profile records.
 - Refresh results are rejected after a profile switch, download-set generation change, or title deletion. Deleting a profile removes its downloads and offline title records after a successful remote deletion, or immediately for a local anonymous profile.
-- Home shows a Downloaded row and limits Continue Watching to playable local episodes while offline. Library includes Saved, Downloaded, and Cloud sources. Offline series details disable episodes without a completed local download and label them `Internet required`.
+- Home shows a Downloaded row and limits Continue Watching to playable local episodes while offline. Library includes Saved, Downloaded, and Cloud sources.
 - Downloads open the normal movie or series details route, so the same snapshot and playback checks apply from every entry point.
+
+## Organizer review fixes
+
+- Offline-like details now prefer the persisted offline snapshot over repository or memory-cached online metadata. Opening that snapshot suppresses the ordinary metadata load, settings-driven enrichment reloads, ratings, comments, trailers, backdrop enrichment, and remote episode-progress refresh.
+- Both series episode layouts use the same offline eligibility rule. Downloaded episodes remain actionable; other episode cards are disabled and labeled `Internet required`.
+- Metadata freshness is based on the last successful refresh. After an automatic failure, complete but stale metadata becomes eligible exactly at its retry boundary instead of waiting another 24 hours.
+- Artwork has independent attempt, failure, and retry state. Partial downloads retain valid existing assets, retry missing assets after backoff without requiring another metadata fetch, and clear failure state when complete or when the download reference set changes.
+- iOS artwork replacement writes a unique same-directory temporary file and commits with POSIX `rename`, preserving the last good target when replacement fails and cleaning the temporary file on every path.
 
 ## Validation
 
 | Check | Result | Local evidence |
 |---|---:|---|
-| SQLDelight migration verification | Passed | `build/f02-evidence/migration/gradle.log` |
-| Native HTTP fixture tests | 8 passed | `build/f02-evidence/http-fixture-unit.log` |
-| Baseline regression at `1392a98e` | Failed as expected because the F02 APIs do not exist | `build/f02-evidence/baseline/gradle.log` |
-| Final Android host suite | 919 passed, 0 failed | `build/f02-evidence/android-host-final/gradle.log` |
-| Offline library logic on Android host | 15 passed | `composeApp/build/test-results/testAndroidHostTest/TEST-com.nuvio.app.features.downloads.OfflineLibraryLogicTest.xml` |
-| Home behavior tests | 33 passed | `composeApp/build/test-results/testAndroidHostTest/TEST-com.nuvio.app.features.home.HomeScreenTest.xml` |
-| Android full debug APK | Built successfully | `build/f02-evidence/android-app-build-final/gradle.log` |
-| iOS simulator Kotlin compile | Passed | `build/f02-evidence/ios-compile-post-review/gradle.log` |
-| iOS appstore-source-set downloads suite | 69 passed, 0 failed, 1 keychain test skipped | `build/f02-evidence/ios-native-downloads-appstore/gradle.log` |
-| Full iOS simulator app | Built successfully | `build/f02-evidence/ios-simulator-build-post-review/xcodebuild.log` |
-| Dedicated iOS simulator runtime | Launch, local profile Home, all three Library sources, and Downloaded empty state verified | `build/f02-evidence/ios-simulator-runtime/` |
-| Unsigned arm64 iOS device IPA | Built and archive-tested successfully | `build/f02-evidence/ios-device-build-final/build-ios-ipa.log` |
+| SQLDelight migration verification | Passed | `build/f02-evidence/review-fixes-migration-final/gradle.log` |
+| Final Android host suite | 934 tests, 0 failed, 0 errors, 0 skipped | `build/f02-evidence/review-fixes-android-host-final/gradle.log` |
+| Offline details policy on Android host | 2 tests, 0 failed | `composeApp/build/test-results/testAndroidHostTest/TEST-com.nuvio.app.features.details.MetaDetailsOfflinePolicyTest.xml` |
+| Offline library logic on Android host | 18 tests, 0 failed | `composeApp/build/test-results/testAndroidHostTest/TEST-com.nuvio.app.features.downloads.OfflineLibraryLogicTest.xml` |
+| Android full debug APK | Built successfully | `build/f02-evidence/review-fixes-android-app-final/gradle.log` |
+| iOS simulator Kotlin compile | Passed | `build/f02-evidence/review-fixes-ios-compile/gradle.log` |
+| Full-distribution iOS downloads suite | 73 tests, 0 failed, 0 errors, 1 expected keychain skip | `build/f02-evidence/review-fixes-ios-downloads-final/gradle.log` |
+| iOS offline artwork replacement | 1 native iOS test, 0 failed | `composeApp/build/test-results/iosSimulatorArm64Test/TEST-com.nuvio.app.features.downloads.OfflineArtworkPlatformIosTest.xml` |
+| Full iOS simulator app | Built successfully | `build/f02-evidence/review-fixes-ios-simulator-build-final/xcodebuild.log` |
+| Populated dedicated iOS simulator runtime | Cold offline-like launch, local artwork and metadata, downloaded-only episode eligibility, and local MP4 playback verified | `build/f02-evidence/review-fixes-ios-simulator-runtime/` |
+| Unsigned arm64 iOS device IPA | Built and archive-tested successfully | `build/f02-evidence/review-fixes-ios-device-build-final/build-ios-ipa.log` |
 
-The standalone full-distribution Kotlin/Native test executable cannot link the app's Swift AES bridge symbols (`nuvio_aes_gcm_encrypt` and `nuvio_aes_gcm_decrypt`). This is an existing test-target boundary rather than an F02 compile error. The same native downloads suite passes under the appstore source set, and both full-distribution iOS app targets link successfully. The failed linker evidence is retained at `build/f02-evidence/ios-native-downloads/gradle.log`.
+The Android suite initially exposed a timing assumption in `WatchedItemsStoreTest`: a concurrent reader can run before the first provider dirty-set write. The assertion now treats that absent set as empty, matching the store's valid initial state; the isolated test and the final 934-test suite pass.
 
-Runtime verification used the dedicated `Nuvio F02 Offline Library` iPhone 17 Pro simulator. It was shut down after the run. A hand-seeded profile payload was rejected by the app's profile integrity guard, so the populated Downloaded card was not bypassed into the UI; grouping, identity, episode retention, deletion, and playability are covered by the common tests. No physical device installation was performed.
+The full-distribution iOS suite uses the Swift crypto bridge harness from the current integration base and now links and passes. The one skip is the existing keychain round-trip test in `DownloadsRequestStorageIosTest`.
+
+Runtime verification used the dedicated `Nuvio F02 Offline Library` iPhone 17 Pro simulator on iOS 26.5. A real anonymous session was created through the app, then the fixture wrote an app-native profile payload for `Offline Reviewer`, one completed 40-second H.264/AAC episode, its series snapshot, and four local artwork files. The dedicated simulator's server endpoint was set to unreachable loopback `http://127.0.0.1:9`, which produced the app's `ServersUnreachable` offline-like state without altering the host or other simulators. A cold launch showed the Downloaded row and local poster; details rendered the persisted series data; episode 1 was actionable as `Downloaded`; episode 2 was disabled as `Internet required`; and episode 1 played from its local file. Evidence includes `cold-launch-offline-library.png`, `offline-details-episode-policy.png`, `local-playback-from-downloaded-episode.png`, `seed.log`, and `runtime-filtered.log` in the runtime evidence directory. The simulator was shut down afterward.
+
+The iOS replacement success path is exercised against the real filesystem. The failed-commit path is tested through the shared commit contract: the previous target remains, unique temporary names differ, and cleanup always runs. The test suite does not fault-inject a failing POSIX `rename` inside the simulator process.
+
+No physical device installation or testing was performed, as requested.
 
 ## Artifacts
 
 | Artifact | Size | SHA-256 |
 |---|---:|---|
-| `androidApp-full-debug.apk` | 158,277,512 bytes | `6737e295d02ab76c3c05c631cdb0b430c0a5a5750da9b9ae1aa699d5a69abbf2` |
-| `nuvio-0.4.12-full-debug.ipa` | 83,108,164 bytes | `6a4d081a50fa20034f97048b5378c86e548ba3893f45070cc4aa0934b98eb096` |
+| `androidApp-full-debug.apk` | 158,764,897 bytes | `71b596e1a099884bcc0f12c8a44dfc7f6463518e137feae9bab2b4bae3bfe46d` |
+| `nuvio-0.4.12-full-debug.ipa` | 83,157,891 bytes | `c872a329126c2e47d0568e302f95c886f17b5751c093a42b0d8c49ea1a0730f4` |
 
 ## Rollback
 

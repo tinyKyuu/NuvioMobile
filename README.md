@@ -52,7 +52,7 @@ Merged source is not the same as a supported release. The
 [feature ledger](./Docs/feature-status.md) records platform evidence, open work,
 upstream provenance, and known validation gaps.
 
-## Platform plans
+## Project scope at a glance
 
 | Platform | Watch Together | Other fork improvements | Distribution |
 | --- | --- | --- | --- |
@@ -63,17 +63,76 @@ upstream provenance, and known validation gaps.
 
 ## What this fork changes
 
-| Area | Fork work | Status |
-| --- | --- | --- |
-| Watch Together | Content-blind protocol models, canonical playback clock, command ordering, drift correction, reconnect handling, and an iOS development client | Merged |
-| Hosted pilot | Approved-host sign-in, accountless guest admission, private room updates, and secure local session storage | [In testing](https://github.com/tinyKyuu/NuvioMobile/pull/7) |
-| Downloads | Durable iOS background transfers, persisted queue state, network policy, player download controls, and bulk removal | Merged |
-| Offline use | Local playback, export, offline metadata and artwork, downloaded Library layouts, and an offline Home experience | Merged |
-| Mobile player | Hardware keyboard controls plus selected subtitle, playback, accessibility, brightness, and performance updates; limits are recorded in the ledger | Merged |
-| Desktop | Watch Together adapters without unrelated client changes | Planned |
+The tables below group user-facing changes by the part of the app where they
+appear. `Merged` means the source is in the stable branch. It does not mean a
+public binary is available. See the [feature ledger](./Docs/feature-status.md)
+for provenance, pull requests, test evidence, and remaining validation work.
 
-No row in this table promises a public artifact. See the ledger for the exact
-platform and test boundary of each claim.
+### Watch Together
+
+| Feature | Where | Platforms | Status |
+| --- | --- | --- | --- |
+| Synchronized rooms with collaborative pause, resume, seeking, 10-second jumps, reconnect recovery, and drift correction | Settings and Player | iOS and iPadOS client, shared mobile core | Merged |
+| Local source alignment, so participants can use independently selected sources with different intro lengths | During room playback | iOS and iPadOS client, shared mobile core | Merged |
+| Content-blind protocol that keeps titles, episode IDs, providers, source URLs, credentials, and viewing history out of the relay | Room protocol | Shared across compatible clients | Merged |
+| Approved-host sign-in, accountless guest admission, private room updates, and secure session storage | Settings and room lobby | Shared mobile source | [In testing](https://github.com/tinyKyuu/NuvioMobile/pull/7) |
+
+### Downloads and offline use
+
+| Feature | Where | Platforms | Status |
+| --- | --- | --- | --- |
+| Durable direct-file downloads that continue while the app is in the background | Downloads | iOS and iPadOS | Merged |
+| Persisted queue state, two active transfer slots, pause and resume, and Wi-Fi-only network policy | Downloads | iOS and iPadOS | Merged |
+| Download the exact direct-file source currently playing without leaving the player | Player | Shared mobile source, iOS tested | Merged |
+| Select and remove several active or completed downloads in one operation | Downloads | Shared mobile source, iOS tested | Merged |
+| Play completed files offline and export them through the native share sheet | Downloads and Details | iOS and iPadOS | Merged |
+
+### Home
+
+| Feature | Where | Platforms | Status |
+| --- | --- | --- | --- |
+| Offline Home keeps Continue Watching and Downloaded content available while remote catalog rows stay hidden | Home | Shared mobile source, iOS tested | Merged |
+| Compact connection status keeps Retry reachable without covering playable local content | Home | Shared mobile source, iOS tested | Merged |
+| Continue Watching can reuse verified local artwork for downloaded titles | Home | Shared mobile source, iOS tested | Merged |
+
+### Library
+
+| Feature | Where | Platforms | Status |
+| --- | --- | --- | --- |
+| Downloaded movies and series appear in the Library with horizontal shelves or a vertical poster grid | Library | Shared mobile source, iOS tested | Merged |
+| Local metadata, title artwork, episode artwork, and principal cast images remain available offline | Library and Details | Shared mobile source, iOS tested | Merged |
+| Downloaded episodes remain playable from the normal series details screen while unavailable episodes show `Internet required` | Details | Shared mobile source, iOS tested | Merged |
+
+### Player
+
+| Feature | Where | Platforms | Status |
+| --- | --- | --- | --- |
+| Hardware keyboard controls for play, pause, 10-second seeking, and leaving the player | Player | iOS, iPadOS, and Android | Merged |
+| Brightness gestures can reach the device minimum and restore the previous value when the player closes | Player | iOS, iPadOS, and Android | Merged |
+| Resume state refresh and cancellable next-episode prompts | Player | Shared mobile source | Merged |
+
+### Subtitles
+
+| Feature | Where | Platforms | Status |
+| --- | --- | --- | --- |
+| Bundled CJK font fallback prevents missing Chinese glyphs in the native player | Player | iOS and iPadOS | Merged |
+| Multiline TTML cues retain their intended line breaks | Player | Shared mobile source | Merged |
+| Subtitle selection stays consistent across picker updates and source changes | Player | Shared mobile source | Merged |
+
+### Details and discovery
+
+| Feature | Where | Platforms | Status |
+| --- | --- | --- | --- |
+| Add-on metadata can supply season artwork and regional certification details | Details | Shared mobile source | Merged |
+| A null Specials poster no longer shifts artwork onto the wrong regular season | Series details | Shared mobile source | Merged |
+
+### Performance and reliability
+
+| Change | Where | Platforms | Status |
+| --- | --- | --- | --- |
+| Compose 1.12 dependency alignment for current mobile builds; the earlier accessibility crash was not reproduced or claimed fixed | App framework | iOS and Android | Merged |
+| Collection and catalog startup work avoids duplicate decoding and stops scanning after the requested valid item limit | App startup and Home | Shared mobile code | Merged |
+| Temporary GIF decoding resources are released after frame conversion | Animated artwork | iOS and iPadOS | Merged |
 
 ## Watch Together privacy boundary
 

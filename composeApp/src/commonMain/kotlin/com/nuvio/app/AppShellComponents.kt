@@ -354,6 +354,7 @@ internal fun RootOfflineStatusPill(
     val tokens = MaterialTheme.nuvio
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val tooltipText = condition.titleForEmptyState()
+    val retryText = stringResource(Res.string.action_retry)
 
     Box(
         modifier = modifier
@@ -378,7 +379,10 @@ internal fun RootOfflineStatusPill(
                 shape = tokens.shapes.chip,
                 tonalElevation = tokens.elevation.playerControls,
                 shadowElevation = tokens.elevation.overlay,
-                modifier = Modifier.clickable(onClick = onRetry),
+                modifier = Modifier.clickable(
+                    onClickLabel = retryText,
+                    onClick = onRetry,
+                ),
             ) {
                 Row(
                     modifier = Modifier.padding(
@@ -390,7 +394,7 @@ internal fun RootOfflineStatusPill(
                 ) {
                     if (showRetryLabel) {
                         Text(
-                            text = stringResource(Res.string.action_retry),
+                            text = retryText,
                             style = MaterialTheme.typography.labelLarge,
                             color = tokens.colors.textMuted,
                         )

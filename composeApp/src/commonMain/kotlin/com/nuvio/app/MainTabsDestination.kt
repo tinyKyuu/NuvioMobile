@@ -72,7 +72,12 @@ internal fun MainTabsDestination(
             liquidGlassNativeTabBarSupported && liquidGlassNativeTabBarEnabled && initialHomeReady
         }
         val tabsRouteActive = rootRouteActive
-        val showOfflineRetryLabel = maxWidth >= 900.dp
+        val offlineStatusPresentation = rootOfflineStatusPresentation(
+            rootRouteActive = tabsRouteActive,
+            condition = networkCondition,
+            isTabletLayout = isTabletLayout,
+            showRetryLabel = maxWidth >= 900.dp,
+        )
         val navBarScrollState = rememberNuvioNavBarScrollState()
         val navBarHazeState = rememberHazeState()
         val navBarStyleSetting by remember { ThemeSettingsRepository.navBarStyle }.collectAsStateWithLifecycle()
@@ -145,14 +150,15 @@ internal fun MainTabsDestination(
                         onProfileSelected = onProfileSelected,
                         onAddProfileRequested = onAddProfileRequested,
                     )
-                    if (shouldShowRootOfflineStatus(tabsRouteActive, networkCondition)) {
-                        RootOfflineStatusPill(
-                            condition = networkCondition,
-                            showRetryLabel = showOfflineRetryLabel,
-                            onRetry = onNetworkRetry,
-                            modifier = Modifier.align(Alignment.TopEnd),
-                        )
-                    }
+                }
+
+                if (offlineStatusPresentation != RootOfflineStatusPresentation.Hidden) {
+                    RootOfflineStatusPill(
+                        condition = networkCondition,
+                        showRetryLabel = offlineStatusPresentation == RootOfflineStatusPresentation.RetryPill,
+                        onRetry = onNetworkRetry,
+                        modifier = Modifier.align(Alignment.TopEnd),
+                    )
                 }
 
                 if (!isTabletLayout && !useNativeBottomTabs && navBarStyleSetting != NavBarStyle.CLASSIC) {
@@ -213,3 +219,20 @@ internal fun shouldShowRootOfflineStatus(
     condition == NetworkCondition.NoInternet ||
         condition == NetworkCondition.ServersUnreachable
     )
+
+internal enum class RootOfflineStatusPresentation {
+    Hidden,
+    CompactIcon,
+    RetryPill,
+}
+
+internal fun rootOfflineStatusPresentation(
+    rootRouteActive: Boolean,
+    condition: NetworkCondition,
+    isTabletLayout: Boolean,
+    showRetryLabel: Boolean,
+): RootOfflineStatusPresentation = when {
+    !shouldShowRootOfflineStatus(rootRouteActive, condition) -> RootOfflineStatusPresentation.Hidden
+    isTabletLayout && showRetryLabel -> RootOfflineStatusPresentation.RetryPill
+    else -> RootOfflineStatusPresentation.CompactIcon
+}

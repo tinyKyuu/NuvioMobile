@@ -973,9 +973,11 @@ fun HomeScreen(
             }
 
             when {
-                networkStatusUiState.isOfflineLike &&
-                    offlineDownloadedTitles.isEmpty() &&
-                    !hasContinueWatchingRows -> {
+                shouldShowOfflineHomeConnectionCard(
+                    isOfflineLike = networkStatusUiState.isOfflineLike,
+                    hasPlayableDownloads = offlineDownloadedTitles.isNotEmpty(),
+                    hasContinueWatchingRows = hasContinueWatchingRows,
+                ) -> {
                     item {
                         NuvioNetworkOfflineCard(
                             condition = networkStatusUiState.condition,
@@ -1124,6 +1126,12 @@ fun HomeScreen(
         }
     }
 }
+
+internal fun shouldShowOfflineHomeConnectionCard(
+    isOfflineLike: Boolean,
+    hasPlayableDownloads: Boolean,
+    hasContinueWatchingRows: Boolean,
+): Boolean = isOfflineLike && !hasPlayableDownloads && !hasContinueWatchingRows
 
 private fun LazyListScope.homeDownloadedSection(
     items: List<MetaPreview>,

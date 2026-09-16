@@ -223,17 +223,8 @@ internal class NetworkRecoveryRequestGate {
 }
 
 object NetworkRecoveryCoordinator {
-    private val log = Logger.withTag("NetworkRecovery")
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val requestGate = NetworkRecoveryRequestGate()
-    private val transitionLock = SynchronizedObject()
-    private val transitionTracker = NetworkRecoveryTransitionTracker()
-    private val _uiState = MutableStateFlow(NetworkRecoveryUiState())
-    val uiState: StateFlow<NetworkRecoveryUiState> = _uiState.asStateFlow()
-
     private var started = false
-    private var retryPendingUntilOnline = false
-    private var forceAllPendingUntilOnline = false
 
     private val operations = object : NetworkRecoveryOperations {
         override suspend fun recoverManifests(
@@ -268,7 +259,7 @@ object NetworkRecoveryCoordinator {
                 addons = enabledAddons,
                 readyManifestUrls = readyManifestUrls,
             )
-            HomeRepository.refresh(readyAddons, force = true)
+            HomeRepository.refresh(readyAddons, force = true, partial = readyManifestUrls != null)
             SearchRepository.refreshAfterRecovery(readyAddons)
             if (readyManifestUrls != null) return
             OfflineLibraryRepository.refreshMissingAndStale()
@@ -277,51 +268,71 @@ object NetworkRecoveryCoordinator {
         }
     }
 
+    private val controller = NetworkRecoveryController(
+        scope = scope,
+        operations = operations,
+        activeProfileId = { ProfileRepository.activeProfileId },
+        requestFreshProbe = { NetworkStatusRepository.requestRefresh(force = true) },
+    )
+    val uiState: StateFlow<NetworkRecoveryUiState> = controller.uiState
+
     fun ensureStarted() {
         if (started) return
         started = true
         NetworkStatusRepository.ensureStarted()
         scope.launch {
             NetworkStatusRepository.uiState.collect { state ->
-                onNetworkCondition(state.condition)
+                controller.onNetworkState(state)
             }
         }
     }
 
     fun retry() {
         ensureStarted()
-        synchronized(transitionLock) {
-            retryPendingUntilOnline = true
-        }
-        NetworkStatusRepository.requestRefresh(force = true)
-        if (NetworkStatusRepository.uiState.value.isOnline) {
-            synchronized(transitionLock) {
-                retryPendingUntilOnline = false
-            }
-            requestRecovery(NetworkRecoveryTrigger.Retry, forceAllManifests = false)
-        }
+        controller.retry()
     }
 
     fun refreshAllManifests() {
         ensureStarted()
+        controller.retry(forceAllManifests = true)
+    }
+
+    fun onProfileChanged(profileId: Int) = controller.onProfileChanged(profileId)
+
+    fun onProfileDeleted(profileId: Int) {
+        if (uiState.value.profileId == profileId) onProfileChanged(ProfileRepository.activeProfileId)
+    }
+
+    internal fun isRecoveringProfile(profileId: Int): Boolean =
+        uiState.value.profileId == profileId && uiState.value.isRecovering
+}
+
+internal class NetworkRecoveryController(
+    private val scope: CoroutineScope,
+    private val operations: NetworkRecoveryOperations,
+    private val activeProfileId: () -> Int,
+    private val requestFreshProbe: () -> Long,
+) {
+    private val log = Logger.withTag("NetworkRecovery")
+    private val requestGate = NetworkRecoveryRequestGate()
+    private val transitionLock = SynchronizedObject()
+    private val transitionTracker = NetworkRecoveryTransitionTracker()
+    private val _uiState = MutableStateFlow(NetworkRecoveryUiState())
+    val uiState: StateFlow<NetworkRecoveryUiState> = _uiState.asStateFlow()
+    private var retryProbeGeneration: Long? = null
+    private var forceAllPendingUntilOnline = false
+
+    fun retry(forceAllManifests: Boolean = false) {
         synchronized(transitionLock) {
-            retryPendingUntilOnline = true
-            forceAllPendingUntilOnline = true
-        }
-        NetworkStatusRepository.requestRefresh(force = true)
-        if (NetworkStatusRepository.uiState.value.isOnline) {
-            synchronized(transitionLock) {
-                retryPendingUntilOnline = false
-                forceAllPendingUntilOnline = false
-            }
-            requestRecovery(NetworkRecoveryTrigger.ManualRefresh, forceAllManifests = true)
+            forceAllPendingUntilOnline = forceAllPendingUntilOnline || forceAllManifests
+            retryProbeGeneration = requestFreshProbe()
         }
     }
 
     fun onProfileChanged(profileId: Int) {
         val generation = requestGate.invalidate()
         synchronized(transitionLock) {
-            retryPendingUntilOnline = false
+            retryProbeGeneration = null
             forceAllPendingUntilOnline = false
         }
         _uiState.value = NetworkRecoveryUiState(
@@ -330,31 +341,27 @@ object NetworkRecoveryCoordinator {
         )
     }
 
-    fun onProfileDeleted(profileId: Int) {
-        if (_uiState.value.profileId == profileId) {
-            onProfileChanged(ProfileRepository.activeProfileId)
-        }
-    }
-
-    internal fun isRecoveringProfile(profileId: Int): Boolean =
-        _uiState.value.profileId == profileId && _uiState.value.isRecovering
-
-    private fun onNetworkCondition(condition: NetworkCondition) {
+    fun onNetworkState(state: NetworkStatusUiState) {
         var shouldRecover = false
         var forceAll = false
+        var trigger = NetworkRecoveryTrigger.Reconnect
         synchronized(transitionLock) {
-            val reconnected = transitionTracker.onCondition(condition)
-            if (condition == NetworkCondition.Online) {
-                shouldRecover = reconnected || retryPendingUntilOnline
-                forceAll = forceAllPendingUntilOnline
-                retryPendingUntilOnline = false
-                forceAllPendingUntilOnline = false
+            val reconnected = transitionTracker.onCondition(state.condition)
+            if (state.isOnline) {
+                val retryReady = retryProbeGeneration?.let { state.probeGeneration >= it } == true
+                shouldRecover = reconnected || retryReady
+                if (retryReady) {
+                    forceAll = forceAllPendingUntilOnline
+                    trigger = if (forceAll) NetworkRecoveryTrigger.ManualRefresh else NetworkRecoveryTrigger.Retry
+                    retryProbeGeneration = null
+                    forceAllPendingUntilOnline = false
+                }
             }
         }
 
         if (shouldRecover) {
             requestRecovery(
-                trigger = if (forceAll) NetworkRecoveryTrigger.ManualRefresh else NetworkRecoveryTrigger.Reconnect,
+                trigger = trigger,
                 forceAllManifests = forceAll,
             )
         }
@@ -364,7 +371,7 @@ object NetworkRecoveryCoordinator {
         trigger: NetworkRecoveryTrigger,
         forceAllManifests: Boolean,
     ) {
-        val profileId = ProfileRepository.activeProfileId
+        val profileId = activeProfileId()
         val (result, generation) = requestGate.launch(
             scope = scope,
             profileId = profileId,
@@ -378,12 +385,12 @@ object NetworkRecoveryCoordinator {
                     operations = operations,
                     isCurrent = {
                         requestGate.isCurrent(profileId, runGeneration) &&
-                            ProfileRepository.activeProfileId == profileId
+                            activeProfileId() == profileId
                     },
                     onPhase = { phase, manifestOutcome ->
                         if (
                             requestGate.isCurrent(profileId, runGeneration) &&
-                            ProfileRepository.activeProfileId == profileId
+                            activeProfileId() == profileId
                         ) {
                             _uiState.value = NetworkRecoveryUiState(
                                 profileId = profileId,
@@ -401,7 +408,7 @@ object NetworkRecoveryCoordinator {
                 log.e(error) { "Recovery failed for profile $profileId generation $runGeneration" }
                 if (
                     requestGate.isCurrent(profileId, runGeneration) &&
-                    ProfileRepository.activeProfileId == profileId
+                        activeProfileId() == profileId
                 ) {
                     _uiState.value = NetworkRecoveryUiState(
                         profileId = profileId,

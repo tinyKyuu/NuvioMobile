@@ -66,27 +66,37 @@ object AddonRepository {
 
     private var initialized = false
     private var pulledFromServer = false
-    private var currentProfileId: Int = 1
-    private var profileGeneration: Long = 0L
-    private var manifestCache: Map<String, CachedAddonManifest> = emptyMap()
+    private val manifestCacheStore = AddonManifestCacheStore(
+        read = AddonStorage::loadManifestCache,
+        write = { profileId, payload ->
+            if (payload == null) AddonStorage.deleteManifestCache(profileId)
+            else AddonStorage.saveManifestCache(profileId, payload)
+        },
+    )
+    private val currentProfileId: Int get() = manifestCacheStore.owner.profileId
+    private val manifestCache: Map<String, CachedAddonManifest> get() = manifestCacheStore.snapshot()
     private val manifestRefreshes = ManifestRefreshSingleFlight()
     private val pushJobsByProfile = mutableMapOf<Int, Job>()
 
     fun initialize() {
         val effectiveProfileId = resolveEffectiveProfileId(ProfileRepository.activeProfileId)
+        if (currentProfileId != effectiveProfileId) onProfileChanged(effectiveProfileId)
+        val owner = manifestCacheStore.owner
+        manifestCacheStore.withOwner(owner) { initializeOwned(owner) }
+    }
+
+    private fun initializeOwned(owner: AddonManifestCacheOwner) {
         if (initialized) return
         initialized = true
-        currentProfileId = effectiveProfileId
         log.d { "initialize() — loading local addons for profile $currentProfileId" }
 
         val storedUrls = dedupeManifestUrls(AddonStorage.loadInstalledAddonUrls(currentProfileId))
         val enabledByUrl = loadLocalEnabledStates()
-        manifestCache = AddonManifestCacheCodec.decode(AddonStorage.loadManifestCache(currentProfileId))
+        manifestCacheStore.load(owner)
         log.d { "initialize() — local addon count: ${storedUrls.size}, cached manifests: ${manifestCache.size}" }
         if (storedUrls.isEmpty()) {
             if (manifestCache.isNotEmpty()) {
-                manifestCache = emptyMap()
-                AddonStorage.deleteManifestCache(currentProfileId)
+                manifestCacheStore.update(owner) { emptyMap() }
             }
             return
         }
@@ -107,44 +117,43 @@ object AddonRepository {
     fun onProfileChanged(profileId: Int) {
         val effectiveProfileId = resolveEffectiveProfileId(profileId)
         if (effectiveProfileId == currentProfileId && initialized) return
-        profileGeneration += 1L
-        cancelActiveRefreshes()
-        currentProfileId = effectiveProfileId
-        initialized = false
-        pulledFromServer = false
-        manifestCache = emptyMap()
-        _uiState.value = AddonsUiState()
+        manifestCacheStore.switchProfile(effectiveProfileId) {
+            cancelActiveRefreshes()
+            initialized = false
+            pulledFromServer = false
+            _uiState.value = AddonsUiState()
+        }
     }
 
     fun clearLocalState() {
-        profileGeneration += 1L
-        cancelActiveRefreshes()
-        pushJobsByProfile.values.forEach(Job::cancel)
-        pushJobsByProfile.clear()
-        currentProfileId = 1
-        initialized = false
-        pulledFromServer = false
-        manifestCache = emptyMap()
-        _uiState.value = AddonsUiState()
+        manifestCacheStore.switchProfile(1) {
+            cancelActiveRefreshes()
+            pushJobsByProfile.values.forEach(Job::cancel)
+            pushJobsByProfile.clear()
+            initialized = false
+            pulledFromServer = false
+            _uiState.value = AddonsUiState()
+        }
     }
 
     fun deleteProfileData(profileId: Int) {
-        AddonStorage.deleteManifestCache(profileId)
+        manifestCacheStore.deleteProfile(profileId)
     }
 
     suspend fun pullFromServer(profileId: Int) {
         val effectiveProfileId = resolveEffectiveProfileId(profileId)
-        currentProfileId = effectiveProfileId
-        val operationGeneration = profileGeneration
+        if (currentProfileId != effectiveProfileId) onProfileChanged(profileId)
+        val operationOwner = manifestCacheStore.owner
+        val operationGeneration = operationOwner.generation
         log.i { "pullFromServer() — profileId=$profileId, initialized=$initialized, pulledFromServer=$pulledFromServer" }
         if (!initialized && manifestCache.isEmpty()) {
-            manifestCache = AddonManifestCacheCodec.decode(AddonStorage.loadManifestCache(currentProfileId))
+            manifestCacheStore.load(operationOwner)
         }
         runCatching {
             val rows = SupabaseProvider.client.postgrest
                 .from("addons")
                 .select {
-                    filter { eq("profile_id", currentProfileId) }
+                    filter { eq("profile_id", operationOwner.profileId) }
                     order("sort_order", Order.ASCENDING)
                 }
                 .decodeList<AddonRow>()
@@ -208,8 +217,8 @@ object AddonRepository {
                             )
                         },
                     )
-                    persist()
-                    hydrateCachedManifests(localUrls.toSet())
+                    persist(operationOwner)
+                    hydrateCachedManifests(localUrls.toSet(), operationOwner)
                     refreshMissingOrStaleManifests()
                     pulledFromServer = true
                     initialized = true
@@ -228,8 +237,8 @@ object AddonRepository {
                     )
                 },
             )
-            persist()
-            hydrateCachedManifests(urls.toSet())
+            persist(operationOwner)
+            hydrateCachedManifests(urls.toSet(), operationOwner)
             refreshMissingOrStaleManifests()
             pulledFromServer = true
             initialized = true
@@ -263,8 +272,7 @@ object AddonRepository {
             return AddAddonResult.Error(getString(Res.string.addon_already_installed))
         }
 
-        val operationProfileId = currentProfileId
-        val operationGeneration = profileGeneration
+        val operationOwner = manifestCacheStore.owner
         var fetchedPayload: String? = null
         val manifest = try {
             withContext(Dispatchers.Default) {
@@ -279,39 +287,41 @@ object AddonRepository {
             return AddAddonResult.Error(error.message ?: getString(Res.string.addon_load_manifest_failed))
         }
 
-        if (!ownsProfile(operationProfileId, operationGeneration)) {
-            return AddAddonResult.Error(getString(Res.string.addon_load_manifest_failed))
-        }
-
-        _uiState.update { current ->
-            current.copy(
-                addons = current.addons + ManagedAddon(
-                    manifestUrl = manifestUrl,
-                    manifest = manifest,
-                    isRefreshing = false,
-                    errorMessage = null,
-                ),
-            )
-        }
-        persist()
-        fetchedPayload?.let { payload -> upsertManifestCache(manifestUrl, payload) }
-        pushToServer()
+        val applied = manifestCacheStore.withOwner(operationOwner) {
+            _uiState.update { current ->
+                current.copy(
+                    addons = current.addons + ManagedAddon(
+                        manifestUrl = manifestUrl,
+                        manifest = manifest,
+                        isRefreshing = false,
+                        errorMessage = null,
+                    ),
+                )
+            }
+            persist(operationOwner)
+            fetchedPayload?.let { payload -> upsertManifestCache(operationOwner, manifestUrl, payload) }
+            pushToServer()
+            true
+        } ?: false
+        if (!applied) return AddAddonResult.Error(getString(Res.string.addon_load_manifest_failed))
         return AddAddonResult.Success(manifest)
     }
 
     fun removeAddon(manifestUrl: String) {
         if (isUsingPrimaryAddonsFromSecondaryProfile()) return
         log.i { "removeAddon() — $manifestUrl" }
-        var changed = false
-        _uiState.update { current ->
-            val updatedAddons = current.addons.filterNot { it.manifestUrl == manifestUrl }
-            changed = updatedAddons.size != current.addons.size
-            if (changed) current.copy(addons = updatedAddons) else current
+        val owner = manifestCacheStore.owner
+        manifestCacheStore.withOwner(owner) {
+            var changed = false
+            _uiState.update { current ->
+                val updatedAddons = current.addons.filterNot { it.manifestUrl == manifestUrl }
+                changed = updatedAddons.size != current.addons.size
+                if (changed) current.copy(addons = updatedAddons) else current
+            }
+            if (!changed) return@withOwner
+            persist(owner)
+            pushToServer()
         }
-        if (!changed) return
-        persist()
-        removeManifestCacheEntry(manifestUrl)
-        pushToServer()
     }
 
     fun moveAddon(fromIndex: Int, toIndex: Int) {
@@ -383,7 +393,8 @@ object AddonRepository {
         }
         initialize()
         val effectiveProfileId = resolveEffectiveProfileId(profileId)
-        val operationGeneration = profileGeneration
+        val operationOwner = manifestCacheStore.owner
+        val operationGeneration = operationOwner.generation
         if (!ownsProfile(effectiveProfileId, operationGeneration)) {
             return AddonManifestRecoveryResult(emptySet(), emptySet(), emptySet(), stale = true)
         }
@@ -391,7 +402,7 @@ object AddonRepository {
         val nowEpochMs = EpisodeReleaseDatePlatform.nowEpochMs()
         val attemptedUrls = selectAddonManifestRefreshUrls(
             addons = _uiState.value.addons,
-            cache = manifestCache,
+            cache = manifestCacheStore.snapshot(operationOwner),
             nowEpochMs = nowEpochMs,
             forceAll = forceAll,
         )
@@ -438,8 +449,9 @@ object AddonRepository {
         reason: ManifestRefreshReason,
         recoveryGeneration: Long? = null,
     ): Deferred<Boolean> {
-        val operationProfileId = currentProfileId
-        val operationGeneration = profileGeneration
+        val operationOwner = manifestCacheStore.owner
+        val operationProfileId = operationOwner.profileId
+        val operationGeneration = operationOwner.generation
         return manifestRefreshes.start(
             scope = scope,
             manifestUrl = manifestUrl,
@@ -450,7 +462,7 @@ object AddonRepository {
                 recoveryGeneration = recoveryGeneration,
             ),
             onStarted = {
-                if (ownsProfile(operationProfileId, operationGeneration)) {
+                manifestCacheStore.withOwner(operationOwner) {
                     markRefreshing(manifestUrl)
                 }
             },
@@ -469,50 +481,33 @@ object AddonRepository {
                 if (error is CancellationException) throw error
             }
 
-            if (!ownsProfile(operationProfileId, operationGeneration)) return@refresh false
             val success = result.getOrNull()
-            if (success != null) {
-                val (payload, manifest) = success
-                upsertManifestCache(manifestUrl, payload)
+            val failureMessage = if (success == null) {
+                result.exceptionOrNull()?.message ?: getString(Res.string.addon_load_manifest_failed)
+            } else null
+            manifestCacheStore.withOwner(operationOwner) {
+                if (success != null) {
+                    if (_uiState.value.addons.none { it.manifestUrl == manifestUrl }) return@withOwner false
+                    upsertManifestCache(operationOwner, manifestUrl, success.first)
+                }
                 _uiState.update { current ->
                     current.copy(
                         addons = current.addons.map { addon ->
-                            if (addon.manifestUrl == manifestUrl) {
-                                addon.copy(
-                                    manifest = manifest,
-                                    isRefreshing = false,
-                                    errorMessage = null,
-                                )
-                            } else {
-                                addon
-                            }
+                            if (addon.manifestUrl != manifestUrl) addon
+                            else addon.copy(
+                                manifest = success?.second ?: addon.manifest,
+                                isRefreshing = false,
+                                errorMessage = if (success != null || addon.manifest != null && !surfaceCachedFailure) {
+                                    null
+                                } else {
+                                    failureMessage
+                                },
+                            )
                         },
                     )
                 }
-                true
-            } else {
-                val message = result.exceptionOrNull()?.message
-                    ?: getString(Res.string.addon_load_manifest_failed)
-                _uiState.update { current ->
-                    current.copy(
-                        addons = current.addons.map { addon ->
-                            if (addon.manifestUrl == manifestUrl) {
-                                addon.copy(
-                                    isRefreshing = false,
-                                    errorMessage = if (addon.manifest != null && !surfaceCachedFailure) {
-                                        null
-                                    } else {
-                                        message
-                                    },
-                                )
-                            } else {
-                                addon
-                            }
-                        },
-                    )
-                }
-                false
-            }
+                success != null
+            } ?: false
         }
     }
 
@@ -572,18 +567,18 @@ object AddonRepository {
         }
     }
 
-    private fun persist() {
+    private fun persist(owner: AddonManifestCacheOwner = manifestCacheStore.owner) = manifestCacheStore.withOwner(owner) {
         val addons = _uiState.value.addons
         val installedUrls = dedupeManifestUrls(addons.map { it.manifestUrl })
         AddonStorage.saveInstalledAddonUrls(
-            currentProfileId,
+            owner.profileId,
             installedUrls,
         )
         AddonStorage.saveAddonEnabledStates(
-            currentProfileId,
+            owner.profileId,
             addons.associate { it.manifestUrl to it.enabled },
         )
-        pruneManifestCache(installedUrls.toSet())
+        pruneManifestCache(installedUrls.toSet(), owner)
     }
 
     private fun loadLocalEnabledStates(): Map<String, Boolean> =
@@ -594,7 +589,10 @@ object AddonRepository {
         manifestRefreshes.cancelAll()
     }
 
-    private fun hydrateCachedManifests(installedUrls: Set<String>) {
+    private fun hydrateCachedManifests(
+        installedUrls: Set<String>,
+        owner: AddonManifestCacheOwner = manifestCacheStore.owner,
+    ) = manifestCacheStore.withOwner(owner) {
         val parsedByUrl = linkedMapOf<String, AddonManifest>()
         val validCache = linkedMapOf<String, CachedAddonManifest>()
         manifestCache.forEach { (manifestUrl, cached) ->
@@ -609,8 +607,7 @@ object AddonRepository {
             parsedByUrl[manifestUrl] = manifest
         }
         if (validCache != manifestCache) {
-            manifestCache = validCache
-            persistManifestCache()
+            manifestCacheStore.update(owner) { validCache }
         }
         _uiState.update { state ->
             state.copy(
@@ -659,44 +656,21 @@ object AddonRepository {
         return cached.isStale(nowEpochMs)
     }
 
-    private fun upsertManifestCache(manifestUrl: String, payload: String) {
-        val updated = upsertCachedAddonManifest(
-            entries = manifestCache,
+    private fun upsertManifestCache(owner: AddonManifestCacheOwner, manifestUrl: String, payload: String) {
+        manifestCacheStore.upsert(
+            expected = owner,
             manifestUrl = manifestUrl,
             payload = payload,
             fetchedAtEpochMs = EpisodeReleaseDatePlatform.nowEpochMs(),
         )
-        if (updated == manifestCache) return
-        manifestCache = updated
-        persistManifestCache()
     }
 
-    private fun removeManifestCacheEntry(manifestUrl: String) {
-        if (manifestUrl !in manifestCache) return
-        manifestCache = removeCachedAddonManifest(manifestCache, manifestUrl)
-        persistManifestCache()
-    }
-
-    private fun pruneManifestCache(installedUrls: Set<String>) {
-        val updated = manifestCache.filterKeys(installedUrls::contains)
-        if (updated == manifestCache) return
-        manifestCache = updated
-        persistManifestCache()
-    }
-
-    private fun persistManifestCache() {
-        if (manifestCache.isEmpty()) {
-            AddonStorage.deleteManifestCache(currentProfileId)
-        } else {
-            AddonStorage.saveManifestCache(
-                profileId = currentProfileId,
-                payload = AddonManifestCacheCodec.encode(manifestCache),
-            )
-        }
+    private fun pruneManifestCache(installedUrls: Set<String>, owner: AddonManifestCacheOwner) {
+        manifestCacheStore.update(owner) { it.filterKeys(installedUrls::contains) }
     }
 
     private fun ownsProfile(profileId: Int, generation: Long): Boolean =
-        currentProfileId == profileId && profileGeneration == generation
+        manifestCacheStore.owner == AddonManifestCacheOwner(profileId, generation)
 
     private fun resolveEffectiveProfileId(profileId: Int): Int {
         val active = ProfileRepository.state.value.activeProfile

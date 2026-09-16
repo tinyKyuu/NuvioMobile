@@ -71,13 +71,13 @@ fun buildHomeCatalogDefinitions(addons: List<ManagedAddon>): List<HomeCatalogDef
             }
     }.distinctBy(HomeCatalogDefinition::key)
 
-private fun buildHomeCatalogDescriptorSignature(
+internal fun buildHomeCatalogDescriptorSignature(
     addon: ManagedAddon,
     manifest: AddonManifest,
     catalog: AddonCatalog,
 ): String {
     val signature = CatalogDescriptorSignature()
-    signature.addAddon(addon)
+    signature.addAddon(addon, includeRefreshState = false)
     signature.addManifest(manifest)
     signature.addCatalog(catalog)
     return signature.value()
@@ -100,11 +100,13 @@ private class CatalogDescriptorSignature {
         mix(value ?: Int.MIN_VALUE)
     }
 
-    fun addAddon(addon: ManagedAddon) {
+    fun addAddon(addon: ManagedAddon, includeRefreshState: Boolean = true) {
         add(addon.userSetName)
         add(addon.enabled)
-        add(addon.isRefreshing)
-        add(addon.errorMessage)
+        if (includeRefreshState) {
+            add(addon.isRefreshing)
+            add(addon.errorMessage)
+        }
         add(addon.manifestUrl)
     }
 

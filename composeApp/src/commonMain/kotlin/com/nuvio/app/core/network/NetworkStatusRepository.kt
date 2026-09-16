@@ -2,6 +2,8 @@ package com.nuvio.app.core.network
 
 import androidx.compose.runtime.Composable
 import com.nuvio.app.features.addons.httpRequestRaw
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,6 +33,7 @@ enum class NetworkCondition {
 
 data class NetworkStatusUiState(
     val condition: NetworkCondition = NetworkCondition.Unknown,
+    val probeGeneration: Long = 0L,
 ) {
     val isOnline: Boolean
         get() = condition == NetworkCondition.Online
@@ -67,7 +70,9 @@ object NetworkStatusRepository {
     val uiState: StateFlow<NetworkStatusUiState> = _uiState.asStateFlow()
 
     private var started = false
-    private var probeInFlight = false
+    private val probeLock = SynchronizedObject()
+    private var latestProbeGeneration = 0L
+    private var activeProbeGeneration: Long? = null
     private var pendingProbeAfterCurrent = false
     private var pendingProbeConfirmFailures = false
     private var foregroundRefreshJob: Job? = null
@@ -87,31 +92,46 @@ object NetworkStatusRepository {
         }
     }
 
-    fun requestRefresh(force: Boolean = false, confirmFailures: Boolean = false) {
+    fun requestRefresh(force: Boolean = false, confirmFailures: Boolean = false): Long = synchronized(probeLock) {
         if (!started) started = true
-        if (probeInFlight) {
+        activeProbeGeneration?.let { activeGeneration ->
             if (force) {
                 pendingProbeAfterCurrent = true
                 pendingProbeConfirmFailures = pendingProbeConfirmFailures || confirmFailures
             }
-            return
+            return@synchronized activeGeneration + if (force) 1L else 0L
         }
 
+        val generation = ++latestProbeGeneration
+        activeProbeGeneration = generation
         scope.launch {
-            var nextConfirmFailures = confirmFailures
-            do {
-                val runConfirmFailures = nextConfirmFailures || pendingProbeConfirmFailures
-                nextConfirmFailures = false
-                pendingProbeAfterCurrent = false
-                pendingProbeConfirmFailures = false
-                probeInFlight = true
-                runProbe(confirmFailures = runConfirmFailures)
-                probeInFlight = false
-            } while (pendingProbeAfterCurrent)
+            var probe = generation to confirmFailures
+            try {
+                while (true) {
+                    runProbe(confirmFailures = probe.second, generation = probe.first)
+                    probe = synchronized(probeLock) {
+                        if (pendingProbeAfterCurrent) {
+                            val next = ++latestProbeGeneration to pendingProbeConfirmFailures
+                            activeProbeGeneration = next.first
+                            pendingProbeAfterCurrent = false
+                            pendingProbeConfirmFailures = false
+                            next
+                        } else {
+                            activeProbeGeneration = null
+                            null
+                        }
+                    } ?: break
+                }
+            } finally {
+                synchronized(probeLock) {
+                    if (activeProbeGeneration == probe.first) activeProbeGeneration = null
+                }
+            }
         }
+        generation
     }
 
-    private suspend fun runProbe(confirmFailures: Boolean) {
+    private suspend fun runProbe(confirmFailures: Boolean, generation: Long) {
         if (_uiState.value.condition == NetworkCondition.Unknown) {
             _uiState.value = NetworkStatusUiState(condition = NetworkCondition.Checking)
         }
@@ -127,7 +147,7 @@ object NetworkStatusRepository {
             nextCondition = probeCondition()
         }
 
-        _uiState.value = NetworkStatusUiState(condition = nextCondition)
+        _uiState.value = NetworkStatusUiState(condition = nextCondition, probeGeneration = generation)
     }
 
     private suspend fun probeCondition(): NetworkCondition {

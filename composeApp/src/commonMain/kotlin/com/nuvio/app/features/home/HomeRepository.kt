@@ -14,16 +14,21 @@ import com.nuvio.app.features.collection.findCollectionCatalog
 import com.nuvio.app.features.trakt.TraktPublicListSourceResolver
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlin.math.absoluteValue
 import kotlin.random.Random
 
@@ -45,10 +50,11 @@ object HomeRepository {
     private var lastPublishedCatalogHeroEmpty: Boolean = true
     private var lastErrorMessage: String? = null
 
-    fun refresh(addons: List<ManagedAddon>, force: Boolean = false) {
+    fun refresh(addons: List<ManagedAddon>, force: Boolean = false, partial: Boolean = false) {
         refreshWithLoader(
             addons = addons,
             force = force,
+            partial = partial,
             loadSection = { definition, forceRefresh ->
                 definition.toSection(forceRefresh)
             },
@@ -58,15 +64,22 @@ object HomeRepository {
     internal fun refreshWithLoader(
         addons: List<ManagedAddon>,
         force: Boolean = false,
+        partial: Boolean = false,
         buildDefinitions: (List<ManagedAddon>) -> List<HomeCatalogDefinition> = ::buildHomeCatalogDefinitions,
         loadSection: suspend (HomeCatalogDefinition, Boolean) -> HomeCatalogSection,
     ) {
         val activeAddons = addons.enabledAddons()
         val requests = buildDefinitions(activeAddons)
-        currentDefinitions = requests
-        val requestCacheKeys = requests.mapTo(mutableSetOf(), HomeCatalogDefinition::cacheKey)
+        val refreshedUrls = activeAddons.mapTo(mutableSetOf(), ManagedAddon::manifestUrl)
+        currentDefinitions = if (partial) {
+            (currentDefinitions.filterNot { it.manifestUrl in refreshedUrls } + requests)
+                .distinctBy(HomeCatalogDefinition::key)
+        } else {
+            requests
+        }
+        val requestCacheKeys = currentDefinitions.mapTo(mutableSetOf(), HomeCatalogDefinition::cacheKey)
         cachedSections = cachedSections.filterKeys(requestCacheKeys::contains)
-        val requestKey = requests.joinToString(separator = "|", transform = HomeCatalogDefinition::cacheKey)
+        val requestKey = currentDefinitions.joinToString(separator = "|", transform = HomeCatalogDefinition::cacheKey)
         currentRequestKey = requestKey
 
         if (!force && activeRequestKey == requestKey && _uiState.value.isLoading) return
@@ -77,7 +90,6 @@ object HomeRepository {
             activeJob?.cancel()
             activeJob = null
             activeRequestKey = null
-            cachedSections = emptyMap()
             lastErrorMessage = null
             publishCurrentState(
                 isLoading = false,
@@ -103,39 +115,16 @@ object HomeRepository {
                 putAll(cachedSections)
             }
             var firstErrorMessage: String? = null
-            var batchIndex = 0
-
-            prioritizedRequests.chunked(HOME_CATALOG_FETCH_BATCH_SIZE).forEach { batch ->
-                if (!ownsRequest(requestKey, generation)) return@launch
-                val results = batch.map { request ->
-                    async {
-                        request to runCatching {
-                            loadSection(request, force)
-                        }
-                    }
-                }.awaitAll()
-
-                if (!ownsRequest(requestKey, generation)) return@launch
-
-                results.mapNotNull { (request, result) ->
-                    result.getOrNull()?.let { section -> request.cacheKey to section }
-                }.forEach { (cacheKey, section) ->
-                    loadedSections[cacheKey] = section
-                }
-                if (firstErrorMessage == null) {
-                    firstErrorMessage = results.firstNotNullOfOrNull { (_, result) ->
-                        result.exceptionOrNull()?.message
-                    }
-                }
+            loadHomeCatalogs(
+                definitions = prioritizedRequests,
+                load = { loadSection(it, force) },
+            ) { request, result ->
+                if (!ownsRequest(requestKey, generation)) return@loadHomeCatalogs
+                result.getOrNull()?.let { loadedSections[request.cacheKey] = it }
+                if (firstErrorMessage == null) firstErrorMessage = result.exceptionOrNull()?.message
                 cachedSections = loadedSections.toMap()
                 lastErrorMessage = firstErrorMessage
-                if (batchIndex == 0 || (batchIndex + 1) % HOME_CATALOG_PUBLISH_INTERVAL == 0) {
-                    publishCurrentState(
-                        isLoading = true,
-                        requestKey = requestKey,
-                    )
-                }
-                batchIndex++
+                publishCurrentState(isLoading = true, requestKey = requestKey)
             }
 
             if (!ownsRequest(requestKey, generation)) return@launch
@@ -457,9 +446,39 @@ object HomeRepository {
 private const val HOME_HERO_ITEM_LIMIT = 8
 private const val HOME_COLLECTION_HERO_SOURCE_LIMIT = 6
 private const val HOME_COLLECTION_HERO_SOURCE_ITEM_LIMIT = 8
-private const val HOME_CATALOG_FETCH_BATCH_SIZE = 4
+private const val HOME_CATALOG_FETCH_CONCURRENCY = 4
 private const val HOME_CATALOG_PREVIEW_FETCH_LIMIT = 18
-private const val HOME_CATALOG_PUBLISH_INTERVAL = 2
+
+private suspend fun loadHomeCatalogs(
+    definitions: List<HomeCatalogDefinition>,
+    load: suspend (HomeCatalogDefinition) -> HomeCatalogSection,
+    publish: (HomeCatalogDefinition, Result<HomeCatalogSection>) -> Unit,
+) = coroutineScope {
+    val permits = Semaphore(HOME_CATALOG_FETCH_CONCURRENCY)
+    val results = Channel<Pair<HomeCatalogDefinition, Result<HomeCatalogSection>>>(Channel.BUFFERED)
+    try {
+        definitions.forEach { definition ->
+            launch {
+                val result = permits.withPermit {
+                    try {
+                        Result.success(load(definition))
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        Result.failure(error)
+                    }
+                }
+                results.send(definition to result)
+            }
+        }
+        repeat(definitions.size) {
+            val (definition, result) = results.receive()
+            publish(definition, result)
+        }
+    } finally {
+        results.cancel()
+    }
+}
 
 private fun prioritizeDefinitions(
     definitions: List<HomeCatalogDefinition>,

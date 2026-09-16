@@ -7,13 +7,102 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class NetworkRecoveryCoordinatorTest {
+    @Test
+    fun `retry ignores stale Online and recovers after fresh NoInternet then Online`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var network = NetworkCondition.NoInternet
+        var manifestAttempts = 0
+        val offlineRequest = CompletableDeferred<Unit>()
+        val controller = NetworkRecoveryController(
+            scope = scope,
+            activeProfileId = { 1 },
+            requestFreshProbe = { 11L },
+            operations = object : NetworkRecoveryOperations {
+                override suspend fun recoverManifests(
+                    profileId: Int,
+                    generation: Long,
+                    forceAll: Boolean,
+                    onManifestRecovered: suspend (String) -> Unit,
+                ): ManifestRecoveryOutcome {
+                    manifestAttempts++
+                    if (network != NetworkCondition.Online) offlineRequest.await()
+                    onManifestRecovered("healthy")
+                    return ManifestRecoveryOutcome(recoveredUrls = setOf("healthy"))
+                }
+
+                override suspend fun refreshCatalogs(profileId: Int, generation: Long, readyManifestUrls: Set<String>?) = Unit
+            },
+        )
+        try {
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.Online, 10L))
+            controller.retry()
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.Online, 10L))
+            yield()
+            assertEquals(0, manifestAttempts)
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.NoInternet, 11L))
+            assertEquals(0, manifestAttempts)
+            network = NetworkCondition.Online
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.Online, 12L))
+            val completed = withTimeout(5_000L) {
+                controller.uiState.first { it.phase == NetworkRecoveryPhase.Completed }
+            }
+            assertTrue(completed.generation > 0L)
+            assertEquals(1, manifestAttempts)
+            assertFalse(offlineRequest.isCompleted)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `fresh Online Retry coalesces with a genuine active recovery`(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val hold = CompletableDeferred<Unit>()
+        var attempts = 0
+        val controller = NetworkRecoveryController(
+            scope = scope,
+            activeProfileId = { 1 },
+            requestFreshProbe = { 3L },
+            operations = object : NetworkRecoveryOperations {
+                override suspend fun recoverManifests(
+                    profileId: Int,
+                    generation: Long,
+                    forceAll: Boolean,
+                    onManifestRecovered: suspend (String) -> Unit,
+                ): ManifestRecoveryOutcome {
+                    attempts++
+                    hold.await()
+                    return ManifestRecoveryOutcome()
+                }
+
+                override suspend fun refreshCatalogs(profileId: Int, generation: Long, readyManifestUrls: Set<String>?) = Unit
+            },
+        )
+        try {
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.NoInternet, 1L))
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.Online, 2L))
+            val generation = controller.uiState.value.generation
+            controller.retry()
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.Online, 3L))
+            assertEquals(1, attempts)
+            assertEquals(generation, controller.uiState.value.generation)
+            hold.complete(Unit)
+            withTimeout(5_000L) { controller.uiState.first { it.phase == NetworkRecoveryPhase.Completed } }
+        } finally {
+            scope.cancel()
+        }
+    }
+
     @Test
     fun `only a confirmed offline-like to online transition starts recovery`() {
         val tracker = NetworkRecoveryTransitionTracker()

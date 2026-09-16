@@ -486,7 +486,7 @@
     <string name="compose_search_discover_title">Discover</string>
     <string name="compose_search_empty_failed_message">Installed addons failed to return valid search results.</string>
     <string name="compose_search_empty_failed_title">Search failed</string>
-    <string name="compose_search_empty_no_active_addons_message">Install and validate at least one addon before searching.</string>
+    <string name="compose_search_empty_no_active_addons_message">Enable or add an addon before searching.</string>
     <string name="compose_search_empty_no_active_addons_title">No active addons</string>
     <string name="compose_search_empty_no_results_message">Installed searchable catalogs did not return any matches for this query.</string>
     <string name="compose_search_empty_no_results_title">No results found</string>
@@ -1469,6 +1469,7 @@
     <string name="app_exit_title">Exit app</string>
     <string name="catalog_empty_message">This catalog did not return any items.</string>
     <string name="catalog_empty_title">No titles found</string>
+    <string name="catalog_load_failed_title">Couldn’t load this catalog</string>
     <string name="details_actions_menu_label">More actions</string>
     <string name="details_check_connection">Check your Wi-Fi or mobile data connection and try again.</string>
     <string name="details_director">Director</string>
@@ -1493,7 +1494,7 @@
     <string name="discover_empty_no_catalogs_title">No discover catalogs</string>
     <string name="discover_empty_no_results_message">The selected catalog and filters did not return any items.</string>
     <string name="discover_empty_no_results_title">No titles found</string>
-    <string name="discover_empty_no_active_addons_message">Install and validate at least one addon before browsing discover catalogs.</string>
+    <string name="discover_empty_no_active_addons_message">Enable or add an addon before browsing Discover.</string>
     <string name="discover_select_catalog">Select Catalog</string>
     <string name="discover_select_genre">Select Genre</string>
     <string name="discover_select_type">Select Type</string>
@@ -1509,7 +1510,8 @@
     <string name="home_continue_watching_watched">%1$s watched</string>
     <string name="home_continue_watching_hours_minutes_left">%1$dh %2$dm left</string>
     <string name="home_continue_watching_minutes_left">%1$dm left</string>
-    <string name="home_empty_no_active_addons_message">Install and validate at least one addon before loading catalog rows on Home.</string>
+    <string name="home_empty_no_active_addons_message">Enable or add an addon to see catalogs on Home.</string>
+    <string name="home_load_failed_title">Couldn’t load Home</string>
     <string name="home_empty_no_rows_message">Installed addons do not currently expose board-compatible catalogs without required extras.</string>
     <string name="home_empty_no_rows_title">No home rows available</string>
     <string name="home_view_details">View Details</string>

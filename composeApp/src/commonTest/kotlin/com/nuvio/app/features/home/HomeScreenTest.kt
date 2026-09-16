@@ -32,6 +32,44 @@ import kotlin.test.assertTrue
 class HomeScreenTest {
 
     @Test
+    fun `recovery loading does not replace already rendered home rows`() {
+        assertFalse(
+            shouldShowInitialHomeLoading(
+                hasRenderableHomeRows = true,
+                addonManifestsLoading = true,
+                homeCatalogLoading = true,
+            ),
+        )
+        assertTrue(
+            shouldShowInitialHomeLoading(
+                hasRenderableHomeRows = false,
+                addonManifestsLoading = true,
+                homeCatalogLoading = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `hero slot is omitted until a source or rendered row exists`() {
+        assertFalse(
+            shouldShowHomeHeroSlot(
+                heroEnabled = true,
+                hasHeroItems = false,
+                isResolvingHeroSources = false,
+                hasRenderableHomeRows = false,
+            ),
+        )
+        assertTrue(
+            shouldShowHomeHeroSlot(
+                heroEnabled = true,
+                hasHeroItems = false,
+                isResolvingHeroSources = true,
+                hasRenderableHomeRows = false,
+            ),
+        )
+    }
+
+    @Test
     fun `offline continue watching keeps local media and preserves its live resume position`() {
         val local = progressEntry("show:1:4", "Show", 500L).toContinueWatchingItem()
         val remote = progressEntry("remote:1:4", "Remote", 600L).toContinueWatchingItem()

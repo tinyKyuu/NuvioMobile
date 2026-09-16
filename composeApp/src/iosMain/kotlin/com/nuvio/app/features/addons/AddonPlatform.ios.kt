@@ -62,6 +62,20 @@ actual object AddonStorage {
             forKey = "${addonEnabledStatesKey}_$profileId",
         )
     }
+
+    actual fun loadManifestCache(profileId: Int): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(addonManifestCacheStorageKey(profileId))
+
+    actual fun saveManifestCache(profileId: Int, payload: String) {
+        NSUserDefaults.standardUserDefaults.setObject(
+            payload,
+            forKey = addonManifestCacheStorageKey(profileId),
+        )
+    }
+
+    actual fun deleteManifestCache(profileId: Int) {
+        NSUserDefaults.standardUserDefaults.removeObjectForKey(addonManifestCacheStorageKey(profileId))
+    }
 }
 
 private fun parseEnabledStateLine(line: String): Pair<String, Boolean>? {

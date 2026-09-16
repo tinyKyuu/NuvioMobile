@@ -1,10 +1,16 @@
 package com.nuvio.app.features.addons
 
+internal fun addonManifestCacheStorageKey(profileId: Int): String =
+    "addon_manifest_cache_$profileId"
+
 internal expect object AddonStorage {
     fun loadInstalledAddonUrls(profileId: Int): List<String>
     fun saveInstalledAddonUrls(profileId: Int, urls: List<String>)
     fun loadAddonEnabledStates(profileId: Int): Map<String, Boolean>
     fun saveAddonEnabledStates(profileId: Int, states: Map<String, Boolean>)
+    fun loadManifestCache(profileId: Int): String?
+    fun saveManifestCache(profileId: Int, payload: String)
+    fun deleteManifestCache(profileId: Int)
 }
 
 data class RawHttpResponse(

@@ -55,6 +55,7 @@ import com.nuvio.app.core.deeplink.AppDeepLinkRepository
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.network.NetworkRecoveryCoordinator
 import com.nuvio.app.core.sync.AppForegroundMonitor
 import com.nuvio.app.core.sync.AppVisibility
 import com.nuvio.app.core.sync.ProfileSettingsSync
@@ -459,6 +460,7 @@ internal fun MainAppContent(
     LaunchedEffect(appContentGeneration) {
         if (!ownsAppRuntime) return@LaunchedEffect
         NetworkStatusRepository.ensureStarted()
+        NetworkRecoveryCoordinator.ensureStarted()
         EpisodeReleaseNotificationsRepository.refreshAsync()
         kotlinx.coroutines.delay(5_000)
         initialHomeReady = true

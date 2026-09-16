@@ -6,6 +6,8 @@ import com.nuvio.app.features.addons.AddonCatalog
 import com.nuvio.app.features.addons.AddonExtraProperty
 import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.addons.enabledAddons
+import com.nuvio.app.features.addons.firstEnabledManifestError
+import com.nuvio.app.features.addons.hasPendingEnabledManifests
 import com.nuvio.app.features.catalog.CATALOG_PAGE_SIZE
 import com.nuvio.app.features.catalog.CatalogPage
 import com.nuvio.app.features.catalog.CatalogTarget
@@ -51,6 +53,7 @@ internal fun resolveDiscoverCatalog(
 private data class DiscoverRequestKey(
     val sources: List<DiscoverCatalogOption>,
     val hideUnreleasedContent: Boolean,
+    val hasPendingAddonManifests: Boolean,
 )
 
 object SearchRepository {
@@ -63,7 +66,10 @@ object SearchRepository {
 
     private var activeJob: Job? = null
     private var activeDiscoverJob: Job? = null
+    private var searchGeneration: Long = 0L
+    private var discoverGeneration: Long = 0L
     private var lastRequestKey: String? = null
+    private var currentQuery: String? = null
     private var discoverSources: List<DiscoverCatalogOption> = emptyList()
     private var lastDiscoverRequestKey: DiscoverRequestKey? = null
 
@@ -77,13 +83,24 @@ object SearchRepository {
             clear()
             return
         }
+        currentQuery = normalizedQuery
 
-        val activeAddons = addons.enabledAddons().filter { it.manifest != null }
+        val enabledAddons = addons.enabledAddons()
+        val hasPendingAddonManifests = enabledAddons.hasPendingEnabledManifests()
+        val addonManifestErrorMessage = enabledAddons.firstEnabledManifestError()
+        val activeAddons = enabledAddons.filter { it.manifest != null }
         if (activeAddons.isEmpty()) {
             activeJob?.cancel()
+            searchGeneration += 1L
             lastRequestKey = null
             _uiState.value = SearchUiState(
-                emptyStateReason = SearchEmptyStateReason.NoActiveAddons,
+                isLoading = hasPendingAddonManifests,
+                emptyStateReason = when {
+                    hasPendingAddonManifests -> null
+                    addonManifestErrorMessage != null -> SearchEmptyStateReason.RequestFailed
+                    else -> SearchEmptyStateReason.NoActiveAddons
+                },
+                errorMessage = addonManifestErrorMessage,
             )
             return
         }
@@ -94,9 +111,11 @@ object SearchRepository {
         )
         if (requests.isEmpty()) {
             activeJob?.cancel()
+            searchGeneration += 1L
             lastRequestKey = null
             _uiState.value = SearchUiState(
-                emptyStateReason = SearchEmptyStateReason.NoSearchCatalogs,
+                isLoading = hasPendingAddonManifests,
+                emptyStateReason = if (hasPendingAddonManifests) null else SearchEmptyStateReason.NoSearchCatalogs,
             )
             return
         }
@@ -106,17 +125,26 @@ object SearchRepository {
             append('|')
             append(HomeCatalogSettingsRepository.snapshot().hideUnreleasedContent)
             append('|')
+            append(hasPendingAddonManifests)
+            append('|')
             append(
                 requests.joinToString(separator = "|") { request ->
                     "${request.addon.manifestUrl}:${request.type}:${request.catalogId}"
                 },
             )
         }
+        val retainExistingSections = requestKey == lastRequestKey
         if (canReuseRequestState(forceRefresh, requestKey, lastRequestKey)) return
         lastRequestKey = requestKey
 
         activeJob?.cancel()
-        _uiState.value = SearchUiState(isLoading = true)
+        val generation = ++searchGeneration
+        val retainedSections = _uiState.value.sections.takeIf { retainExistingSections }.orEmpty()
+        _uiState.value = _uiState.value.copy(
+            isLoading = true,
+            emptyStateReason = null,
+            errorMessage = null,
+        )
 
         activeJob = scope.launch {
             val resultChannel = Channel<IndexedSearchResult>(Channel.UNLIMITED)
@@ -152,6 +180,7 @@ object SearchRepository {
 
             try {
                 for (result in resultChannel) {
+                    if (generation != searchGeneration) return@launch
                     results[result.index] = result
                     val sections = results.orderedSections()
                     if (sections.isNotEmpty()) {
@@ -167,15 +196,18 @@ object SearchRepository {
             }
 
             val completedResults = results.filterNotNull()
+            if (generation != searchGeneration) return@launch
             val sections = results.orderedSections()
             val firstFailure = completedResults.firstNotNullOfOrNull { it.error?.message }
             val allFailed = completedResults.isNotEmpty() && completedResults.all { it.error != null }
+            val publishedSections = sections.ifEmpty { retainedSections }
 
             _uiState.value = SearchUiState(
-                isLoading = false,
-                sections = sections,
+                isLoading = publishedSections.isEmpty() && hasPendingAddonManifests,
+                sections = publishedSections,
                 emptyStateReason = when {
-                    sections.isNotEmpty() -> null
+                    publishedSections.isNotEmpty() -> null
+                    hasPendingAddonManifests -> null
                     allFailed -> SearchEmptyStateReason.RequestFailed
                     else -> SearchEmptyStateReason.NoResults
                 },
@@ -186,14 +218,19 @@ object SearchRepository {
 
     fun clear() {
         activeJob?.cancel()
+        searchGeneration += 1L
         lastRequestKey = null
+        currentQuery = null
         _uiState.value = SearchUiState()
     }
 
     fun reset() {
         activeJob?.cancel()
         activeDiscoverJob?.cancel()
+        searchGeneration += 1L
+        discoverGeneration += 1L
         lastRequestKey = null
+        currentQuery = null
         discoverSources = emptyList()
         lastDiscoverRequestKey = null
         _uiState.value = SearchUiState()
@@ -204,14 +241,24 @@ object SearchRepository {
         addons: List<ManagedAddon>,
         forceRefresh: Boolean = false,
     ) {
-        val activeAddons = addons.enabledAddons().filter { it.manifest != null }
+        val enabledAddons = addons.enabledAddons()
+        val hasPendingAddonManifests = enabledAddons.hasPendingEnabledManifests()
+        val addonManifestErrorMessage = enabledAddons.firstEnabledManifestError()
+        val activeAddons = enabledAddons.filter { it.manifest != null }
         if (activeAddons.isEmpty()) {
             activeDiscoverJob?.cancel()
+            discoverGeneration += 1L
             discoverSources = emptyList()
             lastDiscoverRequestKey = null
             log.d { "Discover refresh aborted: no active addons" }
             _discoverUiState.value = DiscoverUiState(
-                emptyStateReason = DiscoverEmptyStateReason.NoActiveAddons,
+                isLoading = hasPendingAddonManifests,
+                emptyStateReason = when {
+                    hasPendingAddonManifests -> null
+                    addonManifestErrorMessage != null -> DiscoverEmptyStateReason.RequestFailed
+                    else -> DiscoverEmptyStateReason.NoActiveAddons
+                },
+                errorMessage = addonManifestErrorMessage,
             )
             return
         }
@@ -222,6 +269,7 @@ object SearchRepository {
         val requestKey = DiscoverRequestKey(
             sources = sources,
             hideUnreleasedContent = hideUnreleasedContent,
+            hasPendingAddonManifests = hasPendingAddonManifests,
         )
         if (canReuseRequestState(forceRefresh, requestKey, lastDiscoverRequestKey)) {
             log.d {
@@ -235,9 +283,11 @@ object SearchRepository {
         lastDiscoverRequestKey = requestKey
         if (sources.isEmpty()) {
             activeDiscoverJob?.cancel()
+            discoverGeneration += 1L
             log.d { "Discover refresh found no compatible discover catalogs" }
             _discoverUiState.value = DiscoverUiState(
-                emptyStateReason = DiscoverEmptyStateReason.NoDiscoverCatalogs,
+                isLoading = hasPendingAddonManifests,
+                emptyStateReason = if (hasPendingAddonManifests) null else DiscoverEmptyStateReason.NoDiscoverCatalogs,
             )
             return
         }
@@ -256,6 +306,9 @@ object SearchRepository {
         val selectedType = selectedCatalog.type
         val catalogOptions = sources.filter { it.type == selectedType }
         val selectedGenre = selectedCatalog.resolveGenreSelection(current.selectedGenre)
+        val retainedItems = current.items.takeIf {
+            current.selectedCatalogKey == selectedCatalog.key && current.selectedGenre == selectedGenre
+        }.orEmpty()
 
         _discoverUiState.value = DiscoverUiState(
             typeOptions = typeOptions,
@@ -263,7 +316,7 @@ object SearchRepository {
             catalogOptions = catalogOptions,
             selectedCatalogKey = selectedCatalog.key,
             selectedGenre = selectedGenre,
-            items = emptyList(),
+            items = retainedItems,
             isLoading = false,
             nextSkip = null,
             emptyStateReason = null,
@@ -279,6 +332,20 @@ object SearchRepository {
             reset = true,
             forceRefresh = forceRefresh,
         )
+    }
+
+    fun refreshAfterRecovery(addons: List<ManagedAddon>) {
+        refreshDiscover(
+            addons = addons,
+            forceRefresh = true,
+        )
+        currentQuery?.takeIf(String::isNotBlank)?.let { query ->
+            search(
+                query = query,
+                addons = addons,
+                forceRefresh = true,
+            )
+        }
     }
 
     fun selectDiscoverType(type: String) {
@@ -450,6 +517,7 @@ object SearchRepository {
         forceRefresh: Boolean,
     ) {
         activeDiscoverJob?.cancel()
+        val generation = ++discoverGeneration
         val current = _discoverUiState.value
         val selectedCatalog = current.selectedCatalog ?: return
         val requestedSkip = if (reset) 0 else current.nextSkip ?: return
@@ -470,7 +538,7 @@ object SearchRepository {
 
         _discoverUiState.value = current.copy(
             isLoading = true,
-            items = if (reset) emptyList() else current.items,
+            items = current.items,
             nextSkip = if (reset) null else current.nextSkip,
             consecutiveDuplicatePages = if (reset) 0 else current.consecutiveDuplicatePages,
             emptyStateReason = null,
@@ -489,6 +557,7 @@ object SearchRepository {
                 ).withUnreleasedFilter()
             }.fold(
                 onSuccess = { page ->
+                    if (generation != discoverGeneration) return@fold
                     val latest = _discoverUiState.value
                     if (latest.selectedCatalogKey != selectedCatalog.key || latest.selectedGenre != current.selectedGenre) {
                         return@fold
@@ -531,6 +600,8 @@ object SearchRepository {
                         return@fold
                     }
 
+                    if (generation != discoverGeneration) return@fold
+
                     val latest = _discoverUiState.value
                     if (latest.selectedCatalogKey != selectedCatalog.key || latest.selectedGenre != current.selectedGenre) {
                         return@fold
@@ -541,7 +612,7 @@ object SearchRepository {
                             "genre=${current.selectedGenre ?: "<all>"} skip=$requestedSkip url=$requestUrl"
                     }
                     _discoverUiState.value = latest.copy(
-                        items = if (reset) emptyList() else latest.items,
+                        items = latest.items,
                         isLoading = false,
                         nextSkip = null,
                         emptyStateReason = DiscoverEmptyStateReason.RequestFailed,

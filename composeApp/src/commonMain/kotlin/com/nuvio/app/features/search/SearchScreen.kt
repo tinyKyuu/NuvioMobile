@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.network.NetworkCondition
+import com.nuvio.app.core.network.NetworkRecoveryCoordinator
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioScreen
@@ -49,15 +50,17 @@ import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.features.addons.AddonRepository
-import com.nuvio.app.features.addons.enabledAddons
+import com.nuvio.app.features.addons.hasPendingEnabledManifests
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.home.buildAddonCatalogRefreshSignature
 import com.nuvio.app.features.home.components.HomeCatalogRowSection
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.components.homeSectionHorizontalPaddingForWidth
 import com.nuvio.app.features.home.components.HomeSkeletonRow
 import com.nuvio.app.features.home.components.posterGridColumnCountForWidth
 import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.profiles.ProfileRepository
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -65,6 +68,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.map
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.action_retry
 import nuvio.composeapp.generated.resources.compose_nav_search
 import nuvio.composeapp.generated.resources.compose_search_clear
 import nuvio.composeapp.generated.resources.compose_search_discover_title
@@ -116,9 +120,9 @@ fun SearchScreen(
     val watchedUiState by WatchedRepository.uiState.collectAsStateWithLifecycle()
     val fullyWatchedSeriesKeys by WatchedRepository.fullyWatchedSeriesKeys.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    val networkRecoveryUiState by NetworkRecoveryCoordinator.uiState.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
     var lastRequestedQuery by rememberSaveable { mutableStateOf<String?>(null) }
-    var observedOfflineState by remember { mutableStateOf(false) }
     val discoverInFocus by remember(query, listState) {
         derivedStateOf {
             query.isBlank() && listState.firstVisibleItemIndex > 0
@@ -132,37 +136,26 @@ fun SearchScreen(
     }
 
     val addonRefreshKey = remember(addonsUiState.addons) {
-        addonsUiState.addons.enabledAddons().mapNotNull { addon ->
-            val manifest = addon.manifest ?: return@mapNotNull null
-            buildString {
-                append(manifest.transportUrl)
-                append(':')
-                append(manifest.catalogs.joinToString(separator = ",") { catalog ->
-                    val extra = catalog.extra.joinToString(separator = "&") { property ->
-                        buildString {
-                            append(property.name)
-                            append(':')
-                            append(property.isRequired)
-                            append(':')
-                            append(property.options.joinToString(separator = "|"))
-                        }
-                    }
-                    "${catalog.type}:${catalog.id}:$extra"
-                })
-            }
-        }
+        buildAddonCatalogRefreshSignature(addonsUiState.addons)
     }
+    val addonManifestsLoading = addonsUiState.addons.hasPendingEnabledManifests() ||
+        (
+            networkRecoveryUiState.profileId == ProfileRepository.activeProfileId &&
+                networkRecoveryUiState.isRecovering
+            )
 
-    LaunchedEffect(addonRefreshKey, homeCatalogSettingsUiState.hideUnreleasedContent) {
+    LaunchedEffect(addonRefreshKey, homeCatalogSettingsUiState.hideUnreleasedContent, addonManifestsLoading) {
+        if (addonManifestsLoading) return@LaunchedEffect
         SearchRepository.refreshDiscover(addonsUiState.addons)
     }
 
-    LaunchedEffect(query, addonRefreshKey, homeCatalogSettingsUiState.hideUnreleasedContent) {
+    LaunchedEffect(query, addonRefreshKey, homeCatalogSettingsUiState.hideUnreleasedContent, addonManifestsLoading) {
         val normalizedQuery = query.trim()
         if (normalizedQuery.isBlank()) {
             lastRequestedQuery = null
             SearchRepository.clear()
         } else {
+            if (addonManifestsLoading) return@LaunchedEffect
             delay(350)
             lastRequestedQuery = normalizedQuery
             SearchRepository.search(
@@ -193,39 +186,6 @@ fun SearchScreen(
         if (lastRequestedQuery != normalizedQuery) return@LaunchedEffect
         if (uiState.isLoading || uiState.sections.isEmpty()) return@LaunchedEffect
         SearchHistoryRepository.recordSearch(normalizedQuery)
-    }
-
-    LaunchedEffect(networkStatusUiState.condition, query, addonRefreshKey) {
-        when (networkStatusUiState.condition) {
-            NetworkCondition.NoInternet,
-            NetworkCondition.ServersUnreachable,
-            -> {
-                observedOfflineState = true
-            }
-
-            NetworkCondition.Online -> {
-                if (!observedOfflineState) return@LaunchedEffect
-                observedOfflineState = false
-
-                val normalizedQuery = query.trim()
-                if (normalizedQuery.isBlank()) {
-                    SearchRepository.refreshDiscover(
-                        addons = addonsUiState.addons,
-                        forceRefresh = true,
-                    )
-                } else {
-                    SearchRepository.search(
-                        query = normalizedQuery,
-                        addons = addonsUiState.addons,
-                        forceRefresh = true,
-                    )
-                }
-            }
-
-            NetworkCondition.Unknown,
-            NetworkCondition.Checking,
-            -> Unit
-        }
     }
 
     BoxWithConstraints(
@@ -303,17 +263,14 @@ fun SearchScreen(
             }
                 discoverContent(
                     state = discoverUiState,
+                    isSourceLoading = addonManifestsLoading,
                     columns = discoverColumns,
                     networkCondition = networkStatusUiState.condition,
                     onTypeSelected = SearchRepository::selectDiscoverType,
                     onCatalogSelected = SearchRepository::selectDiscoverCatalog,
                     onGenreSelected = SearchRepository::selectDiscoverGenre,
                     onRetry = {
-                        NetworkStatusRepository.requestRefresh(force = true)
-                        SearchRepository.refreshDiscover(
-                            addons = addonsUiState.addons,
-                            forceRefresh = true,
-                        )
+                        NetworkRecoveryCoordinator.retry()
                     },
                     watchedKeys = watchedUiState.watchedKeys,
                     fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
@@ -332,7 +289,7 @@ fun SearchScreen(
                         }
                     }
 
-                    uiState.isLoading && uiState.sections.isEmpty() -> {
+                    (uiState.isLoading || addonManifestsLoading) && uiState.sections.isEmpty() -> {
                         items(2) {
                             HomeSkeletonRow(
                                 modifier = Modifier.padding(horizontal = homeSectionPadding),
@@ -348,12 +305,7 @@ fun SearchScreen(
                                 networkCondition = networkStatusUiState.condition,
                                 onRetry = {
                                     if (normalizedQuery.isNotBlank()) {
-                                        NetworkStatusRepository.requestRefresh(force = true)
-                                        SearchRepository.search(
-                                            query = normalizedQuery,
-                                            addons = addonsUiState.addons,
-                                            forceRefresh = true,
-                                        )
+                                        NetworkRecoveryCoordinator.retry()
                                     }
                                 },
                                 modifier = Modifier.padding(horizontal = homeSectionPadding),
@@ -398,7 +350,10 @@ private fun SearchEmptyStateCard(
     onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    if (networkCondition == NetworkCondition.NoInternet || networkCondition == NetworkCondition.ServersUnreachable) {
+    if (
+        reason == SearchEmptyStateReason.RequestFailed &&
+        (networkCondition == NetworkCondition.NoInternet || networkCondition == NetworkCondition.ServersUnreachable)
+    ) {
         NuvioNetworkOfflineCard(
             condition = networkCondition,
             modifier = modifier,
@@ -436,6 +391,12 @@ private fun SearchEmptyStateCard(
         modifier = modifier,
         title = title,
         message = message,
+        actionLabel = if (reason == SearchEmptyStateReason.RequestFailed) {
+            stringResource(Res.string.action_retry)
+        } else {
+            null
+        },
+        onActionClick = if (reason == SearchEmptyStateReason.RequestFailed) onRetry else null,
     )
 }
 

@@ -34,12 +34,14 @@ object HomeRepository {
 
     private var activeJob: Job? = null
     private var activeRequestKey: String? = null
+    private var requestGeneration: Long = 0L
     private var currentRequestKey: String? = null
     private var currentDefinitions: List<HomeCatalogDefinition> = emptyList()
     private var cachedSections: Map<String, HomeCatalogSection> = emptyMap()
     private var cachedCollectionHeroItems: List<MetaPreview> = emptyList()
     private var collectionHeroJob: Job? = null
     private var collectionHeroRequestKey: String? = null
+    private var collectionHeroGeneration: Long = 0L
     private var lastPublishedCatalogHeroEmpty: Boolean = true
     private var lastErrorMessage: String? = null
 
@@ -53,6 +55,7 @@ object HomeRepository {
         currentRequestKey = requestKey
 
         if (!force && activeRequestKey == requestKey && _uiState.value.isLoading) return
+        val generation = ++requestGeneration
         activeRequestKey = requestKey
 
         if (requests.isEmpty()) {
@@ -88,7 +91,7 @@ object HomeRepository {
             var batchIndex = 0
 
             prioritizedRequests.chunked(HOME_CATALOG_FETCH_BATCH_SIZE).forEach { batch ->
-                if (activeRequestKey != requestKey) return@launch
+                if (!ownsRequest(requestKey, generation)) return@launch
                 val results = batch.map { request ->
                     async {
                         request to runCatching {
@@ -97,7 +100,7 @@ object HomeRepository {
                     }
                 }.awaitAll()
 
-                if (activeRequestKey != requestKey) return@launch
+                if (!ownsRequest(requestKey, generation)) return@launch
 
                 results.mapNotNull { (request, result) ->
                     result.getOrNull()?.let { section -> request.cacheKey to section }
@@ -120,7 +123,7 @@ object HomeRepository {
                 batchIndex++
             }
 
-            if (activeRequestKey != requestKey) return@launch
+            if (!ownsRequest(requestKey, generation)) return@launch
 
             cachedSections = loadedSections.toMap()
             lastErrorMessage = firstErrorMessage
@@ -152,6 +155,8 @@ object HomeRepository {
     }
 
     fun clear() {
+        requestGeneration += 1L
+        collectionHeroGeneration += 1L
         activeJob?.cancel()
         activeJob = null
         activeRequestKey = null
@@ -288,6 +293,7 @@ object HomeRepository {
         if (!refreshSources && collectionHeroRequestKey == nextRequestKey) return
 
         collectionHeroJob?.cancel()
+        val heroGeneration = ++collectionHeroGeneration
         collectionHeroRequestKey = nextRequestKey
         cachedCollectionHeroItems = emptyList()
         publishCurrentState(
@@ -307,6 +313,12 @@ object HomeRepository {
                     }.getOrDefault(emptyList())
                 }
             }.awaitAll()
+            if (
+                heroGeneration != collectionHeroGeneration ||
+                collectionHeroRequestKey != nextRequestKey
+            ) {
+                return@launch
+            }
             val random = Random((nextRequestKey.hashCode()).absoluteValue + 7)
             cachedCollectionHeroItems = roundRobinCollectionHeroItems(sourceResults)
                 .distinctBy { item -> item.stableKey() }
@@ -318,6 +330,9 @@ object HomeRepository {
             )
         }
     }
+
+    private fun ownsRequest(requestKey: String, generation: Long): Boolean =
+        activeRequestKey == requestKey && requestGeneration == generation
 
     private fun enabledCollectionsForHero(snapshot: HomeCatalogSettingsSnapshot): List<Collection> {
         val preferences = snapshot.preferences

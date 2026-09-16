@@ -28,6 +28,8 @@ object CatalogRepository {
 
     private var activeJob: Job? = null
     private var activeRequest: CatalogRequest? = null
+    private var requestGeneration: Long = 0L
+    private var latestRecoveryGeneration: Long = 0L
     private val scrollPositions = linkedMapOf<CatalogRequest, CatalogScrollPosition>()
 
     fun load(
@@ -35,18 +37,20 @@ object CatalogRepository {
         force: Boolean = false,
     ) {
         val request = catalogRequest(target)
+        val retainCurrentItems = activeRequest == request
         if (!force && activeRequest == request && (_uiState.value.items.isNotEmpty() || _uiState.value.isLoading)) {
             return
         }
         activeRequest = request
         if (target is CatalogTarget.Library) {
-            fetchInternalLibrary(request)
+            fetchInternalLibrary(request, retainCurrentItems)
             return
         }
         fetchPage(
             request = request,
             reset = true,
             forceRefresh = force,
+            retainCurrentItems = retainCurrentItems,
         )
     }
 
@@ -58,12 +62,26 @@ object CatalogRepository {
             request = request,
             reset = false,
             forceRefresh = false,
+            retainCurrentItems = true,
+        )
+    }
+
+    fun onRecoveryGeneration(generation: Long) {
+        if (generation <= latestRecoveryGeneration) return
+        latestRecoveryGeneration = generation
+        val request = activeRequest ?: return
+        if (request.target is CatalogTarget.Library) return
+        load(
+            target = request.target,
+            force = true,
         )
     }
 
     fun clear() {
+        requestGeneration += 1L
         activeJob?.cancel()
         activeRequest = null
+        latestRecoveryGeneration = 0L
         scrollPositions.clear()
         _uiState.value = CatalogUiState()
     }
@@ -86,9 +104,14 @@ object CatalogRepository {
         )
     }
 
-    private fun fetchInternalLibrary(request: CatalogRequest) {
+    private fun fetchInternalLibrary(
+        request: CatalogRequest,
+        retainCurrentItems: Boolean,
+    ) {
         activeJob?.cancel()
-        _uiState.value = _uiState.value.copy(
+        val generation = ++requestGeneration
+        _uiState.value = CatalogUiState(
+            items = _uiState.value.items.takeIf { retainCurrentItems }.orEmpty(),
             isLoading = true,
             errorMessage = null,
         )
@@ -111,7 +134,7 @@ object CatalogRepository {
                     .let(::dedupeCatalogItems)
             }.fold(
                 onSuccess = { items ->
-                    if (activeRequest != request) return@fold
+                    if (!ownsRequest(request, generation)) return@fold
                     _uiState.value = CatalogUiState(
                         items = items,
                         isLoading = false,
@@ -120,7 +143,8 @@ object CatalogRepository {
                     )
                 },
                 onFailure = { error ->
-                    if (activeRequest != request) return@fold
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    if (!ownsRequest(request, generation)) return@fold
                     _uiState.value = CatalogUiState(
                         items = emptyList(),
                         isLoading = false,
@@ -136,13 +160,15 @@ object CatalogRepository {
         request: CatalogRequest,
         reset: Boolean,
         forceRefresh: Boolean,
+        retainCurrentItems: Boolean,
     ) {
         activeJob?.cancel()
-        val current = _uiState.value
+        val generation = ++requestGeneration
+        val current = if (retainCurrentItems) _uiState.value else CatalogUiState()
         val requestedSkip = if (reset) 0 else current.nextSkip ?: return
 
         _uiState.value = current.copy(
-            items = if (reset) emptyList() else current.items,
+            items = current.items,
             isLoading = true,
             nextSkip = if (reset) null else current.nextSkip,
             errorMessage = null,
@@ -169,7 +195,7 @@ object CatalogRepository {
                 }.withUnreleasedFilter(request.hideUnreleasedContent)
             }.fold(
                 onSuccess = { page ->
-                    if (activeRequest != request) return@fold
+                    if (!ownsRequest(request, generation)) return@fold
 
                     val mergedItems = if (reset) {
                         dedupeCatalogItems(page.items)
@@ -194,10 +220,11 @@ object CatalogRepository {
                     )
                 },
                 onFailure = { error ->
-                    if (activeRequest != request) return@fold
+                    if (error is kotlinx.coroutines.CancellationException) throw error
+                    if (!ownsRequest(request, generation)) return@fold
 
                     _uiState.value = current.copy(
-                        items = if (reset) emptyList() else current.items,
+                        items = current.items,
                         isLoading = false,
                         nextSkip = null,
                         errorMessage = error.message ?: getString(Res.string.catalog_load_failed),
@@ -206,6 +233,9 @@ object CatalogRepository {
             )
         }
     }
+
+    private fun ownsRequest(request: CatalogRequest, generation: Long): Boolean =
+        activeRequest == request && requestGeneration == generation
 
     private fun catalogRequest(target: CatalogTarget): CatalogRequest =
         CatalogRequest(

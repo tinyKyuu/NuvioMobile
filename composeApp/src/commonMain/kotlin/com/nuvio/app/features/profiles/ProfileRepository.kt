@@ -5,13 +5,16 @@ import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.auth.isAnonymous
 import com.nuvio.app.core.network.SupabaseProvider
+import com.nuvio.app.core.network.NetworkRecoveryCoordinator
 import com.nuvio.app.core.sync.putSyncOriginClientId
 import com.nuvio.app.core.tracking.ensureTrackingProvidersRegistered
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.collection.CollectionMobileSettingsRepository
 import com.nuvio.app.features.collection.CollectionRepository
+import com.nuvio.app.features.catalog.CatalogRepository
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
+import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.HomeRepository
 import com.nuvio.app.core.ui.CardDepthStyleRepository
@@ -155,6 +158,7 @@ object ProfileRepository {
             hasEverSelectedProfile = selectedProfile != null || _state.value.hasEverSelectedProfile,
         )
         persist()
+        NetworkRecoveryCoordinator.onProfileChanged(profileIndex)
         WatchedRepository.onProfileChanged(profileIndex)
         TrackingSettingsRepository.onProfileChanged()
         ensureTrackingProvidersRegistered()
@@ -174,6 +178,8 @@ object ProfileRepository {
         P2pSettingsRepository.onProfileChanged()
         HomeCatalogSettingsRepository.onProfileChanged()
         HomeRepository.clear()
+        CatalogRepository.clear()
+        MetaDetailsRepository.clear()
         MetaScreenSettingsRepository.onProfileChanged()
         ContinueWatchingPreferencesRepository.onProfileChanged()
         com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentCache.onProfileChanged()
@@ -281,6 +287,7 @@ object ProfileRepository {
     }
 
     suspend fun deleteProfile(profileIndex: Int) {
+        val wasActiveProfile = activeProfileIndex == profileIndex
         if (AuthRepository.state.value.isAnonymous) {
             val remaining = _state.value.profiles.filter { it.profileIndex != profileIndex }
             ProfilePinCacheStorage.removePayload(profileIndex)
@@ -292,7 +299,13 @@ object ProfileRepository {
                 activeProfileIndex = _state.value.activeProfile!!.profileIndex
             }
             persist()
+            AddonRepository.deleteProfileData(profileIndex)
             DownloadsRepository.deleteProfileDownloads(profileIndex)
+            if (wasActiveProfile) {
+                onRecoveryProfileReplaced(activeProfileIndex)
+            } else {
+                NetworkRecoveryCoordinator.onProfileDeleted(profileIndex)
+            }
             return
         }
         try {
@@ -301,12 +314,27 @@ object ProfileRepository {
                 putSyncOriginClientId()
             }
             SupabaseProvider.client.postgrest.rpc("sync_delete_profile_data", params)
+            AddonRepository.deleteProfileData(profileIndex)
             DownloadsRepository.deleteProfileDownloads(profileIndex)
             pullProfiles()
+            if (wasActiveProfile) {
+                onRecoveryProfileReplaced(activeProfileIndex)
+            } else {
+                NetworkRecoveryCoordinator.onProfileDeleted(profileIndex)
+            }
         } catch (e: Throwable) {
             if (AuthRepository.signOutIfSessionInvalid(e, "Profile delete")) return
             log.e(e) { "Failed to delete profile $profileIndex" }
         }
+    }
+
+    private fun onRecoveryProfileReplaced(profileIndex: Int) {
+        NetworkRecoveryCoordinator.onProfileChanged(profileIndex)
+        AddonRepository.onProfileChanged(profileIndex)
+        HomeRepository.clear()
+        CatalogRepository.clear()
+        MetaDetailsRepository.clear()
+        SearchRepository.reset()
     }
 
     suspend fun verifyPin(profileIndex: Int, pin: String): PinVerifyResult {

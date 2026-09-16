@@ -21,6 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.auth.AuthRepository
 import com.nuvio.app.core.auth.AuthState
 import com.nuvio.app.core.network.NetworkCondition
+import com.nuvio.app.core.network.NetworkRecoveryCoordinator
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
 import com.nuvio.app.core.ui.NuvioScreen
@@ -32,6 +33,9 @@ import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.enabledAddons
+import com.nuvio.app.features.addons.firstEnabledManifestError
+import com.nuvio.app.features.addons.hasPendingEnabledManifests
+import com.nuvio.app.features.addons.isWaitingForFirstEnabledManifest
 import com.nuvio.app.features.cloud.CloudLibraryContentType
 import com.nuvio.app.features.cloud.CloudLibraryRepository
 import com.nuvio.app.features.cloud.CloudLibraryUiState
@@ -155,6 +159,7 @@ fun HomeScreen(
     val effectiveWatchProgressSource = watchProgressUiState.source
     val cloudLibraryUiState by CloudLibraryRepository.uiState.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    val networkRecoveryUiState by NetworkRecoveryCoordinator.uiState.collectAsStateWithLifecycle()
     val downloadsUiState by remember {
         DownloadsRepository.ensureLoaded()
         DownloadsRepository.uiState
@@ -167,33 +172,9 @@ fun HomeScreen(
         TrackingSettingsRepository.ensureLoaded()
         TrackingSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
-    var observedOfflineState by remember { mutableStateOf(false) }
-
     LaunchedEffect(scrollToTopRequests) {
         scrollToTopRequests.collect {
             homeListState.animateScrollToItem(0)
-        }
-    }
-
-    LaunchedEffect(networkStatusUiState.condition) {
-        when (networkStatusUiState.condition) {
-            NetworkCondition.NoInternet,
-            NetworkCondition.ServersUnreachable,
-            -> {
-                observedOfflineState = true
-            }
-
-            NetworkCondition.Online -> {
-                OfflineLibraryRepository.refreshMissingAndStale()
-                if (observedOfflineState) {
-                    observedOfflineState = false
-                    HomeRepository.refresh(addonsUiState.addons.enabledAddons(), force = true)
-                }
-            }
-
-            NetworkCondition.Unknown,
-            NetworkCondition.Checking,
-            -> Unit
         }
     }
 
@@ -314,6 +295,8 @@ fun HomeScreen(
     }
     val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
     val activeProfileId = profileState.activeProfile?.profileIndex ?: 1
+    val recoveryInProgress = networkRecoveryUiState.profileId == activeProfileId &&
+        networkRecoveryUiState.isRecovering
     val cwCacheGeneration by ContinueWatchingEnrichmentCache.generation.collectAsStateWithLifecycle()
     var hasUserScrolledContinueWatching by remember(activeProfileId) { mutableStateOf(false) }
     var hasUserScrolledUpcoming by remember(activeProfileId) { mutableStateOf(false) }
@@ -549,6 +532,8 @@ fun HomeScreen(
     val enabledAddons = remember(addonsUiState.addons) {
         addonsUiState.addons.enabledAddons()
     }
+    val addonManifestsLoading = enabledAddons.hasPendingEnabledManifests()
+    val addonManifestErrorMessage = enabledAddons.firstEnabledManifestError()
     val availableManifests = remember(enabledAddons) {
         enabledAddons.mapNotNull { addon -> addon.manifest }
     }
@@ -585,16 +570,18 @@ fun HomeScreen(
         buildHomeCatalogRefreshSignature(enabledAddons)
     }
 
-    LaunchedEffect(catalogRefreshKey) {
+    LaunchedEffect(catalogRefreshKey, recoveryInProgress) {
         if (catalogRefreshKey.isEmpty()) return@LaunchedEffect
+        if (recoveryInProgress) return@LaunchedEffect
+        if (enabledAddons.isWaitingForFirstEnabledManifest()) return@LaunchedEffect
         HomeCatalogSettingsRepository.syncCatalogs(enabledAddons)
         HomeRepository.refresh(enabledAddons)
     }
 
-    LaunchedEffect(collections, enabledAddons) {
+    LaunchedEffect(collections, enabledAddons, recoveryInProgress) {
         HomeCatalogSettingsRepository.syncCollections(collections)
         HomeRepository.applyCurrentSettings()
-        if (collections.any { it.folders.isNotEmpty() }) {
+        if (!recoveryInProgress && collections.any { it.folders.isNotEmpty() }) {
             HomeRepository.refresh(enabledAddons, force = true)
         }
     }
@@ -847,11 +834,6 @@ fun HomeScreen(
     val offlineDownloadedTitles = remember(downloadedTitles, networkStatusUiState.isOfflineLike) {
         if (networkStatusUiState.isOfflineLike) downloadedTitles else emptyList()
     }
-    val showHeroSlot = homeSettingsUiState.heroEnabled && !networkStatusUiState.isOfflineLike
-    val isResolvingHeroSources = enabledAddons.any { it.isRefreshing } || homeUiState.isLoading
-    val showHeroSkeleton = showHeroSlot &&
-        homeUiState.heroItems.isEmpty() &&
-        isResolvingHeroSources
     var firstCatalogReported by remember { mutableStateOf(false) }
 
     LaunchedEffect(
@@ -897,6 +879,23 @@ fun HomeScreen(
             item.isCollection && collectionsMap[item.key] != null
         }
     }
+    val hasRenderableHomeRows = homeUiState.sections.isNotEmpty() || hasRenderableCollectionRows
+    val isResolvingHeroSources = addonManifestsLoading || recoveryInProgress || homeUiState.isLoading
+    val showHeroSlot = !networkStatusUiState.isOfflineLike && shouldShowHomeHeroSlot(
+        heroEnabled = homeSettingsUiState.heroEnabled,
+        hasHeroItems = homeUiState.heroItems.isNotEmpty(),
+        isResolvingHeroSources = isResolvingHeroSources,
+        hasRenderableHomeRows = hasRenderableHomeRows,
+    )
+    val showHeroSkeleton = showHeroSlot &&
+        homeUiState.heroItems.isEmpty() &&
+        isResolvingHeroSources
+    val isInitialHomeContentLoading = !networkStatusUiState.isOfflineLike &&
+        shouldShowInitialHomeLoading(
+            hasRenderableHomeRows = hasRenderableHomeRows,
+            addonManifestsLoading = addonManifestsLoading || recoveryInProgress,
+            homeCatalogLoading = homeUiState.isLoading,
+        )
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val homeSectionPadding = homeSectionHorizontalPaddingForWidth(maxWidth.value)
         val posterCardStyle = rememberPosterCardStyleUiState()
@@ -983,37 +982,13 @@ fun HomeScreen(
                             condition = networkStatusUiState.condition,
                             modifier = Modifier.padding(horizontal = 16.dp),
                             onRetry = {
-                                NetworkStatusRepository.requestRefresh(force = true)
-                                HomeRepository.refresh(addonsUiState.addons.enabledAddons(), force = true)
+                                NetworkRecoveryCoordinator.retry()
                             },
                         )
                     }
                 }
 
-                !hasActiveAddons && !hasRenderableCollectionRows && offlineDownloadedTitles.isEmpty() -> {
-                    homeContinueWatchingSections(
-                        preferences = continueWatchingPreferences,
-                        continueWatchingItems = continueWatchingItems,
-                        upcomingItems = upcomingItems,
-                        dataSourceKey = effectiveWatchProgressSource,
-                        sectionPadding = homeSectionPadding,
-                        layout = continueWatchingLayout,
-                        continueWatchingListState = continueWatchingListState,
-                        upcomingListState = upcomingListState,
-                        onItemClick = onContinueWatchingClick,
-                        onItemLongPress = onContinueWatchingLongPress,
-                        disintegrationRequest = continueWatchingDisintegrationRequest,
-                    )
-                    item {
-                        HomeEmptyStateCard(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            title = stringResource(Res.string.compose_search_empty_no_active_addons_title),
-                            message = stringResource(Res.string.home_empty_no_active_addons_message),
-                        )
-                    }
-                }
-
-                homeUiState.isLoading && homeUiState.sections.isEmpty() && !hasRenderableCollectionRows -> {
+                isInitialHomeContentLoading -> {
                     homeContinueWatchingSections(
                         preferences = continueWatchingPreferences,
                         continueWatchingItems = continueWatchingItems,
@@ -1034,6 +1009,51 @@ fun HomeScreen(
                     }
                 }
 
+                !hasActiveAddons && !hasRenderableCollectionRows && offlineDownloadedTitles.isEmpty() -> {
+                    homeContinueWatchingSections(
+                        preferences = continueWatchingPreferences,
+                        continueWatchingItems = continueWatchingItems,
+                        upcomingItems = upcomingItems,
+                        dataSourceKey = effectiveWatchProgressSource,
+                        sectionPadding = homeSectionPadding,
+                        layout = continueWatchingLayout,
+                        continueWatchingListState = continueWatchingListState,
+                        upcomingListState = upcomingListState,
+                        onItemClick = onContinueWatchingClick,
+                        onItemLongPress = onContinueWatchingLongPress,
+                        disintegrationRequest = continueWatchingDisintegrationRequest,
+                    )
+                    item {
+                        when {
+                            networkStatusUiState.isOfflineLike && addonManifestErrorMessage != null -> {
+                                NuvioNetworkOfflineCard(
+                                    condition = networkStatusUiState.condition,
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    onRetry = NetworkRecoveryCoordinator::retry,
+                                )
+                            }
+
+                            addonManifestErrorMessage != null -> {
+                                HomeEmptyStateCard(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    title = stringResource(Res.string.home_load_failed_title),
+                                    message = addonManifestErrorMessage,
+                                    actionLabel = stringResource(Res.string.action_retry),
+                                    onActionClick = NetworkRecoveryCoordinator::retry,
+                                )
+                            }
+
+                            else -> {
+                                HomeEmptyStateCard(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                    title = stringResource(Res.string.compose_search_empty_no_active_addons_title),
+                                    message = stringResource(Res.string.home_empty_no_active_addons_message),
+                                )
+                            }
+                        }
+                    }
+                }
+
                 homeUiState.sections.isEmpty() && homeUiState.heroItems.isEmpty() &&
                     (!continueWatchingPreferences.isVisible || !hasContinueWatchingRows) &&
                     !hasRenderableCollectionRows && offlineDownloadedTitles.isEmpty() -> {
@@ -1042,17 +1062,19 @@ fun HomeScreen(
                             NuvioNetworkOfflineCard(
                                 condition = networkStatusUiState.condition,
                                 modifier = Modifier.padding(horizontal = 16.dp),
-                                onRetry = {
-                                    NetworkStatusRepository.requestRefresh(force = true)
-                                    HomeRepository.refresh(addonsUiState.addons.enabledAddons(), force = true)
-                                },
+                                onRetry = NetworkRecoveryCoordinator::retry,
                             )
                         } else {
+                            val loadFailed = !homeUiState.errorMessage.isNullOrBlank()
                             HomeEmptyStateCard(
                                 modifier = Modifier.padding(horizontal = 16.dp),
-                                title = stringResource(Res.string.home_empty_no_rows_title),
+                                title = stringResource(
+                                    if (loadFailed) Res.string.home_load_failed_title else Res.string.home_empty_no_rows_title,
+                                ),
                                 message = homeUiState.errorMessage
                                     ?: stringResource(Res.string.home_empty_no_rows_message),
+                                actionLabel = if (loadFailed) stringResource(Res.string.action_retry) else null,
+                                onActionClick = if (loadFailed) NetworkRecoveryCoordinator::retry else null,
                             )
                         }
                     }

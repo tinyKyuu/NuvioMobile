@@ -92,7 +92,8 @@ fun NuvioScreen(
             .background(tokens.colors.background),
         contentPadding = PaddingValues(
             start = horizontalPadding,
-            top = topPadding ?: tokens.spacing.screenTop + statusBarTop + nuvioPlatformExtraTopPadding,
+            top = topPadding ?: tokens.spacing.screenTop + statusBarTop + nuvioPlatformExtraTopPadding +
+                LocalNuvioTopNavigationOverlayPadding.current,
             end = horizontalPadding,
             bottom = nuvioSafeBottomPadding(tokens.spacing.screenBottom),
         ),

@@ -90,7 +90,10 @@ import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.OfflineLibraryRepository
+import com.nuvio.app.features.downloads.OfflinePlaybackArtwork
+import com.nuvio.app.features.downloads.OfflineTitle
 import com.nuvio.app.features.downloads.canonicalOfflineMetaType
+import com.nuvio.app.features.downloads.localPlaybackArtwork
 import com.nuvio.app.features.home.components.HomeCollectionRowSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -488,11 +491,16 @@ fun HomeScreen(
         allContinueWatchingItems,
         networkStatusUiState.condition,
         downloadsUiState.completedItems,
+        offlineLibraryUiState.titles,
     ) {
         if (!networkStatusUiState.isOfflineLike) {
             allContinueWatchingItems
         } else {
-            filterHomeContinueWatchingForOffline(allContinueWatchingItems, downloadsUiState.completedItems)
+            resolveHomeContinueWatchingForOffline(
+                items = allContinueWatchingItems,
+                downloads = downloadsUiState.completedItems,
+                offlineTitles = offlineLibraryUiState.titles,
+            )
         }
     }
     val (continueWatchingItems, upcomingItems) = remember(
@@ -836,11 +844,10 @@ fun HomeScreen(
     val downloadedTitles = remember(offlineLibraryUiState.titles) {
         offlineLibraryUiState.titles.filter { it.isPlayable }.map { it.toMetaPreview() }
     }
-    val showHeroSlot = homeSettingsUiState.heroEnabled && !(
-        networkStatusUiState.isOfflineLike &&
-            downloadedTitles.isNotEmpty() &&
-            homeUiState.heroItems.isEmpty()
-        )
+    val offlineDownloadedTitles = remember(downloadedTitles, networkStatusUiState.isOfflineLike) {
+        if (networkStatusUiState.isOfflineLike) downloadedTitles else emptyList()
+    }
+    val showHeroSlot = homeSettingsUiState.heroEnabled && !networkStatusUiState.isOfflineLike
     val isResolvingHeroSources = enabledAddons.any { it.isRefreshing } || homeUiState.isLoading
     val showHeroSkeleton = showHeroSlot &&
         homeUiState.heroItems.isEmpty() &&
@@ -849,12 +856,12 @@ fun HomeScreen(
 
     LaunchedEffect(
         homeUiState.sections.firstOrNull()?.key,
-        downloadedTitles.isNotEmpty(),
+        offlineDownloadedTitles.isNotEmpty(),
         hasActiveAddons,
         onFirstCatalogRendered,
     ) {
         val hasInitialContent = homeUiState.sections.isNotEmpty() ||
-            downloadedTitles.isNotEmpty() ||
+            offlineDownloadedTitles.isNotEmpty() ||
             !hasActiveAddons
         if (firstCatalogReported || !hasInitialContent) return@LaunchedEffect
         firstCatalogReported = true
@@ -966,7 +973,24 @@ fun HomeScreen(
             }
 
             when {
-                !hasActiveAddons && !hasRenderableCollectionRows && downloadedTitles.isEmpty() -> {
+                shouldShowOfflineHomeConnectionCard(
+                    isOfflineLike = networkStatusUiState.isOfflineLike,
+                    hasPlayableDownloads = offlineDownloadedTitles.isNotEmpty(),
+                    hasContinueWatchingRows = hasContinueWatchingRows,
+                ) -> {
+                    item {
+                        NuvioNetworkOfflineCard(
+                            condition = networkStatusUiState.condition,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                            onRetry = {
+                                NetworkStatusRepository.requestRefresh(force = true)
+                                HomeRepository.refresh(addonsUiState.addons.enabledAddons(), force = true)
+                            },
+                        )
+                    }
+                }
+
+                !hasActiveAddons && !hasRenderableCollectionRows && offlineDownloadedTitles.isEmpty() -> {
                     homeContinueWatchingSections(
                         preferences = continueWatchingPreferences,
                         continueWatchingItems = continueWatchingItems,
@@ -1012,7 +1036,7 @@ fun HomeScreen(
 
                 homeUiState.sections.isEmpty() && homeUiState.heroItems.isEmpty() &&
                     (!continueWatchingPreferences.isVisible || !hasContinueWatchingRows) &&
-                    !hasRenderableCollectionRows && downloadedTitles.isEmpty() -> {
+                    !hasRenderableCollectionRows && offlineDownloadedTitles.isEmpty() -> {
                     item {
                         if (networkStatusUiState.isOfflineLike) {
                             NuvioNetworkOfflineCard(
@@ -1035,24 +1059,6 @@ fun HomeScreen(
                 }
 
                 else -> {
-                    if (networkStatusUiState.isOfflineLike) {
-                        item(key = "home-offline-notice") {
-                            NuvioNetworkOfflineCard(
-                                condition = networkStatusUiState.condition,
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                onRetry = {
-                                    NetworkStatusRepository.requestRefresh(force = true)
-                                    OfflineLibraryRepository.refreshMissingAndStale()
-                                },
-                            )
-                        }
-                        homeDownloadedSection(
-                            items = downloadedTitles,
-                            sectionPadding = homeSectionPadding,
-                            onPosterClick = onPosterClick,
-                        )
-                    }
-
                     homeContinueWatchingSections(
                         preferences = continueWatchingPreferences,
                         continueWatchingItems = continueWatchingItems,
@@ -1067,48 +1073,50 @@ fun HomeScreen(
                         disintegrationRequest = continueWatchingDisintegrationRequest,
                     )
 
-                    if (!networkStatusUiState.isOfflineLike) {
+                    if (networkStatusUiState.isOfflineLike) {
                         homeDownloadedSection(
-                            items = downloadedTitles,
+                            items = offlineDownloadedTitles,
                             sectionPadding = homeSectionPadding,
                             onPosterClick = onPosterClick,
                         )
                     }
 
-                    keyedEnabledHomeItems.forEach { keyedSettingsItem ->
-                        val settingsItem = keyedSettingsItem.value
-                        if (settingsItem.isCollection) {
-                            val collection = collectionsMap[settingsItem.key]
-                            if (collection != null) {
-                                item(key = keyedSettingsItem.lazyKey) {
-                                    HomeCollectionRowSection(
-                                        collection = collection,
-                                        modifier = Modifier.padding(bottom = 12.dp),
-                                        sectionPadding = homeSectionPadding,
-                                        animateGifs = animateCollectionGifs,
-                                        onFolderClick = onFolderClick,
-                                    )
+                    if (!networkStatusUiState.isOfflineLike) {
+                        keyedEnabledHomeItems.forEach { keyedSettingsItem ->
+                            val settingsItem = keyedSettingsItem.value
+                            if (settingsItem.isCollection) {
+                                val collection = collectionsMap[settingsItem.key]
+                                if (collection != null) {
+                                    item(key = keyedSettingsItem.lazyKey) {
+                                        HomeCollectionRowSection(
+                                            collection = collection,
+                                            modifier = Modifier.padding(bottom = 12.dp),
+                                            sectionPadding = homeSectionPadding,
+                                            animateGifs = animateCollectionGifs,
+                                            onFolderClick = onFolderClick,
+                                        )
+                                    }
                                 }
-                            }
-                        } else {
-                            val section = sectionsMap[settingsItem.key]
-                            if (section != null && section.items.isNotEmpty()) {
-                                item(key = keyedSettingsItem.lazyKey) {
-                                    HomeCatalogRowSection(
-                                        section = section,
-                                        entries = section.items.take(HOME_CATALOG_PREVIEW_LIMIT),
-                                        modifier = Modifier.padding(bottom = 12.dp),
-                                        sectionPadding = homeSectionPadding,
-                                        onViewAllClick = if (section.canOpenCatalog(HOME_CATALOG_PREVIEW_LIMIT)) {
-                                            onCatalogClick?.let { { it(section) } }
-                                        } else {
-                                            null
-                                        },
-                                        watchedKeys = watchedUiState.watchedKeys,
-                                        fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
-                                        onPosterClick = onPosterClick,
-                                        onPosterLongClick = onPosterLongClick,
-                                    )
+                            } else {
+                                val section = sectionsMap[settingsItem.key]
+                                if (section != null && section.items.isNotEmpty()) {
+                                    item(key = keyedSettingsItem.lazyKey) {
+                                        HomeCatalogRowSection(
+                                            section = section,
+                                            entries = section.items.take(HOME_CATALOG_PREVIEW_LIMIT),
+                                            modifier = Modifier.padding(bottom = 12.dp),
+                                            sectionPadding = homeSectionPadding,
+                                            onViewAllClick = if (section.canOpenCatalog(HOME_CATALOG_PREVIEW_LIMIT)) {
+                                                onCatalogClick?.let { { it(section) } }
+                                            } else {
+                                                null
+                                            },
+                                            watchedKeys = watchedUiState.watchedKeys,
+                                            fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                                            onPosterClick = onPosterClick,
+                                            onPosterLongClick = onPosterLongClick,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1118,6 +1126,12 @@ fun HomeScreen(
         }
     }
 }
+
+internal fun shouldShowOfflineHomeConnectionCard(
+    isOfflineLike: Boolean,
+    hasPlayableDownloads: Boolean,
+    hasContinueWatchingRows: Boolean,
+): Boolean = isOfflineLike && !hasPlayableDownloads && !hasContinueWatchingRows
 
 private fun LazyListScope.homeDownloadedSection(
     items: List<MetaPreview>,
@@ -1591,6 +1605,38 @@ internal fun filterHomeContinueWatchingForOffline(
                 )
     }
 }
+
+internal fun resolveHomeContinueWatchingForOffline(
+    items: List<ContinueWatchingItem>,
+    downloads: List<DownloadItem>,
+    offlineTitles: List<OfflineTitle>,
+): List<ContinueWatchingItem> = filterHomeContinueWatchingForOffline(items, downloads).map { item ->
+    val title = offlineTitles.firstOrNull { offlineTitle ->
+        canonicalOfflineMetaType(offlineTitle.record.metaType) == canonicalOfflineMetaType(item.parentMetaType) &&
+            item.parentMetaId in buildSet {
+                add(offlineTitle.record.metaId)
+                add(offlineTitle.record.metadata.id)
+                addAll(offlineTitle.record.providerMetaIds)
+            }
+    } ?: return@map item
+
+    item.withOfflinePlaybackArtwork(
+        title.localPlaybackArtwork(
+            seasonNumber = item.seasonNumber,
+            episodeNumber = item.episodeNumber,
+        ),
+    )
+}
+
+internal fun ContinueWatchingItem.withOfflinePlaybackArtwork(
+    artwork: OfflinePlaybackArtwork,
+): ContinueWatchingItem = copy(
+    imageUrl = artwork.episodeThumbnail ?: artwork.background ?: artwork.poster,
+    logo = artwork.logo,
+    poster = artwork.poster,
+    background = artwork.background,
+    episodeThumbnail = artwork.episodeThumbnail,
+)
 
 /**
  * Splits unaired next-up episodes into a dedicated row when [ContinueWatchingSortMode.SPLIT_UPCOMING]

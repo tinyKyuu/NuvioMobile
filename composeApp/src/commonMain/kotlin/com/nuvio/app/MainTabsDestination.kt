@@ -19,8 +19,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
 import com.nuvio.app.core.ui.LocalNuvioNavBarScrollState
+import com.nuvio.app.core.ui.LocalNuvioTopNavigationOverlayPadding
 import com.nuvio.app.core.ui.NuvioClassicNavigationBar
 import com.nuvio.app.core.ui.NuvioNavigationBar
 import com.nuvio.app.core.ui.PlatformBackHandler
@@ -50,6 +52,7 @@ internal fun MainTabsDestination(
     useNativeTabBar: Boolean,
     liquidGlassNativeTabBarSupported: Boolean,
     liquidGlassNativeTabBarEnabled: Boolean,
+    networkCondition: NetworkCondition,
     requests: AppTabRequests,
     state: AppTabState,
     actions: (isTabletLayout: Boolean) -> AppTabActions,
@@ -57,6 +60,7 @@ internal fun MainTabsDestination(
     onTabSelected: (AppScreenTab) -> Unit,
     onProfileSelected: (NuvioProfile) -> Unit,
     onAddProfileRequested: () -> Unit,
+    onNetworkRetry: () -> Unit,
 ) {
     PlatformBackHandler(enabled = true, onBack = onBack)
 
@@ -68,6 +72,12 @@ internal fun MainTabsDestination(
             liquidGlassNativeTabBarSupported && liquidGlassNativeTabBarEnabled && initialHomeReady
         }
         val tabsRouteActive = rootRouteActive
+        val offlineStatusPresentation = rootOfflineStatusPresentation(
+            rootRouteActive = tabsRouteActive,
+            condition = networkCondition,
+            isTabletLayout = isTabletLayout,
+            showRetryLabel = maxWidth >= 900.dp,
+        )
         val navBarScrollState = rememberNuvioNavBarScrollState()
         val navBarHazeState = rememberHazeState()
         val navBarStyleSetting by remember { ThemeSettingsRepository.navBarStyle }.collectAsStateWithLifecycle()
@@ -117,6 +127,7 @@ internal fun MainTabsDestination(
             Box(modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(
                     LocalNuvioBottomNavigationOverlayPadding provides if (useNativeBottomTabs) 49.dp else if (!isTabletLayout && navBarStyleSetting != NavBarStyle.CLASSIC) 72.dp else 0.dp,
+                    LocalNuvioTopNavigationOverlayPadding provides if (isTabletLayout && !useNativeBottomTabs) 64.dp else 0.dp,
                     LocalNuvioNavBarScrollState provides navBarScrollState,
                 ) {
                     AppTabHost(
@@ -138,6 +149,15 @@ internal fun MainTabsDestination(
                         onTabSelected = onTabSelected,
                         onProfileSelected = onProfileSelected,
                         onAddProfileRequested = onAddProfileRequested,
+                    )
+                }
+
+                if (offlineStatusPresentation != RootOfflineStatusPresentation.Hidden) {
+                    RootOfflineStatusPill(
+                        condition = networkCondition,
+                        showRetryLabel = offlineStatusPresentation == RootOfflineStatusPresentation.RetryPill,
+                        onRetry = onNetworkRetry,
+                        modifier = Modifier.align(Alignment.TopEnd),
                     )
                 }
 
@@ -190,4 +210,29 @@ internal fun MainTabsDestination(
             }
         }
     }
+}
+
+internal fun shouldShowRootOfflineStatus(
+    rootRouteActive: Boolean,
+    condition: NetworkCondition,
+): Boolean = rootRouteActive && (
+    condition == NetworkCondition.NoInternet ||
+        condition == NetworkCondition.ServersUnreachable
+    )
+
+internal enum class RootOfflineStatusPresentation {
+    Hidden,
+    CompactIcon,
+    RetryPill,
+}
+
+internal fun rootOfflineStatusPresentation(
+    rootRouteActive: Boolean,
+    condition: NetworkCondition,
+    isTabletLayout: Boolean,
+    showRetryLabel: Boolean,
+): RootOfflineStatusPresentation = when {
+    !shouldShowRootOfflineStatus(rootRouteActive, condition) -> RootOfflineStatusPresentation.Hidden
+    isTabletLayout && showRetryLabel -> RootOfflineStatusPresentation.RetryPill
+    else -> RootOfflineStatusPresentation.CompactIcon
 }

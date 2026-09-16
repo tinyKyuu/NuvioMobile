@@ -9,6 +9,7 @@ import com.nuvio.app.features.cloud.playbackVideoId
 import com.nuvio.app.features.debrid.DebridProviders
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
+import com.nuvio.app.features.downloads.OfflinePlaybackArtwork
 import com.nuvio.app.features.watchprogress.CachedInProgressItem
 import com.nuvio.app.features.watchprogress.CachedNextUpItem
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
@@ -54,6 +55,64 @@ class HomeScreenTest {
         )
 
         assertTrue(filterHomeContinueWatchingForOffline(listOf(item), nonPlayable).isEmpty())
+    }
+
+    @Test
+    fun `offline continue watching replaces remote artwork with downloaded artwork`() {
+        val item = continueWatchingItem(
+            videoId = "show:1:4",
+            subtitle = "S1E4 • Offline",
+            imageUrl = "https://example.test/remote-image.jpg",
+            logo = "https://example.test/remote-logo.png",
+            episodeThumbnail = "https://example.test/remote-thumbnail.jpg",
+        ).copy(
+            poster = "https://example.test/remote-poster.jpg",
+            background = "https://example.test/remote-background.jpg",
+            resumePositionMs = 45_000L,
+            progressFraction = 0.4f,
+        )
+
+        val result = item.withOfflinePlaybackArtwork(
+            OfflinePlaybackArtwork(
+                poster = "file:///offline/poster.jpg",
+                background = "file:///offline/background.jpg",
+                logo = "file:///offline/logo.png",
+                episodeThumbnail = "file:///offline/episode.jpg",
+            ),
+        )
+
+        assertEquals("file:///offline/episode.jpg", result.imageUrl)
+        assertEquals("file:///offline/poster.jpg", result.poster)
+        assertEquals("file:///offline/background.jpg", result.background)
+        assertEquals("file:///offline/logo.png", result.logo)
+        assertEquals("file:///offline/episode.jpg", result.episodeThumbnail)
+        assertEquals(item.resumePositionMs, result.resumePositionMs)
+        assertEquals(item.progressFraction, result.progressFraction)
+    }
+
+    @Test
+    fun `offline continue watching clears remote episode art and uses local background fallback`() {
+        val item = continueWatchingItem(
+            videoId = "show:1:4",
+            subtitle = "S1E4 • Offline",
+            imageUrl = "https://example.test/remote-image.jpg",
+            episodeThumbnail = "https://example.test/remote-thumbnail.jpg",
+        )
+
+        val result = item.withOfflinePlaybackArtwork(
+            OfflinePlaybackArtwork(
+                poster = "file:///offline/poster.jpg",
+                background = "file:///offline/background.jpg",
+                logo = null,
+                episodeThumbnail = null,
+            ),
+        )
+
+        assertEquals("file:///offline/background.jpg", result.imageUrl)
+        assertEquals("file:///offline/poster.jpg", result.poster)
+        assertEquals("file:///offline/background.jpg", result.background)
+        assertNull(result.logo)
+        assertNull(result.episodeThumbnail)
     }
 
     @Test

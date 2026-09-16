@@ -95,6 +95,13 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Compact connection status keeps Retry reachable without covering playable local content | Home | Shared mobile source, iOS tested | Merged |
 | Continue Watching can reuse verified local artwork for downloaded titles | Home | Shared mobile source, iOS tested | Merged |
 
+### Navigation and appearance
+
+| Feature | Where | Platforms | Status |
+| --- | --- | --- | --- |
+| Catalog and Continue Watching posters share one size setting. Automatic is stored on the device and chooses a phone or tablet size, Extra Large is available, and Continue Watching defaults to Poster. | Home, catalogs, and Settings | iOS, iPadOS, and Android | Merged |
+| Tablet root navigation uses a bottom dock, and the fourth root tab is labeled `Settings`. | App navigation | iPadOS and Android tablets | Merged |
+
 ### Library
 
 | Feature | Where | Platforms | Status |

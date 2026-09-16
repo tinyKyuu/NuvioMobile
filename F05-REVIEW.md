@@ -1,5 +1,14 @@
 # F05 Review — Bottom Tablet Navigation Dock
 
+## Integration base and public documentation
+
+- The branch now includes stable integration commit `2f8f7c674bed24394ae408c57bfbce40cb636abc`, which contains PR22/F04 and the public README/feature-ledger baseline.
+- The integration merge completed cleanly as `910d5458353b3d57416dc5104b1fddbd2ac9c585`. F05's code diff remains limited to navigation, tablet root insets, Search/Library header spacing, and the fourth-tab label.
+- `README.md` now gives concise user-facing F04 and F05 entries under Navigation and appearance.
+- `Docs/feature-status.md` records PR22 provenance and migration/storage boundaries, PR23 platform evidence and deferrals, and the reviewed stable commit.
+- `CONTRIBUTING.md` now requires behavior and UI pull requests to assess the public ledger and reserves the README for current user-facing fork distinctions and major scope.
+- The PR23 entries use `Merged` because these public documents land in the same merge as F05. The pull request itself remains open pending organizer approval.
+
 ## Scope delivered
 
 - Moves the existing floating tablet root navigation from top-center to bottom-center on iPad and Android tablets.
@@ -94,6 +103,50 @@ NUVIO_IOS_DISTRIBUTION=appstore xcodebuild \
 
 Result: Kotlin framework `BUILD SUCCESSFUL` in 1m 27s; Xcode `** BUILD SUCCEEDED **`.
 
+### Combined F04/F05 base revalidation
+
+After merging stable integration commit `2f8f7c674bed24394ae408c57bfbce40cb636abc`, the full Android host suite was forced to rerun:
+
+```sh
+JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
+ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
+./gradlew -Pnuvio.ios.distribution=appstore -Pnuvio.android.distribution=playstore \
+  :composeApp:testAndroidHostTest --rerun-tasks --console=plain
+```
+
+Result: `BUILD SUCCESSFUL` in 1m 31s. The XML results contain 967 tests with 0 failures, 0 errors, and 0 skipped tests.
+
+```sh
+JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
+ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
+./gradlew -Pnuvio.ios.distribution=appstore -Pnuvio.android.distribution=playstore \
+  :androidApp:assembleDebug --console=plain
+```
+
+Result: `BUILD SUCCESSFUL` in 1m 28s. Both full and Play Store debug variants assembled.
+
+```sh
+JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
+./gradlew -Pnuvio.ios.distribution=appstore -Pnuvio.android.distribution=playstore \
+  :composeApp:compileKotlinIosSimulatorArm64 --console=plain
+```
+
+Result: `BUILD SUCCESSFUL` in 40s.
+
+```sh
+NUVIO_IOS_DISTRIBUTION=appstore \
+JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
+xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp \
+  -configuration Debug -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,id=DC2F9462-EC7F-4C5A-9D56-CFE8AD62A41E' \
+  -derivedDataPath /private/tmp/nuvio-f05-combined-derived \
+  build CODE_SIGNING_ALLOWED=NO
+```
+
+Result: Kotlin framework `BUILD SUCCESSFUL` in 1m 34s; Xcode `** BUILD SUCCEEDED **` for the booted `Nuvio F04 Tablet` iPad simulator. The linker emitted the existing minimum-simulator-version warnings from bundled native libraries.
+
+`git diff --check` passed after the documentation update.
+
 ## Practical validation
 
 ### iPad Pro 11-inch simulator, iOS 26.5
@@ -137,4 +190,4 @@ Result: Kotlin framework `BUILD SUCCESSFUL` in 1m 27s; Xcode `** BUILD SUCCEEDED
 - A live iPad split-view/Stage Manager narrow-width pass was not available through the simulator automation used here. The iPad tablet override remains unchanged, and the focused overlay test verifies that any tablet-classified width uses bottom-only reservation.
 - Populated remote catalog/search endpoints were unavailable without an active addon in the disposable validation profiles. Empty states, a saved offline Library item on iPad, final Settings content, and deterministic overlay tests were checked instead.
 
-No F03 or F04 scope is included in this phase.
+F05 does not alter F03 or F04 behavior. The branch includes F04 only through the current stable integration base, and the combined state passed the validation above.

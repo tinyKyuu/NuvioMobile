@@ -713,7 +713,7 @@
     <string name="settings_appearance_continue_watching_description">Settings for the Continue Watching section.</string>
     <string name="settings_appearance_liquid_glass">Liquid Glass</string>
     <string name="settings_appearance_liquid_glass_description">Use the native iPhone tab bar on iOS 26 and later.</string>
-    <string name="settings_appearance_poster_customization_description">Tune card width and corner radius.</string>
+    <string name="settings_appearance_poster_customization_description">Choose automatic or fixed poster sizing and tune the corner radius.</string>
     <string name="settings_appearance_section_display">DISPLAY</string>
     <string name="settings_appearance_section_home">HOME</string>
     <string name="settings_appearance_section_theme">THEME</string>
@@ -783,7 +783,7 @@
     <string name="settings_poster_card_style">POSTER CARD STYLE</string>
     <string name="settings_poster_card_width">Width</string>
     <string name="settings_poster_custom">Custom</string>
-    <string name="settings_poster_description">Tune card width and corner radius.</string>
+    <string name="settings_poster_description">Automatic uses Balanced (126 × 189) on phones and Large (140 × 210) on tablets, with Balanced in narrow tablet windows. Poster size is saved on this device.</string>
     <string name="settings_poster_hide_labels">Hide labels</string>
     <string name="settings_poster_landscape_mode">Landscape Posters</string>
     <string name="settings_poster_live_preview">Live Preview</string>
@@ -797,9 +797,11 @@
     <string name="settings_poster_radius_sharp">Sharp</string>
     <string name="settings_poster_radius_subtle">Subtle</string>
     <string name="settings_poster_width_balanced">Balanced</string>
+    <string name="settings_poster_width_automatic">Automatic</string>
     <string name="settings_poster_width_comfort">Comfort</string>
     <string name="settings_poster_width_compact">Compact</string>
     <string name="settings_poster_width_dense">Dense</string>
+    <string name="settings_poster_width_extra_large">Extra Large</string>
     <string name="settings_poster_width_large">Large</string>
     <string name="settings_poster_width_standard">Standard</string>
     <string name="settings_show_secret">Show value</string>

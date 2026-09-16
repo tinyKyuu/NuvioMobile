@@ -1,9 +1,11 @@
 package com.nuvio.app.core.network
 
+import com.nuvio.app.features.addons.collectManifestRecoveryResults
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
@@ -31,8 +33,15 @@ class NetworkRecoveryCoordinatorTest {
         val events = mutableListOf<String>()
         val phases = mutableListOf<NetworkRecoveryPhase>()
         val operations = object : NetworkRecoveryOperations {
-            override suspend fun recoverManifests(profileId: Int, forceAll: Boolean): ManifestRecoveryOutcome {
-                events += "manifests:$profileId:$forceAll"
+            override suspend fun recoverManifests(
+                profileId: Int,
+                generation: Long,
+                forceAll: Boolean,
+                onManifestRecovered: suspend (String) -> Unit,
+            ): ManifestRecoveryOutcome {
+                events += "manifests-start:$profileId:$generation:$forceAll"
+                onManifestRecovered("one")
+                events += "manifests-settled"
                 return ManifestRecoveryOutcome(
                     attemptedUrls = setOf("one", "two"),
                     recoveredUrls = setOf("one"),
@@ -55,10 +64,19 @@ class NetworkRecoveryCoordinatorTest {
         )
 
         assertEquals(NetworkRecoveryRunResult.Completed, result)
-        assertEquals(listOf("manifests:2:false", "catalogs:2:7"), events)
+        assertEquals(
+            listOf(
+                "manifests-start:2:7:false",
+                "catalogs:2:7",
+                "manifests-settled",
+                "catalogs:2:7",
+            ),
+            events,
+        )
         assertEquals(
             listOf(
                 NetworkRecoveryPhase.RestoringAddons,
+                NetworkRecoveryPhase.RefreshingCatalogs,
                 NetworkRecoveryPhase.RefreshingCatalogs,
                 NetworkRecoveryPhase.Completed,
             ),
@@ -67,11 +85,70 @@ class NetworkRecoveryCoordinatorTest {
     }
 
     @Test
+    fun `healthy catalog refresh starts before slow manifest settles`() = runBlocking {
+        val healthy = CompletableDeferred(true)
+        val slow = CompletableDeferred<Boolean>()
+        val firstCatalogRefresh = CompletableDeferred<Unit>()
+        var catalogRefreshCount = 0
+        val operations = object : NetworkRecoveryOperations {
+            override suspend fun recoverManifests(
+                profileId: Int,
+                generation: Long,
+                forceAll: Boolean,
+                onManifestRecovered: suspend (String) -> Unit,
+            ): ManifestRecoveryOutcome {
+                val result = collectManifestRecoveryResults(
+                    requests = linkedMapOf(
+                        "healthy" to healthy,
+                        "slow" to slow,
+                    ),
+                    isCurrent = { true },
+                    onManifestRecovered = onManifestRecovered,
+                )
+                return ManifestRecoveryOutcome(
+                    attemptedUrls = result.attemptedUrls,
+                    recoveredUrls = result.recoveredUrls,
+                    failedUrls = result.failedUrls,
+                    stale = result.stale,
+                )
+            }
+
+            override suspend fun refreshCatalogs(profileId: Int, generation: Long) {
+                catalogRefreshCount += 1
+                firstCatalogRefresh.complete(Unit)
+            }
+        }
+
+        val recovery = async {
+            runOrderedNetworkRecovery(
+                profileId = 1,
+                generation = 3L,
+                forceAllManifests = false,
+                operations = operations,
+                isCurrent = { true },
+                onPhase = { _, _ -> },
+            )
+        }
+
+        firstCatalogRefresh.await()
+        assertFalse(recovery.isCompleted)
+
+        slow.complete(false)
+        assertEquals(NetworkRecoveryRunResult.Completed, recovery.await())
+        assertEquals(2, catalogRefreshCount)
+    }
+
+    @Test
     fun `stale profile generation is discarded before catalog refresh`() = runBlocking {
         var current = true
         var catalogRefreshes = 0
         val operations = object : NetworkRecoveryOperations {
-            override suspend fun recoverManifests(profileId: Int, forceAll: Boolean): ManifestRecoveryOutcome {
+            override suspend fun recoverManifests(
+                profileId: Int,
+                generation: Long,
+                forceAll: Boolean,
+                onManifestRecovered: suspend (String) -> Unit,
+            ): ManifestRecoveryOutcome {
                 current = false
                 return ManifestRecoveryOutcome(recoveredUrls = setOf("one"))
             }
@@ -120,6 +197,32 @@ class NetworkRecoveryCoordinatorTest {
     }
 
     @Test
+    fun `rapid reconnects and repeated retry requests stay coalesced`() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val gate = NetworkRecoveryRequestGate()
+        val hold = CompletableDeferred<Unit>()
+        val tracker = NetworkRecoveryTransitionTracker()
+
+        assertFalse(tracker.onCondition(NetworkCondition.NoInternet))
+        assertTrue(tracker.onCondition(NetworkCondition.Online))
+        val reconnect = gate.launch(scope, profileId = 1) { hold.await() }
+
+        assertFalse(tracker.onCondition(NetworkCondition.ServersUnreachable))
+        assertTrue(tracker.onCondition(NetworkCondition.Online))
+        val rapidReconnect = gate.launch(scope, profileId = 1) { error("must coalesce") }
+        val retry = gate.launch(scope, profileId = 1) { error("must coalesce") }
+
+        assertEquals(NetworkRecoveryRequestResult.Started, reconnect.first)
+        assertEquals(NetworkRecoveryRequestResult.Coalesced, rapidReconnect.first)
+        assertEquals(NetworkRecoveryRequestResult.Coalesced, retry.first)
+        assertEquals(reconnect.second, rapidReconnect.second)
+        assertEquals(reconnect.second, retry.second)
+
+        gate.invalidate()
+        scope.cancel()
+    }
+
+    @Test
     fun `profile change replaces active recovery and invalidation rejects late generation`() {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val gate = NetworkRecoveryRequestGate()
@@ -156,8 +259,15 @@ class NetworkRecoveryCoordinatorTest {
         val tracker = NetworkRecoveryTransitionTracker()
         val events = mutableListOf<String>()
         val operations = object : NetworkRecoveryOperations {
-            override suspend fun recoverManifests(profileId: Int, forceAll: Boolean): ManifestRecoveryOutcome {
-                events += "manifest"
+            override suspend fun recoverManifests(
+                profileId: Int,
+                generation: Long,
+                forceAll: Boolean,
+                onManifestRecovered: suspend (String) -> Unit,
+            ): ManifestRecoveryOutcome {
+                events += "manifest-start"
+                onManifestRecovered("missing")
+                events += "manifest-finished"
                 return ManifestRecoveryOutcome(
                     attemptedUrls = setOf("missing"),
                     recoveredUrls = setOf("missing"),
@@ -180,6 +290,9 @@ class NetworkRecoveryCoordinatorTest {
             onPhase = { _, _ -> },
         )
 
-        assertEquals(listOf("manifest", "catalogs"), events)
+        assertEquals(
+            listOf("manifest-start", "catalogs", "manifest-finished", "catalogs"),
+            events,
+        )
     }
 }

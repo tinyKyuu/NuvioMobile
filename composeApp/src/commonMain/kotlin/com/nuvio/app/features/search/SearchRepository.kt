@@ -41,6 +41,13 @@ internal fun <T> canReuseRequestState(
     cachedRequestKey: T?,
 ): Boolean = !forceRefresh && requestKey == cachedRequestKey
 
+internal fun SearchUiState.forPendingSearch(retainExistingSections: Boolean): SearchUiState = copy(
+    isLoading = true,
+    sections = sections.takeIf { retainExistingSections }.orEmpty(),
+    emptyStateReason = null,
+    errorMessage = null,
+)
+
 internal fun resolveDiscoverCatalog(
     sources: List<DiscoverCatalogOption>,
     preferredCatalogKey: String?,
@@ -140,11 +147,7 @@ object SearchRepository {
         activeJob?.cancel()
         val generation = ++searchGeneration
         val retainedSections = _uiState.value.sections.takeIf { retainExistingSections }.orEmpty()
-        _uiState.value = _uiState.value.copy(
-            isLoading = true,
-            emptyStateReason = null,
-            errorMessage = null,
-        )
+        _uiState.value = _uiState.value.forPendingSearch(retainExistingSections)
 
         activeJob = scope.launch {
             val resultChannel = Channel<IndexedSearchResult>(Channel.UNLIMITED)

@@ -60,7 +60,12 @@ internal data class ManifestRecoveryOutcome(
 )
 
 internal interface NetworkRecoveryOperations {
-    suspend fun recoverManifests(profileId: Int, forceAll: Boolean): ManifestRecoveryOutcome
+    suspend fun recoverManifests(
+        profileId: Int,
+        generation: Long,
+        forceAll: Boolean,
+        onManifestRecovered: suspend (String) -> Unit,
+    ): ManifestRecoveryOutcome
     suspend fun refreshCatalogs(profileId: Int, generation: Long)
 }
 
@@ -79,7 +84,17 @@ internal suspend fun runOrderedNetworkRecovery(
 ): NetworkRecoveryRunResult {
     if (!isCurrent()) return NetworkRecoveryRunResult.Discarded
     onPhase(NetworkRecoveryPhase.RestoringAddons, null)
-    val manifests = operations.recoverManifests(profileId, forceAllManifests)
+    val manifests = operations.recoverManifests(
+        profileId = profileId,
+        generation = generation,
+        forceAll = forceAllManifests,
+        onManifestRecovered = {
+            if (isCurrent()) {
+                onPhase(NetworkRecoveryPhase.RefreshingCatalogs, null)
+                operations.refreshCatalogs(profileId, generation)
+            }
+        },
+    )
     if (manifests.stale || !isCurrent()) return NetworkRecoveryRunResult.Discarded
 
     onPhase(NetworkRecoveryPhase.RefreshingCatalogs, manifests)
@@ -194,8 +209,18 @@ object NetworkRecoveryCoordinator {
     private var forceAllPendingUntilOnline = false
 
     private val operations = object : NetworkRecoveryOperations {
-        override suspend fun recoverManifests(profileId: Int, forceAll: Boolean): ManifestRecoveryOutcome {
-            val result = AddonRepository.recoverEnabledManifests(profileId, forceAll)
+        override suspend fun recoverManifests(
+            profileId: Int,
+            generation: Long,
+            forceAll: Boolean,
+            onManifestRecovered: suspend (String) -> Unit,
+        ): ManifestRecoveryOutcome {
+            val result = AddonRepository.recoverEnabledManifests(
+                profileId = profileId,
+                recoveryGeneration = generation,
+                forceAll = forceAll,
+                onManifestRecovered = onManifestRecovered,
+            )
             return ManifestRecoveryOutcome(
                 attemptedUrls = result.attemptedUrls,
                 recoveredUrls = result.recoveredUrls,

@@ -10,12 +10,10 @@ import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,8 +23,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import kotlinx.atomicfu.locks.SynchronizedObject
-import kotlinx.atomicfu.locks.synchronized
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -73,8 +69,7 @@ object AddonRepository {
     private var currentProfileId: Int = 1
     private var profileGeneration: Long = 0L
     private var manifestCache: Map<String, CachedAddonManifest> = emptyMap()
-    private val activeRefreshLock = SynchronizedObject()
-    private val activeRefreshJobs = mutableMapOf<String, Deferred<Boolean>>()
+    private val manifestRefreshes = ManifestRefreshSingleFlight()
     private val pushJobsByProfile = mutableMapOf<Int, Job>()
 
     fun initialize() {
@@ -379,7 +374,9 @@ object AddonRepository {
 
     internal suspend fun recoverEnabledManifests(
         profileId: Int,
+        recoveryGeneration: Long,
         forceAll: Boolean,
+        onManifestRecovered: suspend (String) -> Unit,
     ): AddonManifestRecoveryResult {
         if (ProfileRepository.activeProfileId != profileId) {
             return AddonManifestRecoveryResult(emptySet(), emptySet(), emptySet(), stale = true)
@@ -402,26 +399,23 @@ object AddonRepository {
             return AddonManifestRecoveryResult(attemptedUrls, emptySet(), emptySet())
         }
 
-        val outcomes = attemptedUrls
-            .map { manifestUrl ->
-                manifestUrl to startManifestRefresh(
-                    manifestUrl = manifestUrl,
-                    forceRefresh = true,
-                    surfaceCachedFailure = forceAll,
-                )
-            }
-            .map { (url, request) -> url to request.await() }
-
-        if (
-            !ownsProfile(effectiveProfileId, operationGeneration) ||
-            ProfileRepository.activeProfileId != profileId
-        ) {
-            return AddonManifestRecoveryResult(attemptedUrls, emptySet(), emptySet(), stale = true)
+        val requests = attemptedUrls.associateWith { manifestUrl ->
+            startManifestRefresh(
+                manifestUrl = manifestUrl,
+                forceRefresh = true,
+                surfaceCachedFailure = forceAll,
+                reason = ManifestRefreshReason.Recovery,
+                recoveryGeneration = recoveryGeneration,
+            )
         }
-        return AddonManifestRecoveryResult(
-            attemptedUrls = attemptedUrls,
-            recoveredUrls = outcomes.filter { (_, succeeded) -> succeeded }.mapTo(linkedSetOf()) { it.first },
-            failedUrls = outcomes.filterNot { (_, succeeded) -> succeeded }.mapTo(linkedSetOf()) { it.first },
+
+        return collectManifestRecoveryResults(
+            requests = requests,
+            isCurrent = {
+                ownsProfile(effectiveProfileId, operationGeneration) &&
+                    ProfileRepository.activeProfileId == profileId
+            },
+            onManifestRecovered = onManifestRecovered,
         )
     }
 
@@ -433,6 +427,7 @@ object AddonRepository {
             manifestUrl = manifestUrl,
             forceRefresh = forceRefresh,
             surfaceCachedFailure = forceRefresh,
+            reason = ManifestRefreshReason.Explicit,
         )
     }
 
@@ -440,93 +435,85 @@ object AddonRepository {
         manifestUrl: String,
         forceRefresh: Boolean,
         surfaceCachedFailure: Boolean,
+        reason: ManifestRefreshReason,
+        recoveryGeneration: Long? = null,
     ): Deferred<Boolean> {
-        synchronized(activeRefreshLock) {
-            activeRefreshJobs[manifestUrl]?.takeUnless { it.isCompleted }?.let { return it }
-        }
-
         val operationProfileId = currentProfileId
         val operationGeneration = profileGeneration
-        markRefreshing(manifestUrl)
-        lateinit var refreshJob: Deferred<Boolean>
-        refreshJob = scope.async(start = CoroutineStart.LAZY) {
-            try {
-                val result = runCatching {
-                    val payload = fetchAddonResponseText(
-                        url = manifestUrl,
-                        forceRefresh = forceRefresh,
-                    )
-                    payload to AddonManifestParser.parse(
-                        manifestUrl = manifestUrl,
-                        payload = payload,
-                    )
+        return manifestRefreshes.start(
+            scope = scope,
+            manifestUrl = manifestUrl,
+            identity = ManifestRefreshIdentity(
+                profileId = operationProfileId,
+                profileGeneration = operationGeneration,
+                reason = reason,
+                recoveryGeneration = recoveryGeneration,
+            ),
+            onStarted = {
+                if (ownsProfile(operationProfileId, operationGeneration)) {
+                    markRefreshing(manifestUrl)
                 }
-                result.exceptionOrNull()?.let { error ->
-                    if (error is CancellationException) throw error
-                }
+            },
+        ) refresh@{
+            val result = runCatching {
+                val payload = fetchAddonResponseText(
+                    url = manifestUrl,
+                    forceRefresh = forceRefresh,
+                )
+                payload to AddonManifestParser.parse(
+                    manifestUrl = manifestUrl,
+                    payload = payload,
+                )
+            }
+            result.exceptionOrNull()?.let { error ->
+                if (error is CancellationException) throw error
+            }
 
-                if (!ownsProfile(operationProfileId, operationGeneration)) return@async false
-                val success = result.getOrNull()
-                if (success != null) {
-                    val (payload, manifest) = success
-                    upsertManifestCache(manifestUrl, payload)
-                    _uiState.update { current ->
-                        current.copy(
-                            addons = current.addons.map { addon ->
-                                if (addon.manifestUrl == manifestUrl) {
-                                    addon.copy(
-                                        manifest = manifest,
-                                        isRefreshing = false,
-                                        errorMessage = null,
-                                    )
-                                } else {
-                                    addon
-                                }
-                            },
-                        )
-                    }
-                    true
-                } else {
-                    val message = result.exceptionOrNull()?.message
-                        ?: getString(Res.string.addon_load_manifest_failed)
-                    _uiState.update { current ->
-                        current.copy(
-                            addons = current.addons.map { addon ->
-                                if (addon.manifestUrl == manifestUrl) {
-                                    addon.copy(
-                                        isRefreshing = false,
-                                        errorMessage = if (addon.manifest != null && !surfaceCachedFailure) {
-                                            null
-                                        } else {
-                                            message
-                                        },
-                                    )
-                                } else {
-                                    addon
-                                }
-                            },
-                        )
-                    }
-                    false
+            if (!ownsProfile(operationProfileId, operationGeneration)) return@refresh false
+            val success = result.getOrNull()
+            if (success != null) {
+                val (payload, manifest) = success
+                upsertManifestCache(manifestUrl, payload)
+                _uiState.update { current ->
+                    current.copy(
+                        addons = current.addons.map { addon ->
+                            if (addon.manifestUrl == manifestUrl) {
+                                addon.copy(
+                                    manifest = manifest,
+                                    isRefreshing = false,
+                                    errorMessage = null,
+                                )
+                            } else {
+                                addon
+                            }
+                        },
+                    )
                 }
-            } finally {
-                synchronized(activeRefreshLock) {
-                    if (activeRefreshJobs[manifestUrl] === refreshJob) {
-                        activeRefreshJobs.remove(manifestUrl)
-                    }
+                true
+            } else {
+                val message = result.exceptionOrNull()?.message
+                    ?: getString(Res.string.addon_load_manifest_failed)
+                _uiState.update { current ->
+                    current.copy(
+                        addons = current.addons.map { addon ->
+                            if (addon.manifestUrl == manifestUrl) {
+                                addon.copy(
+                                    isRefreshing = false,
+                                    errorMessage = if (addon.manifest != null && !surfaceCachedFailure) {
+                                        null
+                                    } else {
+                                        message
+                                    },
+                                )
+                            } else {
+                                addon
+                            }
+                        },
+                    )
                 }
+                false
             }
         }
-        synchronized(activeRefreshLock) {
-            val existingJob = activeRefreshJobs[manifestUrl]
-            if (existingJob != null && !existingJob.isCompleted) {
-                refreshJob.cancel()
-                return existingJob
-            }
-            activeRefreshJobs[manifestUrl] = refreshJob
-        }
-        refreshJob.start()
-        return refreshJob
     }
 
     private fun pushToServer() {
@@ -604,10 +591,7 @@ object AddonRepository {
             .mapKeys { (url, _) -> ensureManifestSuffix(url) }
 
     private fun cancelActiveRefreshes() {
-        val jobs = synchronized(activeRefreshLock) {
-            activeRefreshJobs.values.toList().also { activeRefreshJobs.clear() }
-        }
-        jobs.forEach(Job::cancel)
+        manifestRefreshes.cancelAll()
     }
 
     private fun hydrateCachedManifests(installedUrls: Set<String>) {
@@ -660,14 +644,13 @@ object AddonRepository {
                     manifestUrl = manifestUrl,
                     forceRefresh = addon.manifest != null,
                     surfaceCachedFailure = false,
+                    reason = ManifestRefreshReason.Background,
                 )
             }
     }
 
     private fun shouldRefreshManifest(addon: ManagedAddon, nowEpochMs: Long): Boolean {
-        val hasActiveRefresh = synchronized(activeRefreshLock) {
-            activeRefreshJobs[addon.manifestUrl]?.isCompleted == false
-        }
+        val hasActiveRefresh = manifestRefreshes.isActive(addon.manifestUrl)
         if (!addon.enabled || addon.isRefreshing && hasActiveRefresh) {
             return false
         }

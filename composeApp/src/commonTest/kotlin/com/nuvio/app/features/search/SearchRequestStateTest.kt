@@ -1,5 +1,7 @@
 package com.nuvio.app.features.search
 
+import com.nuvio.app.features.catalog.CatalogTarget
+import com.nuvio.app.features.home.HomeCatalogSection
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -32,6 +34,29 @@ class SearchRequestStateTest {
                 requestKey = "same-query",
                 cachedRequestKey = "same-query",
             ),
+        )
+    }
+
+    @Test
+    fun `changed query clears prior rows while same request recovery retains them`() {
+        val previousSection = HomeCatalogSection(
+            key = "old-query",
+            title = "Old query",
+            subtitle = "",
+            addonName = "Fixture",
+            target = CatalogTarget.Addon(
+                manifestUrl = "https://example.com/manifest.json",
+                contentType = "movie",
+                catalogId = "search",
+            ),
+            items = emptyList(),
+        )
+        val current = SearchUiState(sections = listOf(previousSection))
+
+        assertTrue(current.forPendingSearch(retainExistingSections = false).sections.isEmpty())
+        assertEquals(
+            listOf(previousSection),
+            current.forPendingSearch(retainExistingSections = true).sections,
         )
     }
 

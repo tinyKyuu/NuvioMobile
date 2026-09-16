@@ -47,11 +47,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.max
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.ui.AppTheme
-import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.isLiquidGlassNativeTabBarSupported
+import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsUiState
@@ -940,7 +940,7 @@ private fun TabletSettingsScreen(
     var selectedCategory by rememberSaveable { mutableStateOf(SettingsCategory.General.name) }
     val activeCategory = SettingsCategory.valueOf(selectedCategory)
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val topOffset = max(statusBarPadding + 24.dp, 48.dp) + 64.dp
+    val topOffset = max(statusBarPadding + 24.dp, 48.dp)
 
     LaunchedEffect(page) {
         if (page.opensInlineOnTablet) {
@@ -1027,7 +1027,6 @@ private fun TabletSettingsScreen(
             }
 
             val listState = rememberLazyListState()
-            val bottomOverlayPadding = LocalNuvioBottomNavigationOverlayPadding.current
             val rootSearchRevealConnection = rememberSettingsRootSearchRevealConnection(
                 page = page,
                 listState = listState,
@@ -1061,7 +1060,7 @@ private fun TabletSettingsScreen(
                     start = 40.dp,
                     top = topOffset,
                     end = 40.dp,
-                    bottom = 40.dp + bottomOverlayPadding,
+                    bottom = nuvioSafeBottomPadding(40.dp),
                 ),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {

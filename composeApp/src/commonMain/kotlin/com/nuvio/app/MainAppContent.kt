@@ -183,7 +183,7 @@ internal fun MainAppContent(
     onGoBack: (() -> Unit)? = null,
     onReplace: ((AppRoute) -> Unit)? = null,
     onActivate: ((AppScreenTab) -> Unit)? = null,
-    onTabTitles: ((home: String, search: String, library: String, profile: String, switchProfile: String, addProfile: String) -> Unit)? = null,
+    onTabTitles: ((home: String, search: String, library: String, settings: String, switchProfile: String, addProfile: String) -> Unit)? = null,
     appGateController: AppGateController? = null,
     onRootContentReady: ((Boolean) -> Unit)? = null,
     onSwitchProfile: () -> Unit = {},
@@ -299,7 +299,7 @@ internal fun MainAppContent(
     val nativeTabHomeTitle = stringResource(Res.string.compose_nav_home)
     val nativeTabSearchTitle = stringResource(Res.string.compose_nav_search)
     val nativeTabLibraryTitle = stringResource(Res.string.compose_nav_library)
-    val nativeTabProfileTitle = stringResource(Res.string.compose_nav_profile)
+    val nativeTabSettingsTitle = stringResource(Res.string.compose_settings_page_root)
     val nativeSwitchProfileTitle = stringResource(Res.string.compose_settings_root_switch_profile_title)
     val nativeAddProfileTitle = stringResource(Res.string.compose_profile_add_profile)
     val homescreenSettingsTitle = stringResource(Res.string.compose_settings_page_homescreen)
@@ -384,7 +384,7 @@ internal fun MainAppContent(
         nativeTabHomeTitle,
         nativeTabSearchTitle,
         nativeTabLibraryTitle,
-        nativeTabProfileTitle,
+        nativeTabSettingsTitle,
         nativeSwitchProfileTitle,
         nativeAddProfileTitle,
         onTabTitles,
@@ -393,13 +393,13 @@ internal fun MainAppContent(
             home = nativeTabHomeTitle,
             search = nativeTabSearchTitle,
             library = nativeTabLibraryTitle,
-            profile = nativeTabProfileTitle,
+            settings = nativeTabSettingsTitle,
         )
         onTabTitles?.invoke(
             nativeTabHomeTitle,
             nativeTabSearchTitle,
             nativeTabLibraryTitle,
-            nativeTabProfileTitle,
+            nativeTabSettingsTitle,
             nativeSwitchProfileTitle,
             nativeAddProfileTitle,
         )

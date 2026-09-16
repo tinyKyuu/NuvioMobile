@@ -1,0 +1,118 @@
+# F05 Review — Bottom Tablet Navigation Dock
+
+## Scope delivered
+
+- Moves the existing floating tablet root navigation from top-center to bottom-center on iPad and Android tablets.
+- Reserves bottom overlay space for root content and removes the former tablet top overlay.
+- Keeps the dock above platform safe areas and gesture indicators.
+- Changes the visible fourth root-tab label to `Settings` while preserving the avatar, profile selection, and add-profile behavior.
+- Keeps the offline Retry control at the logical top end.
+- Leaves phone/native navigation behavior unchanged apart from the approved `Settings` label.
+
+## Automated validation
+
+All commands ran from the F05 worktree with the checked-in Gradle wrapper.
+
+### Focused common navigation tests on Android host
+
+```sh
+JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
+ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
+./gradlew -Pnuvio.ios.distribution=appstore -Pnuvio.android.distribution=playstore \
+  :composeApp:testAndroidHostTest --tests 'com.nuvio.app.MainTabsDestinationTest'
+```
+
+Result: `BUILD SUCCESSFUL` in 57s.
+
+### Full common/Android-host test suite
+
+```sh
+JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
+ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
+./gradlew -Pnuvio.ios.distribution=appstore -Pnuvio.android.distribution=playstore \
+  :composeApp:testAndroidHostTest
+```
+
+Result: `BUILD SUCCESSFUL` in 39s.
+
+### Focused iOS simulator tests
+
+```sh
+JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
+ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
+./gradlew -Pnuvio.ios.distribution=appstore \
+  :composeApp:iosSimulatorArm64Test --tests 'com.nuvio.app.MainTabsDestinationTest'
+```
+
+Result: `BUILD SUCCESSFUL` in 1m 11s. The linker emitted pre-existing missing module-cache debug-information warnings from `cryptography-kotlin`; tests passed.
+
+### Android build
+
+```sh
+JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
+ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
+./gradlew -Pnuvio.ios.distribution=appstore -Pnuvio.android.distribution=playstore \
+  :androidApp:assembleDebug
+```
+
+Result: `BUILD SUCCESSFUL` in 1m 34s. Both full and Play Store debug APK variants assembled.
+
+### iOS build
+
+```sh
+NUVIO_IOS_DISTRIBUTION=appstore xcodebuild \
+  -project iosApp/iosApp.xcodeproj \
+  -scheme iosApp \
+  -configuration Debug \
+  -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,id=98F65EB4-873C-4470-ABCB-4A44F4668A15' \
+  -derivedDataPath /private/tmp/nuvio-f05-derived \
+  build CODE_SIGNING_ALLOWED=NO
+```
+
+Result: Kotlin framework `BUILD SUCCESSFUL` in 3m 2s; Xcode `** BUILD SUCCEEDED **`.
+
+The app-store/play-store distribution flags were used because this checkout does not have the optional local Nuvio Engine Apple XCFramework. `MPVKit` was initialized at the repository-pinned submodule revision before the iOS build.
+
+## Practical validation
+
+### iPad Pro 11-inch simulator, iOS 26.5
+
+- Landscape: Home, Search, Library, and Settings all kept their existing tablet layouts; the dock stayed bottom-center above the home indicator.
+- Portrait: Home, Library/Downloaded, and Settings kept usable scroll endpoints above the dock after rotation.
+- Home no longer reserves the former top-navigation overlay; its top region is unobscured.
+- Search and Library empty states remained clear of the dock.
+- A downloaded Library item remained visible and selectable above the dock.
+- Settings displayed its final footer/version content above the dock.
+- The fourth tab read `Settings`; the avatar remained exposed with the active profile accessibility label and tapping it opened Settings.
+
+### Pixel Tablet emulator, Android 16 / API 36
+
+- Landscape and portrait: root dock remained bottom-center and clear of the gesture indicator.
+- Home empty state and the Settings footer remained above the dock.
+- Disabling Wi-Fi and data showed the offline state while the floating Retry control stayed at the logical top end.
+- Forced RTL mirrored the dock order and placed the compact Retry control at the mirrored logical top end.
+- Long-pressing the avatar opened the profile switcher and exposed `Add Profile`.
+
+### iPhone 17 Pro simulator, iOS 26.5
+
+- Existing native phone navigation remained in use.
+- The fourth native tab showed the avatar with the visible label `Settings`.
+
+## Focused regression coverage
+
+`MainTabsDestinationTest` now locks these overlay contracts:
+
+- Tablet floating navigation: `top = 0.dp`, `bottom = 64.dp`.
+- Native phone tabs: unchanged `bottom = 49.dp`.
+- Custom non-classic phone navigation: unchanged `bottom = 72.dp`.
+- Classic phone navigation: unchanged zero overlay.
+- Existing root/offline presentation assertions continue to cover compact and labeled Retry states.
+
+## Deferred follow-up
+
+- Physical-device checks remain required for at least one iPad and one Android tablet, including touch comfort and real safe-area behavior.
+- A live iPad split-view/Stage Manager narrow-width pass was not available through the simulator automation used here. The iPad tablet override remains unchanged, and the focused overlay test verifies that any tablet-classified width uses bottom-only reservation.
+- Populated remote catalog/search endpoints were unavailable without an active addon in the disposable validation profiles. Empty states, a saved offline Library item on iPad, final Settings content, and deterministic overlay tests were checked instead.
+
+No F03 or F04 scope is included in this phase.

@@ -45,6 +45,7 @@ import com.nuvio.app.core.ui.DisintegrationRequest
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.cloud.CloudLibraryContentType
 import com.nuvio.app.features.cloud.CloudLibraryFile
 import com.nuvio.app.features.cloud.CloudLibraryItem
@@ -70,8 +71,8 @@ import nuvio.composeapp.generated.resources.action_retry
 import nuvio.composeapp.generated.resources.app_brand_name
 import nuvio.composeapp.generated.resources.compose_nav_home
 import nuvio.composeapp.generated.resources.compose_nav_library
-import nuvio.composeapp.generated.resources.compose_nav_profile
 import nuvio.composeapp.generated.resources.compose_nav_search
+import nuvio.composeapp.generated.resources.compose_settings_page_root
 import nuvio.composeapp.generated.resources.sidebar_library
 import nuvio.composeapp.generated.resources.sidebar_search
 import org.jetbrains.compose.resources.painterResource
@@ -229,7 +230,7 @@ internal fun AppTabHost(
 }
 
 @Composable
-internal fun TabletFloatingTopBar(
+internal fun TabletFloatingBottomDock(
     selectedTab: AppScreenTab,
     onTabSelected: (AppScreenTab) -> Unit,
     onProfileSelected: (NuvioProfile) -> Unit,
@@ -237,13 +238,12 @@ internal fun TabletFloatingTopBar(
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
-    val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = statusBarPadding + NuvioTokens.Space.s10, bottom = tokens.spacing.controlGap),
-        contentAlignment = Alignment.TopCenter,
+            .padding(bottom = nuvioSafeBottomPadding(tokens.spacing.controlGap)),
+        contentAlignment = Alignment.BottomCenter,
     ) {
         Surface(
             color = tokens.colors.surface.copy(alpha = tokens.opacity.visible - tokens.opacity.subtle),
@@ -256,7 +256,7 @@ internal fun TabletFloatingTopBar(
                 horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                TabletTopPillItem(
+                TabletDockPillItem(
                     label = stringResource(Res.string.compose_nav_home),
                     selected = selectedTab == AppScreenTab.Home,
                     onClick = { onTabSelected(AppScreenTab.Home) },
@@ -273,7 +273,7 @@ internal fun TabletFloatingTopBar(
                         )
                     },
                 )
-                TabletTopPillItem(
+                TabletDockPillItem(
                     label = stringResource(Res.string.compose_nav_search),
                     selected = selectedTab == AppScreenTab.Search,
                     onClick = { onTabSelected(AppScreenTab.Search) },
@@ -290,7 +290,7 @@ internal fun TabletFloatingTopBar(
                         )
                     },
                 )
-                TabletTopPillItem(
+                TabletDockPillItem(
                     label = stringResource(Res.string.compose_nav_library),
                     selected = selectedTab == AppScreenTab.Library,
                     onClick = { onTabSelected(AppScreenTab.Library) },
@@ -327,7 +327,7 @@ internal fun TabletFloatingTopBar(
                             onAddProfileRequested = onAddProfileRequested,
                         )
                         Text(
-                            text = stringResource(Res.string.compose_nav_profile),
+                            text = stringResource(Res.string.compose_settings_page_root),
                             modifier = Modifier.clickable { onTabSelected(AppScreenTab.Settings) },
                             style = MaterialTheme.typography.labelLarge,
                             color = if (selectedTab == AppScreenTab.Settings) {
@@ -415,7 +415,7 @@ internal fun ContinueWatchingItem.isCloudLibraryContinueWatchingItem(): Boolean 
     parentMetaType.equals(CloudLibraryContentType, ignoreCase = true)
 
 @Composable
-private fun TabletTopPillItem(
+private fun TabletDockPillItem(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,

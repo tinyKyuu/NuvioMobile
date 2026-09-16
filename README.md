@@ -132,6 +132,7 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | --- | --- | --- | --- |
 | Add-on metadata can supply season artwork and regional certification details | Details | Shared mobile source | Merged |
 | A null Specials poster no longer shifts artwork onto the wrong regular season | Series details | Shared mobile source | Merged |
+| Detail pages place Episodes after Production by default while preserving custom layouts. Series season selection defaults to Text, keeps a saved Posters choice, and does not repeat the selected season heading below a multi-season selector. | Details and Settings | iOS, iPadOS, and Android | In testing |
 
 ### Performance and reliability
 

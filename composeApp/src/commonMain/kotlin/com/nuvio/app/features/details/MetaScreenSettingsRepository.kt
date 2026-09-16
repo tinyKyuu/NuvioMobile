@@ -13,6 +13,34 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.getString
 
+internal const val MetaScreenSectionOrderMigrationVersion = 1
+
+internal val LegacyDefaultMetaScreenSectionOrder = listOf(
+    MetaScreenSectionKey.ACTIONS,
+    MetaScreenSectionKey.OVERVIEW,
+    MetaScreenSectionKey.PRODUCTION,
+    MetaScreenSectionKey.CAST,
+    MetaScreenSectionKey.COMMENTS,
+    MetaScreenSectionKey.TRAILERS,
+    MetaScreenSectionKey.EPISODES,
+    MetaScreenSectionKey.DETAILS,
+    MetaScreenSectionKey.COLLECTION,
+    MetaScreenSectionKey.MORE_LIKE_THIS,
+)
+
+internal val DefaultMetaScreenSectionOrder = listOf(
+    MetaScreenSectionKey.ACTIONS,
+    MetaScreenSectionKey.OVERVIEW,
+    MetaScreenSectionKey.PRODUCTION,
+    MetaScreenSectionKey.EPISODES,
+    MetaScreenSectionKey.CAST,
+    MetaScreenSectionKey.COMMENTS,
+    MetaScreenSectionKey.TRAILERS,
+    MetaScreenSectionKey.DETAILS,
+    MetaScreenSectionKey.COLLECTION,
+    MetaScreenSectionKey.MORE_LIKE_THIS,
+)
+
 enum class MetaScreenSectionKey {
     ACTIONS,
     OVERVIEW,
@@ -98,7 +126,7 @@ enum class MetaEpisodeCardStyle {
 }
 
 @Serializable
-private data class StoredMetaScreenSectionPreference(
+internal data class StoredMetaScreenSectionPreference(
     val key: String,
     val enabled: Boolean = true,
     val order: Int = 0,
@@ -106,8 +134,10 @@ private data class StoredMetaScreenSectionPreference(
 )
 
 @Serializable
-private data class StoredMetaScreenSettingsPayload(
+internal data class StoredMetaScreenSettingsPayload(
     val items: List<StoredMetaScreenSectionPreference> = emptyList(),
+    @SerialName("section_order_migration_version")
+    val sectionOrderMigrationVersion: Int = 0,
     @SerialName("background_mode")
     val backgroundMode: String? = null,
     val cinematicBackground: Boolean = false,
@@ -120,6 +150,87 @@ private data class StoredMetaScreenSettingsPayload(
     val blurUnwatchedEpisodes: Boolean = false,
 )
 
+internal data class MetaScreenSectionOrderMigration(
+    val items: List<StoredMetaScreenSectionPreference>,
+    val migrationVersion: Int,
+    val migratedLegacyDefault: Boolean,
+)
+
+private val metaScreenSettingsJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
+
+internal fun resolveMetaScreenSectionOrderMigration(
+    items: List<StoredMetaScreenSectionPreference>,
+    storedMigrationVersion: Int,
+): MetaScreenSectionOrderMigration {
+    val shouldMigrateLegacyDefault =
+        storedMigrationVersion < MetaScreenSectionOrderMigrationVersion &&
+            items.isUntouchedLegacyDefaultOrder()
+    val migratedItems = if (shouldMigrateLegacyDefault) {
+        val newOrders = DefaultMetaScreenSectionOrder.withIndex().associate { it.value to it.index }
+        items.map { item ->
+            val key = runCatching { MetaScreenSectionKey.valueOf(item.key) }.getOrNull()
+            item.copy(order = key?.let(newOrders::get) ?: item.order)
+        }
+    } else {
+        items
+    }
+    return MetaScreenSectionOrderMigration(
+        items = migratedItems,
+        migrationVersion = maxOf(storedMigrationVersion, MetaScreenSectionOrderMigrationVersion),
+        migratedLegacyDefault = shouldMigrateLegacyDefault,
+    )
+}
+
+internal fun normalizeMetaScreenSectionPreferences(
+    items: List<StoredMetaScreenSectionPreference>,
+): List<StoredMetaScreenSectionPreference> {
+    val storedByKey = items.mapNotNull { item ->
+        val key = runCatching { MetaScreenSectionKey.valueOf(item.key) }.getOrNull()
+            ?: return@mapNotNull null
+        key to item
+    }.toMap()
+    return DefaultMetaScreenSectionOrder
+        .sortedBy { key -> storedByKey[key]?.order ?: Int.MAX_VALUE }
+        .mapIndexed { index, key ->
+            val stored = storedByKey[key]
+            StoredMetaScreenSectionPreference(
+                key = key.name,
+                enabled = stored?.enabled ?: true,
+                order = index,
+                tabGroup = stored?.tabGroup,
+            )
+        }
+}
+
+internal fun defaultMetaScreenSectionPreferences(): List<StoredMetaScreenSectionPreference> =
+    normalizeMetaScreenSectionPreferences(emptyList())
+
+internal fun decodeMetaScreenSettingsPayload(payload: String): StoredMetaScreenSettingsPayload? =
+    payload.trim().takeIf(String::isNotEmpty)?.let { storedPayload ->
+        runCatching {
+            metaScreenSettingsJson.decodeFromString<StoredMetaScreenSettingsPayload>(storedPayload)
+        }.getOrNull()
+    }
+
+internal fun encodeMetaScreenSettingsPayload(payload: StoredMetaScreenSettingsPayload): String =
+    metaScreenSettingsJson.encodeToString(payload)
+
+internal fun metaScreenSettingsPayloadNeedsSectionOrderMigration(payload: String): Boolean =
+    decodeMetaScreenSettingsPayload(payload)?.sectionOrderMigrationVersion
+        ?.let { it < MetaScreenSectionOrderMigrationVersion }
+        ?: true
+
+private fun List<StoredMetaScreenSectionPreference>.isUntouchedLegacyDefaultOrder(): Boolean {
+    if (size != LegacyDefaultMetaScreenSectionOrder.size) return false
+    val ordered = sortedBy(StoredMetaScreenSectionPreference::order)
+    return ordered.map { it.key } == LegacyDefaultMetaScreenSectionOrder.map { it.name } &&
+        ordered.map { it.order } == LegacyDefaultMetaScreenSectionOrder.indices.toList() &&
+        ordered.all { it.enabled && it.tabGroup == null }
+}
+
 private data class MetaScreenSectionDefinition(
     val key: MetaScreenSectionKey,
     val titleRes: StringResource,
@@ -127,12 +238,7 @@ private data class MetaScreenSectionDefinition(
 )
 
 object MetaScreenSettingsRepository {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
-
-    private val definitions = listOf(
+    private val definitionsByKey = listOf(
         MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.ACTIONS,
             titleRes = Res.string.meta_section_actions_title,
@@ -147,6 +253,11 @@ object MetaScreenSettingsRepository {
             key = MetaScreenSectionKey.PRODUCTION,
             titleRes = Res.string.meta_section_production_title,
             descriptionRes = Res.string.meta_section_production_description,
+        ),
+        MetaScreenSectionDefinition(
+            key = MetaScreenSectionKey.EPISODES,
+            titleRes = Res.string.settings_meta_episodes,
+            descriptionRes = Res.string.meta_section_episodes_description,
         ),
         MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.CAST,
@@ -164,11 +275,6 @@ object MetaScreenSettingsRepository {
             descriptionRes = Res.string.meta_section_trailers_description,
         ),
         MetaScreenSectionDefinition(
-            key = MetaScreenSectionKey.EPISODES,
-            titleRes = Res.string.settings_meta_episodes,
-            descriptionRes = Res.string.meta_section_episodes_description,
-        ),
-        MetaScreenSectionDefinition(
             key = MetaScreenSectionKey.DETAILS,
             titleRes = Res.string.meta_section_details_title,
             descriptionRes = Res.string.meta_section_details_description,
@@ -183,7 +289,9 @@ object MetaScreenSettingsRepository {
             titleRes = Res.string.meta_section_more_like_this_title,
             descriptionRes = Res.string.meta_section_more_like_this_description,
         ),
-    )
+    ).associateBy(MetaScreenSectionDefinition::key)
+
+    private val definitions = DefaultMetaScreenSectionOrder.map(definitionsByKey::getValue)
 
     private val _uiState = MutableStateFlow(MetaScreenSettingsUiState())
     val uiState: StateFlow<MetaScreenSettingsUiState> = _uiState.asStateFlow()
@@ -195,30 +303,31 @@ object MetaScreenSettingsRepository {
     private var tabLayout: Boolean = false
     private var episodeCardStyle: MetaEpisodeCardStyle = MetaEpisodeCardStyle.Horizontal
     private var blurUnwatchedEpisodes: Boolean = false
+    private var sectionOrderMigrationVersion: Int = MetaScreenSectionOrderMigrationVersion
     private fun localizedString(resource: StringResource): String = runBlocking { getString(resource) }
 
     fun ensureLoaded() {
         if (hasLoaded) return
         hasLoaded = true
 
-        val payload = MetaScreenSettingsStorage.loadPayload().orEmpty().trim()
-        if (payload.isNotEmpty()) {
-            val parsed = runCatching {
-                json.decodeFromString<StoredMetaScreenSettingsPayload>(payload)
-            }.getOrNull()
-            if (parsed != null) {
-                backgroundMode = MetaScreenBackgroundMode.parse(parsed.backgroundMode)
-                    ?: MetaScreenBackgroundMode.fromLegacyCinematic(parsed.cinematicBackground)
-                heroTrailerPlayback = parsed.heroTrailerPlayback
-                tabLayout = parsed.tabLayout
-                episodeCardStyle = MetaEpisodeCardStyle.parse(parsed.episodeCardStyle)
-                    ?: MetaEpisodeCardStyle.Horizontal
-                blurUnwatchedEpisodes = parsed.blurUnwatchedEpisodes
-                preferences = parsed.items.mapNotNull { item ->
-                    val key = runCatching { MetaScreenSectionKey.valueOf(item.key) }.getOrNull() ?: return@mapNotNull null
-                    key to item
-                }.toMap().toMutableMap()
-            }
+        val parsed = decodeMetaScreenSettingsPayload(MetaScreenSettingsStorage.loadPayload().orEmpty())
+        if (parsed != null) {
+            val orderMigration = resolveMetaScreenSectionOrderMigration(
+                items = parsed.items,
+                storedMigrationVersion = parsed.sectionOrderMigrationVersion,
+            )
+            sectionOrderMigrationVersion = orderMigration.migrationVersion
+            backgroundMode = MetaScreenBackgroundMode.parse(parsed.backgroundMode)
+                ?: MetaScreenBackgroundMode.fromLegacyCinematic(parsed.cinematicBackground)
+            heroTrailerPlayback = parsed.heroTrailerPlayback
+            tabLayout = parsed.tabLayout
+            episodeCardStyle = MetaEpisodeCardStyle.parse(parsed.episodeCardStyle)
+                ?: MetaEpisodeCardStyle.Horizontal
+            blurUnwatchedEpisodes = parsed.blurUnwatchedEpisodes
+            preferences = orderMigration.items.mapNotNull { item ->
+                val key = runCatching { MetaScreenSectionKey.valueOf(item.key) }.getOrNull() ?: return@mapNotNull null
+                key to item
+            }.toMap().toMutableMap()
         }
 
         normalizePreferences()
@@ -234,6 +343,7 @@ object MetaScreenSettingsRepository {
         tabLayout = false
         episodeCardStyle = MetaEpisodeCardStyle.Horizontal
         blurUnwatchedEpisodes = false
+        sectionOrderMigrationVersion = MetaScreenSectionOrderMigrationVersion
         _uiState.value = MetaScreenSettingsUiState()
         ensureLoaded()
     }
@@ -298,6 +408,7 @@ object MetaScreenSettingsRepository {
         tabLayout = false
         episodeCardStyle = MetaEpisodeCardStyle.Horizontal
         blurUnwatchedEpisodes = false
+        sectionOrderMigrationVersion = MetaScreenSectionOrderMigrationVersion
         _uiState.value = MetaScreenSettingsUiState()
     }
 
@@ -316,6 +427,7 @@ object MetaScreenSettingsRepository {
         this.tabLayout = tabLayout
         this.episodeCardStyle = episodeCardStyle
         this.blurUnwatchedEpisodes = blurUnwatchedEpisodes
+        sectionOrderMigrationVersion = MetaScreenSectionOrderMigrationVersion
         preferences = items.associate { item ->
             item.key to StoredMetaScreenSectionPreference(
                 key = item.key.name,
@@ -343,6 +455,7 @@ object MetaScreenSettingsRepository {
         tabLayout = false
         episodeCardStyle = MetaEpisodeCardStyle.Horizontal
         blurUnwatchedEpisodes = false
+        sectionOrderMigrationVersion = MetaScreenSectionOrderMigrationVersion
         normalizePreferences()
         publish()
         persist()
@@ -377,18 +490,9 @@ object MetaScreenSettingsRepository {
     }
 
     private fun normalizePreferences() {
-        val normalized = mutableMapOf<MetaScreenSectionKey, StoredMetaScreenSectionPreference>()
-        definitions.sortedBy { definition -> preferences[definition.key]?.order ?: Int.MAX_VALUE }
-            .forEachIndexed { index, definition ->
-                val stored = preferences[definition.key]
-                normalized[definition.key] = StoredMetaScreenSectionPreference(
-                    key = definition.key.name,
-                    enabled = stored?.enabled ?: true,
-                    order = index,
-                    tabGroup = stored?.tabGroup,
-                )
-            }
-        preferences = normalized
+        preferences = normalizeMetaScreenSectionPreferences(preferences.values.toList())
+            .associateBy { item -> MetaScreenSectionKey.valueOf(item.key) }
+            .toMutableMap()
     }
 
     private fun publish() {
@@ -417,9 +521,10 @@ object MetaScreenSettingsRepository {
 
     private fun persist() {
         MetaScreenSettingsStorage.savePayload(
-            json.encodeToString(
+            encodeMetaScreenSettingsPayload(
                 StoredMetaScreenSettingsPayload(
                     items = preferences.values.sortedBy { it.order },
+                    sectionOrderMigrationVersion = sectionOrderMigrationVersion,
                     backgroundMode = MetaScreenBackgroundMode.persist(backgroundMode),
                     cinematicBackground = backgroundMode.usesBackdropBackground,
                     heroTrailerPlayback = heroTrailerPlayback,

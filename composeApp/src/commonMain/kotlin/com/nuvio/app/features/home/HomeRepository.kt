@@ -46,8 +46,23 @@ object HomeRepository {
     private var lastErrorMessage: String? = null
 
     fun refresh(addons: List<ManagedAddon>, force: Boolean = false) {
+        refreshWithLoader(
+            addons = addons,
+            force = force,
+            loadSection = { definition, forceRefresh ->
+                definition.toSection(forceRefresh)
+            },
+        )
+    }
+
+    internal fun refreshWithLoader(
+        addons: List<ManagedAddon>,
+        force: Boolean = false,
+        buildDefinitions: (List<ManagedAddon>) -> List<HomeCatalogDefinition> = ::buildHomeCatalogDefinitions,
+        loadSection: suspend (HomeCatalogDefinition, Boolean) -> HomeCatalogSection,
+    ) {
         val activeAddons = addons.enabledAddons()
-        val requests = buildHomeCatalogDefinitions(activeAddons)
+        val requests = buildDefinitions(activeAddons)
         currentDefinitions = requests
         val requestCacheKeys = requests.mapTo(mutableSetOf(), HomeCatalogDefinition::cacheKey)
         cachedSections = cachedSections.filterKeys(requestCacheKeys::contains)
@@ -95,7 +110,7 @@ object HomeRepository {
                 val results = batch.map { request ->
                     async {
                         request to runCatching {
-                            request.toSection(forceRefresh = force)
+                            loadSection(request, force)
                         }
                     }
                 }.awaitAll()

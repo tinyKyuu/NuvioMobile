@@ -49,8 +49,12 @@ class NetworkRecoveryCoordinatorTest {
                 )
             }
 
-            override suspend fun refreshCatalogs(profileId: Int, generation: Long) {
-                events += "catalogs:$profileId:$generation"
+            override suspend fun refreshCatalogs(
+                profileId: Int,
+                generation: Long,
+                readyManifestUrls: Set<String>?,
+            ) {
+                events += "catalogs:$profileId:$generation:${readyManifestUrls?.joinToString() ?: "all"}"
             }
         }
 
@@ -67,9 +71,9 @@ class NetworkRecoveryCoordinatorTest {
         assertEquals(
             listOf(
                 "manifests-start:2:7:false",
-                "catalogs:2:7",
+                "catalogs:2:7:one",
                 "manifests-settled",
-                "catalogs:2:7",
+                "catalogs:2:7:all",
             ),
             events,
         )
@@ -113,7 +117,11 @@ class NetworkRecoveryCoordinatorTest {
                 )
             }
 
-            override suspend fun refreshCatalogs(profileId: Int, generation: Long) {
+            override suspend fun refreshCatalogs(
+                profileId: Int,
+                generation: Long,
+                readyManifestUrls: Set<String>?,
+            ) {
                 catalogRefreshCount += 1
                 firstCatalogRefresh.complete(Unit)
             }
@@ -153,7 +161,11 @@ class NetworkRecoveryCoordinatorTest {
                 return ManifestRecoveryOutcome(recoveredUrls = setOf("one"))
             }
 
-            override suspend fun refreshCatalogs(profileId: Int, generation: Long) {
+            override suspend fun refreshCatalogs(
+                profileId: Int,
+                generation: Long,
+                readyManifestUrls: Set<String>?,
+            ) {
                 catalogRefreshes += 1
             }
         }
@@ -274,8 +286,12 @@ class NetworkRecoveryCoordinatorTest {
                 )
             }
 
-            override suspend fun refreshCatalogs(profileId: Int, generation: Long) {
-                events += "catalogs"
+            override suspend fun refreshCatalogs(
+                profileId: Int,
+                generation: Long,
+                readyManifestUrls: Set<String>?,
+            ) {
+                events += if (readyManifestUrls == null) "catalogs-final" else "catalogs-partial"
             }
         }
 
@@ -291,7 +307,7 @@ class NetworkRecoveryCoordinatorTest {
         )
 
         assertEquals(
-            listOf("manifest-start", "catalogs", "manifest-finished", "catalogs"),
+            listOf("manifest-start", "catalogs-partial", "manifest-finished", "catalogs-final"),
             events,
         )
     }

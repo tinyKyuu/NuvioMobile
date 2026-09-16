@@ -66,7 +66,24 @@ internal interface NetworkRecoveryOperations {
         forceAll: Boolean,
         onManifestRecovered: suspend (String) -> Unit,
     ): ManifestRecoveryOutcome
-    suspend fun refreshCatalogs(profileId: Int, generation: Long)
+    suspend fun refreshCatalogs(
+        profileId: Int,
+        generation: Long,
+        readyManifestUrls: Set<String>?,
+    )
+}
+
+internal fun addonsForRecoveryPass(
+    addons: List<ManagedAddon>,
+    readyManifestUrls: Set<String>?,
+): List<ManagedAddon> {
+    val enabledAddons = addons.enabledAddons()
+    if (readyManifestUrls == null) return enabledAddons
+    return enabledAddons.filter { addon ->
+        addon.manifestUrl in readyManifestUrls &&
+            addon.manifest != null &&
+            !addon.isRefreshing
+    }
 }
 
 internal enum class NetworkRecoveryRunResult {
@@ -84,21 +101,31 @@ internal suspend fun runOrderedNetworkRecovery(
 ): NetworkRecoveryRunResult {
     if (!isCurrent()) return NetworkRecoveryRunResult.Discarded
     onPhase(NetworkRecoveryPhase.RestoringAddons, null)
+    val recoveredManifestUrls = linkedSetOf<String>()
     val manifests = operations.recoverManifests(
         profileId = profileId,
         generation = generation,
         forceAll = forceAllManifests,
-        onManifestRecovered = {
+        onManifestRecovered = { manifestUrl ->
             if (isCurrent()) {
+                recoveredManifestUrls += manifestUrl
                 onPhase(NetworkRecoveryPhase.RefreshingCatalogs, null)
-                operations.refreshCatalogs(profileId, generation)
+                operations.refreshCatalogs(
+                    profileId = profileId,
+                    generation = generation,
+                    readyManifestUrls = recoveredManifestUrls.toSet(),
+                )
             }
         },
     )
     if (manifests.stale || !isCurrent()) return NetworkRecoveryRunResult.Discarded
 
     onPhase(NetworkRecoveryPhase.RefreshingCatalogs, manifests)
-    operations.refreshCatalogs(profileId, generation)
+    operations.refreshCatalogs(
+        profileId = profileId,
+        generation = generation,
+        readyManifestUrls = null,
+    )
     if (!isCurrent()) return NetworkRecoveryRunResult.Discarded
 
     onPhase(NetworkRecoveryPhase.Completed, manifests)
@@ -229,12 +256,21 @@ object NetworkRecoveryCoordinator {
             )
         }
 
-        override suspend fun refreshCatalogs(profileId: Int, generation: Long) {
+        override suspend fun refreshCatalogs(
+            profileId: Int,
+            generation: Long,
+            readyManifestUrls: Set<String>?,
+        ) {
             if (ProfileRepository.activeProfileId != profileId) return
-            val addons: List<ManagedAddon> = AddonRepository.uiState.value.addons.enabledAddons()
-            HomeCatalogSettingsRepository.syncCatalogs(addons)
-            HomeRepository.refresh(addons, force = true)
-            SearchRepository.refreshAfterRecovery(addons)
+            val enabledAddons: List<ManagedAddon> = AddonRepository.uiState.value.addons.enabledAddons()
+            HomeCatalogSettingsRepository.syncCatalogs(enabledAddons)
+            val readyAddons = addonsForRecoveryPass(
+                addons = enabledAddons,
+                readyManifestUrls = readyManifestUrls,
+            )
+            HomeRepository.refresh(readyAddons, force = true)
+            SearchRepository.refreshAfterRecovery(readyAddons)
+            if (readyManifestUrls != null) return
             OfflineLibraryRepository.refreshMissingAndStale()
             CatalogRepository.onRecoveryGeneration(generation)
             MetaDetailsRepository.onRecoveryGeneration(generation)

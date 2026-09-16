@@ -94,7 +94,7 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Offline Home keeps Continue Watching and Downloaded content available while remote catalog rows stay hidden | Home | Shared mobile source, iOS tested | Merged |
 | Compact connection status keeps Retry reachable without covering playable local content | Home | Shared mobile source, iOS tested | Merged |
 | Continue Watching can reuse verified local artwork for downloaded titles | Home | Shared mobile source, iOS tested | Merged |
-| Reconnect recovery refreshes Home and Search; Home publishes completed catalogs independently and preserves valid warm rows during recovery | Home and discovery | Shared mobile source, repository and coordinator regressions tested | [In review](./F07-REVIEW.md) |
+| Reconnect recovery publishes healthy Home and Search results while retaining other providers' warm content and the selected Discover catalog; a new outage starts a fresh recovery attempt | Home, Search, and Discover | Shared mobile source, repository and coordinator regressions tested | [In review](./F07-REVIEW.md) |
 
 ### Navigation and appearance
 

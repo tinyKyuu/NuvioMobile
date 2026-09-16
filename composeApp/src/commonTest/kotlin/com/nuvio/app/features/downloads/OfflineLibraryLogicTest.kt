@@ -2,6 +2,11 @@ package com.nuvio.app.features.downloads
 
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaVideo
+import com.nuvio.app.features.library.LibrarySection
+import com.nuvio.app.features.library.LibrarySortOption
+import com.nuvio.app.features.library.LibrarySourceMode
+import com.nuvio.app.features.library.buildLibraryVerticalProjection
+import com.nuvio.app.features.library.sortLibrarySections
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -264,6 +269,71 @@ class OfflineLibraryLogicTest {
     }
 
     @Test
+    fun `artwork plan includes a bounded set of principal cast photos`() {
+        val cast = (0 until maxOfflineCastPhotos + 2).map { index ->
+            OfflinePerson(
+                name = "Person $index",
+                photo = "https://images.test/cast-$index.jpg",
+                tmdbId = 1_000 + index,
+            )
+        }
+        val plan = requiredOfflineArtwork(
+            metadata = OfflineMetaSnapshot(
+                id = "tt123",
+                type = "movie",
+                name = "A Movie",
+                poster = "https://images.test/poster.jpg",
+                cast = cast,
+            ),
+            downloads = listOf(download(id = "movie", season = null, episode = null, title = "A Movie")),
+        )
+
+        assertEquals(
+            "https://images.test/cast-0.jpg",
+            plan[offlineCastPhotoRole(0, cast[0])],
+        )
+        assertTrue(offlineCastPhotoRole(maxOfflineCastPhotos - 1, cast[maxOfflineCastPhotos - 1]) in plan)
+        assertFalse(offlineCastPhotoRole(maxOfflineCastPhotos, cast[maxOfflineCastPhotos]) in plan)
+    }
+
+    @Test
+    fun `reconciliation schedules cast photos for records completed by an older build`() {
+        val download = download(id = "movie", season = null, episode = null, title = "A Movie")
+        val poster = artwork(offlinePosterRole, "poster")
+        val existing = record(metadataComplete = true).copy(
+            key = "profile:1|movie|tt123",
+            metaType = "movie",
+            downloadIds = setOf(download.id),
+            metadata = OfflineMetaSnapshot(
+                id = "tt123",
+                type = "movie",
+                name = "A Movie",
+                poster = poster.remoteUrl,
+                cast = listOf(
+                    OfflinePerson(
+                        name = "Lead",
+                        photo = "https://images.test/lead.jpg",
+                        tmdbId = 42,
+                    ),
+                ),
+            ),
+            artwork = mapOf(offlinePosterRole to poster),
+            artworkComplete = true,
+        )
+
+        val reconciled = reconcileOfflineRecords(
+            existingRecords = listOf(existing),
+            ownerProfileKey = existing.ownerProfileKey,
+            downloads = listOf(download),
+            localeTag = "en-US",
+            nowEpochMs = 20L,
+        ).recordsToUpsert.single()
+
+        assertFalse(reconciled.artworkComplete)
+        assertEquals(poster, reconciled.artwork[offlinePosterRole])
+    }
+
+    @Test
     fun `record codec keeps ownership refresh and download references`() {
         val record = record(
             metadataComplete = true,
@@ -408,6 +478,118 @@ class OfflineLibraryLogicTest {
     }
 
     @Test
+    fun `downloaded projections sort an older series by its newest playable episode`() {
+        val updatedSeries = offlineTitle(
+            id = "series-updated",
+            type = "series",
+            name = "Older series",
+            createdAtEpochMs = 1L,
+            downloads = listOf(
+                download(
+                    id = "series-updated-s1e1",
+                    season = 1,
+                    episode = 1,
+                    title = "One",
+                    parentMetaId = "series-updated",
+                    parentTitle = "Older series",
+                    updatedAtEpochMs = 10L,
+                ),
+                download(
+                    id = "series-updated-s1e2",
+                    season = 1,
+                    episode = 2,
+                    title = "Two",
+                    parentMetaId = "series-updated",
+                    parentTitle = "Older series",
+                    updatedAtEpochMs = 100L,
+                ),
+                download(
+                    id = "series-updated-s1e3-active",
+                    season = 1,
+                    episode = 3,
+                    title = "Three",
+                    parentMetaId = "series-updated",
+                    parentTitle = "Older series",
+                    updatedAtEpochMs = 200L,
+                ).copy(
+                    status = DownloadStatus.Downloading,
+                    localFileUri = null,
+                ),
+            ),
+        )
+        val movie = offlineTitle(
+            id = "movie",
+            type = "movie",
+            name = "Movie",
+            createdAtEpochMs = 50L,
+            downloads = listOf(
+                download(
+                    id = "movie",
+                    season = null,
+                    episode = null,
+                    title = "Movie",
+                    parentMetaId = "movie",
+                    parentTitle = "Movie",
+                    updatedAtEpochMs = 95L,
+                ),
+            ),
+        )
+        val otherSeries = offlineTitle(
+            id = "series-other",
+            type = "series",
+            name = "Newer series",
+            createdAtEpochMs = 90L,
+            downloads = listOf(
+                download(
+                    id = "series-other-s1e1",
+                    season = 1,
+                    episode = 1,
+                    title = "One",
+                    parentMetaId = "series-other",
+                    parentTitle = "Newer series",
+                    updatedAtEpochMs = 90L,
+                ),
+            ),
+        )
+        val items = listOf(otherSeries, movie, updatedSeries).map(OfflineTitle::toLibraryItem)
+        val sections = listOf(
+            LibrarySection(
+                type = "series",
+                displayTitle = "Series",
+                items = items.filter { item -> item.type == "series" },
+            ),
+            LibrarySection(
+                type = "movie",
+                displayTitle = "Movies",
+                items = items.filter { item -> item.type == "movie" },
+            ),
+        )
+
+        val horizontal = sortLibrarySections(
+            sections = sections,
+            selected = LibrarySortOption.ADDED_DESC,
+            sourceMode = LibrarySourceMode.LOCAL,
+        )
+        val vertical = buildLibraryVerticalProjection(
+            sections = sections,
+            sourceMode = LibrarySourceMode.LOCAL,
+            selectedSectionKey = null,
+            selectedType = null,
+            sortOption = LibrarySortOption.ADDED_DESC,
+        )
+
+        assertEquals(100L, updatedSeries.toLibraryItem().savedAtEpochMs)
+        assertEquals(
+            listOf("series-updated", "series-other"),
+            horizontal.first { section -> section.type == "series" }.items.map { item -> item.id },
+        )
+        assertEquals(
+            listOf("series-updated", "movie", "series-other"),
+            vertical.entries.map { entry -> entry.item.id },
+        )
+    }
+
+    @Test
     fun `refresh result is rejected after profile switch deletion or generation change`() {
         val current = record(metadataComplete = true).copy(downloadIds = setOf("d1"), generation = 7L)
 
@@ -482,13 +664,16 @@ class OfflineLibraryLogicTest {
         season: Int?,
         episode: Int?,
         title: String,
+        parentMetaId: String = "tt123",
+        parentTitle: String = "A Show",
+        updatedAtEpochMs: Long = 2L,
     ) = DownloadItem(
         id = id,
         contentType = if (season != null && episode != null) "series" else "movie",
-        parentMetaId = "tt123",
+        parentMetaId = parentMetaId,
         parentMetaType = if (season != null && episode != null) "series" else "movie",
-        videoId = if (season != null && episode != null) "tt123:$season:$episode" else id,
-        title = "A Show",
+        videoId = if (season != null && episode != null) "$parentMetaId:$season:$episode" else id,
+        title = parentTitle,
         seasonNumber = season,
         episodeNumber = episode,
         episodeTitle = title.takeIf { season != null && episode != null },
@@ -505,7 +690,27 @@ class OfflineLibraryLogicTest {
         status = DownloadStatus.Completed,
         localFileUri = "file:///downloads/$id.mp4",
         createdAtEpochMs = 1L,
-        updatedAtEpochMs = 2L,
+        updatedAtEpochMs = updatedAtEpochMs,
+    )
+
+    private fun offlineTitle(
+        id: String,
+        type: String,
+        name: String,
+        createdAtEpochMs: Long,
+        downloads: List<DownloadItem>,
+    ) = OfflineTitle(
+        record = OfflineTitleRecord(
+            key = "profile:1|$type|$id",
+            ownerProfileKey = "profile:1",
+            metaType = type,
+            metaId = id,
+            downloadIds = downloads.mapTo(linkedSetOf(), DownloadItem::id),
+            metadata = OfflineMetaSnapshot(id = id, type = type, name = name),
+            createdAtEpochMs = createdAtEpochMs,
+            updatedAtEpochMs = createdAtEpochMs,
+        ),
+        downloads = downloads,
     )
 
     private fun artwork(role: String, name: String) = OfflineArtworkRef(

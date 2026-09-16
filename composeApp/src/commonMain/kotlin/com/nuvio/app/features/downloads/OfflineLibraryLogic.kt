@@ -297,6 +297,14 @@ internal fun requiredOfflineArtwork(
     metadata.poster?.takeIf(String::isNotBlank)?.let { put(offlinePosterRole, it) }
     metadata.background?.takeIf(String::isNotBlank)?.let { put(offlineBackgroundRole, it) }
     metadata.logo?.takeIf(String::isNotBlank)?.let { put(offlineLogoRole, it) }
+    metadata.cast
+        .mapIndexedNotNull { index, person ->
+            person.photo
+                ?.takeIf(String::isNotBlank)
+                ?.let { url -> offlineCastPhotoRole(index, person) to url }
+        }
+        .take(maxOfflineCastPhotos)
+        .forEach { (role, url) -> put(role, url) }
     metadata.seasonPosters.entries.sortedBy { entry -> entry.key }.forEach { (season, url) ->
         url.takeIf(String::isNotBlank)?.let { put(offlineSeasonPosterRole(season), it) }
     }

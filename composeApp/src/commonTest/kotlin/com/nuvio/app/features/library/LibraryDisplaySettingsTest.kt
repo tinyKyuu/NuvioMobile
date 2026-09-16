@@ -137,6 +137,117 @@ class LibraryDisplaySettingsTest {
     }
 
     @Test
+    fun `downloaded projection combines all types in recent download order`() {
+        val sections = listOf(
+            LibrarySection(
+                type = "movie",
+                displayTitle = "Movies",
+                items = listOf(item("movie", name = "Zulu", savedAt = 1L)),
+            ),
+            LibrarySection(
+                type = "series",
+                displayTitle = "Series",
+                items = listOf(
+                    item("series-z", type = "series", name = "Zulu", savedAt = 2L),
+                    item("series-a", type = "series", name = "Alpha", savedAt = 3L),
+                ),
+            ),
+        )
+
+        val projection = buildLibraryVerticalProjection(
+            sections = sections,
+            sourceMode = LibrarySourceMode.LOCAL,
+            selectedSectionKey = null,
+            selectedType = null,
+            sortOption = LibrarySortOption.ADDED_DESC,
+        )
+
+        assertEquals(emptyList(), projection.availableSections)
+        assertEquals(listOf("movie", "series"), projection.availableTypes)
+        assertEquals(null, projection.selectedType)
+        assertEquals(listOf("series-a", "series-z", "movie"), projection.entries.map { it.item.id })
+    }
+
+    @Test
+    fun `saved item reuses matching downloaded artwork without changing its identity`() {
+        val saved = item("tt123", type = "show", name = "Saved").copy(
+            poster = "https://images.test/remote-poster.jpg",
+            banner = "https://images.test/remote-background.jpg",
+        )
+        val fallback = LibraryArtworkFallback(
+            type = "series",
+            ids = setOf("tt123", "tmdb:456"),
+            poster = "file:///offline/poster.jpg",
+            banner = "file:///offline/background.jpg",
+            logo = "file:///offline/logo.png",
+        )
+
+        val resolved = saved.withArtworkFallback(listOf(fallback))
+
+        assertEquals("tt123", resolved.id)
+        assertEquals("show", resolved.type)
+        assertEquals("file:///offline/poster.jpg", resolved.poster)
+        assertEquals("file:///offline/background.jpg", resolved.banner)
+        assertEquals("file:///offline/logo.png", resolved.logo)
+        assertEquals(saved, saved.withArtworkFallback(listOf(fallback.copy(type = "movie"))))
+    }
+
+    @Test
+    fun `artwork fallback keeps numeric provider ids in their namespaces`() {
+        val tmdbItem = item("provider-item", name = "TMDB item").copy(
+            poster = "https://images.test/remote.jpg",
+            tmdbId = 42,
+        )
+        val unrelatedTraktFallback = LibraryArtworkFallback(
+            type = "movie",
+            ids = setOf("42", "trakt:42"),
+            poster = "file:///offline/wrong.jpg",
+        )
+
+        assertEquals(tmdbItem, tmdbItem.withArtworkFallback(listOf(unrelatedTraktFallback)))
+        assertEquals(
+            "file:///offline/tmdb.jpg",
+            tmdbItem.withArtworkFallback(
+                listOf(
+                    LibraryArtworkFallback(
+                        type = "movie",
+                        ids = setOf("tmdb:42"),
+                        poster = "file:///offline/tmdb.jpg",
+                    ),
+                ),
+            ).poster,
+        )
+
+        val traktItem = item("another-provider-item", name = "Trakt item").copy(traktId = 77)
+        assertEquals(
+            "file:///offline/trakt.jpg",
+            traktItem.withArtworkFallback(
+                listOf(
+                    LibraryArtworkFallback(
+                        type = "movie",
+                        ids = setOf("trakt:77"),
+                        poster = "file:///offline/trakt.jpg",
+                    ),
+                ),
+            ).poster,
+        )
+
+        val exactItem = item("stable-id", name = "Exact item")
+        assertEquals(
+            "file:///offline/exact.jpg",
+            exactItem.withArtworkFallback(
+                listOf(
+                    LibraryArtworkFallback(
+                        type = "movie",
+                        ids = setOf("stable-id"),
+                        poster = "file:///offline/exact.jpg",
+                    ),
+                ),
+            ).poster,
+        )
+    }
+
+    @Test
     fun `display settings payload round trips and invalid values fall back safely`() {
         val state = LibraryDisplaySettingsUiState(
             layoutMode = LibraryLayoutMode.VERTICAL,

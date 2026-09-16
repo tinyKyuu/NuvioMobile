@@ -8,8 +8,22 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.downloads.DownloadStatus
@@ -110,10 +124,42 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi() {
     }
     val gestureCallbacks = rememberSurfaceGestureCallbacks()
 
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val windowInfo = LocalWindowInfo.current
+    var resumed by remember(lifecycle) { mutableStateOf(lifecycle.currentState == Lifecycle.State.RESUMED) }
+    val keyboardFocusRequester = remember { FocusRequester() }
+    val keyboardPressTracker = remember { PlayerKeyboardPressTracker() }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, _ ->
+            resumed = lifecycle.currentState == Lifecycle.State.RESUMED
+            if (!resumed) keyboardPressTracker.reset()
+        }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            keyboardSessionActive = false
+            keyboardPressTracker.reset()
+        }
+    }
+    SideEffect { keyboardSessionActive = resumed && windowInfo.isWindowFocused && !isInPip }
+    val keyboardEnabled = remember { derivedStateOf { keyboardShortcutsEnabled } }
+    val keyboardAction = rememberUpdatedState(::handleKeyboardShortcut)
+    // Restore player focus on entry, foreground return and final panel dismissal.
+    // No periodic focus requests, and no requests while a panel/text field owns input.
+    LaunchedEffect(keyboardEnabled.value) {
+        if (!isIos && keyboardEnabled.value) keyboardFocusRequester.requestFocus()
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .onSizeChanged { layoutSize = it }
+            .then(if (isIos) Modifier else Modifier.playerKeyboardShortcuts(
+                focusRequester = keyboardFocusRequester,
+                tracker = keyboardPressTracker,
+                enabledState = keyboardEnabled,
+                onShortcutState = keyboardAction,
+            ))
             .playerSurfaceTapGestures(
                 layoutSize = layoutSize,
                 playerControlsLockedState = gestureCallbacks.playerControlsLocked,

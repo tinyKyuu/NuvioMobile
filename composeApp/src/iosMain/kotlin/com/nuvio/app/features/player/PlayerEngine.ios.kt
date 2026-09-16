@@ -90,6 +90,16 @@ actual fun PlatformPlayerSurface(
                 bridge.pause()
             }
 
+            override fun setKeyboardShortcutsEnabled(enabled: Boolean) {
+                bridge.setKeyboardShortcutsEnabled(enabled)
+            }
+
+            override fun setKeyboardShortcutHandler(handler: ((PlayerKeyboardShortcut) -> Unit)?) {
+                bridge.setKeyboardShortcutHandler(if (handler == null) null else { code ->
+                    PlayerKeyboardShortcut.fromWireCode(code)?.let(handler)
+                })
+            }
+
             override fun seekTo(positionMs: Long) {
                 bridge.seekTo(positionMs)
             }

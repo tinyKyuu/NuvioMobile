@@ -28,6 +28,8 @@ interface PlayerEngineController {
         useCustomSubtitles: Boolean = false,
     ) {}
     fun setSubtitleDelayMs(delayMs: Int) {}
+    fun setKeyboardShortcutsEnabled(enabled: Boolean) {}
+    fun setKeyboardShortcutHandler(handler: ((PlayerKeyboardShortcut) -> Unit)?) {}
     fun configureIosVideoOutput(settings: PlayerSettingsUiState) {}
     fun updateNowPlayingMetadata(info: PlayerNowPlayingInfo) {}
     fun clearNowPlayingInfo() {}

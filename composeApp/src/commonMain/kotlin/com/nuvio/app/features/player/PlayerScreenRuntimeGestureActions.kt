@@ -190,6 +190,20 @@ internal fun PlayerScreenRuntime.seekBy(offsetMs: Long) {
     }
 }
 
+internal fun PlayerScreenRuntime.handleKeyboardShortcut(shortcut: PlayerKeyboardShortcut) {
+    if (!canHandleKeyboardShortcut(shortcut)) return
+    when (shortcut) {
+        PlayerKeyboardShortcut.TogglePlayback -> togglePlayback()
+        PlayerKeyboardShortcut.SeekBackward -> seekBy(-10_000L)
+        PlayerKeyboardShortcut.SeekForward -> seekBy(10_000L)
+        PlayerKeyboardShortcut.Exit -> {
+            keyboardExitRequested = true
+            flushWatchProgress()
+            args.onBack()
+        }
+    }
+}
+
 internal fun PlayerScreenRuntime.handleDoubleTapSeek(direction: PlayerSeekDirection) {
     val currentPositionMs = playbackSnapshot.positionMs.coerceAtLeast(0L)
     val currentSeekState = accumulatedSeekState

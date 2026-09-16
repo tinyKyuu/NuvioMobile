@@ -5,6 +5,7 @@
 - Branch: `codex/f06-detail-defaults-season-selector`
 - Stable integration base: `dfffed43c583adfdf9095adb828ae62f88c21f2b`
 - Target branch: `codex/testflight-internal`
+- Review PR: [#25](https://github.com/tinyKyuu/NuvioMobile/pull/25)
 - This is one review unit. Do not merge it before organizer approval.
 
 F06 changes the default detail-page section order, migrates only the untouched

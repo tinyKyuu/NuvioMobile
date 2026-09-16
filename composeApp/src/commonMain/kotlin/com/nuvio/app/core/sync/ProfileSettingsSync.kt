@@ -21,6 +21,7 @@ import com.nuvio.app.core.ui.CardDepthStyleRepository
 import com.nuvio.app.core.ui.CardDepthStyleStorage
 import com.nuvio.app.core.ui.PosterCardStyleRepository
 import com.nuvio.app.core.ui.PosterCardStyleStorage
+import com.nuvio.app.core.ui.profileSyncState
 import com.nuvio.app.features.settings.ThemeSettingsStorage
 import com.nuvio.app.features.settings.ThemeSettingsRepository
 import com.nuvio.app.features.streams.StreamBadgeSettingsRepository
@@ -33,6 +34,7 @@ import com.nuvio.app.features.trakt.TraktSettingsStorage
 import com.nuvio.app.features.tracking.TrackingSettingsRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesStorage
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
+import com.nuvio.app.features.watchprogress.continueWatchingPayloadNeedsStyleMigration
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.rpc
 import kotlin.concurrent.Volatile
@@ -137,8 +139,21 @@ object ProfileSettingsSync {
                     }
 
                     if (ProfileRepository.activeProfileId != profileId) return@withLock false
+                    val shouldPushContinueWatchingMigration =
+                        continueWatchingPayloadNeedsStyleMigration(
+                            remoteBlob.features.continueWatchingSettingsPayload,
+                        )
                     applyRemoteBlob(remoteBlob)
                     skipNextPushSignature = currentObservedStateSignature()
+                    if (shouldPushContinueWatchingMigration && ProfileRepository.activeProfileId == profileId) {
+                        try {
+                            pushToRemoteLocked(profileId, exportSettingsBlob())
+                        } catch (error: Exception) {
+                            log.e(error) {
+                                "pull(profileId=$profileId) — failed to persist Continue Watching migration"
+                            }
+                        }
+                    }
                 } finally {
                     isApplyingRemoteBlob = false
                 }
@@ -176,7 +191,7 @@ object ProfileSettingsSync {
             ThemeSettingsRepository.amoledEnabled.map { "amoled" },
             ThemeSettingsRepository.liquidGlassNativeTabBarEnabled.map { "liquid_glass_tab_bar" },
             ThemeSettingsRepository.navBarStyle.map { "nav_bar_style" },
-            PosterCardStyleRepository.uiState.map { "poster_card_style" },
+            PosterCardStyleRepository.uiState.map { it.profileSyncState() },
             CardDepthStyleRepository.uiState.map { "card_depth_style" },
             PlayerSettingsRepository.uiState.map { "player" },
             StreamBadgeSettingsRepository.uiState.map { "stream_badges" },
@@ -225,7 +240,7 @@ object ProfileSettingsSync {
         return MobileProfileSettingsBlob(
             features = MobileProfileSettingsFeatures(
                 themeSettings = ThemeSettingsStorage.exportToSyncPayload(),
-                posterCardStyleSettingsPayload = PosterCardStyleStorage.loadPayload().orEmpty().trim(),
+                posterCardStyleSettingsPayload = PosterCardStyleStorage.loadProfilePayload().orEmpty().trim(),
                 cardDepthStyleSettingsPayload = CardDepthStyleStorage.loadPayload().orEmpty().trim(),
                 playerSettings = withoutProfileCredentials(
                     PROFILE_PLAYER_SETTINGS_FEATURE,
@@ -260,7 +275,7 @@ object ProfileSettingsSync {
         ThemeSettingsStorage.replaceFromSyncPayload(blob.features.themeSettings)
         ThemeSettingsRepository.onProfileChanged()
 
-        PosterCardStyleStorage.savePayload(blob.features.posterCardStyleSettingsPayload)
+        PosterCardStyleStorage.saveProfilePayload(blob.features.posterCardStyleSettingsPayload)
         PosterCardStyleRepository.onProfileChanged()
 
         CardDepthStyleStorage.savePayload(blob.features.cardDepthStyleSettingsPayload)

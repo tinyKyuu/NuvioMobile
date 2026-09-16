@@ -37,6 +37,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.nuvio.app.core.network.NetworkCondition
@@ -148,12 +149,17 @@ internal data class AppTabActions(
 @Composable
 internal fun AppTabHost(
     selectedTab: AppScreenTab,
+    isTabletLayout: Boolean,
     requests: AppTabRequests,
     state: AppTabState,
     actions: AppTabActions,
     modifier: Modifier = Modifier,
 ) {
     val tabStateHolder = rememberSaveableStateHolder()
+    val stickyHeaderListTopPadding = rootListTopPaddingForStickyHeader(
+        isTabletLayout = isTabletLayout,
+        screenTopPadding = MaterialTheme.nuvio.spacing.screenTop,
+    )
 
     Box(modifier = modifier.fillMaxSize()) {
         tabStateHolder.SaveableStateProvider(selectedTab.name) {
@@ -180,6 +186,7 @@ internal fun AppTabHost(
                     SearchScreen(
                         modifier = Modifier.fillMaxSize(),
                         listState = state.searchListState,
+                        topPadding = stickyHeaderListTopPadding,
                         onPosterClick = actions.onPosterClick,
                         onPosterLongClick = actions.onPosterLongClick,
                         searchFocusRequestCount = state.searchFocusRequestCount,
@@ -190,6 +197,7 @@ internal fun AppTabHost(
                 AppScreenTab.Library -> {
                     LibraryScreen(
                         modifier = Modifier.fillMaxSize(),
+                        topPadding = stickyHeaderListTopPadding,
                         scrollToTopRequests = requests.libraryScrollToTopRequests,
                         onPosterClick = actions.onLibraryPosterClick,
                         onPosterLongClick = actions.onLibraryPosterLongClick,
@@ -228,6 +236,11 @@ internal fun AppTabHost(
         }
     }
 }
+
+internal fun rootListTopPaddingForStickyHeader(
+    isTabletLayout: Boolean,
+    screenTopPadding: Dp,
+): Dp? = if (isTabletLayout) screenTopPadding else null
 
 @Composable
 internal fun TabletFloatingBottomDock(

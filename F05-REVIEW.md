@@ -8,6 +8,7 @@
 - Changes the visible fourth root-tab label to `Settings` while preserving the avatar, profile selection, and add-profile behavior.
 - Keeps the offline Retry control at the logical top end.
 - Leaves phone/native navigation behavior unchanged apart from the approved `Settings` label.
+- Removes the duplicate tablet status-bar inset above the Search and Library sticky headers while preserving the existing phone default.
 
 ## Automated validation
 
@@ -74,6 +75,25 @@ Result: Kotlin framework `BUILD SUCCESSFUL` in 3m 2s; Xcode `** BUILD SUCCEEDED 
 
 The app-store/play-store distribution flags were used because this checkout does not have the optional local Nuvio Engine Apple XCFramework. `MPVKit` was initialized at the repository-pinned submodule revision before the iOS build.
 
+### Review follow-up: Search and Library header spacing
+
+After review identified extra space above the Search and Library headers, both tablet paths were changed to keep the normal 10dp screen spacing outside the sticky header while letting the header own the single physical status-bar inset. Phone paths continue to pass the existing default padding.
+
+The focused Android-host navigation test was rerun and passed in 56s. The focused iOS simulator navigation test was rerun and passed in 1m 42s. The iOS simulator app was rebuilt successfully with this command:
+
+```sh
+NUVIO_IOS_DISTRIBUTION=appstore xcodebuild \
+  -project iosApp/iosApp.xcodeproj \
+  -scheme iosApp \
+  -configuration Debug \
+  -sdk iphonesimulator \
+  -destination 'platform=iOS Simulator,id=2F677371-F32F-4D4A-8D32-B371B6FC73C9' \
+  -derivedDataPath /private/tmp/nuvio-f05-derived \
+  build CODE_SIGNING_ALLOWED=NO
+```
+
+Result: Kotlin framework `BUILD SUCCESSFUL` in 1m 27s; Xcode `** BUILD SUCCEEDED **`.
+
 ## Practical validation
 
 ### iPad Pro 11-inch simulator, iOS 26.5
@@ -85,6 +105,7 @@ The app-store/play-store distribution flags were used because this checkout does
 - A downloaded Library item remained visible and selectable above the dock.
 - Settings displayed its final footer/version content above the dock.
 - The fourth tab read `Settings`; the avatar remained exposed with the active profile accessibility label and tapping it opened Settings.
+- Search and Library header spacing was rechecked after the review follow-up in portrait and landscape. Both headers cleared the status area without the earlier duplicate inset.
 
 ### Pixel Tablet emulator, Android 16 / API 36
 
@@ -107,6 +128,7 @@ The app-store/play-store distribution flags were used because this checkout does
 - Native phone tabs: unchanged `bottom = 49.dp`.
 - Custom non-classic phone navigation: unchanged `bottom = 72.dp`.
 - Classic phone navigation: unchanged zero overlay.
+- Tablet Search and Library sticky-header lists receive only the standard 10dp outer top padding; phone paths retain their existing default.
 - Existing root/offline presentation assertions continue to cover compact and labeled Retry states.
 
 ## Deferred follow-up

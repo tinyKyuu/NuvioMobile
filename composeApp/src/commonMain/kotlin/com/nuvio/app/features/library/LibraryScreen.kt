@@ -104,6 +104,7 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 fun LibraryScreen(
     modifier: Modifier = Modifier,
+    topPadding: Dp? = null,
     scrollToTopRequests: Flow<Unit> = emptyFlow(),
     onPosterClick: ((LibraryItem) -> Unit)? = null,
     onPosterLongClick: ((LibraryItem, LibrarySection) -> Unit)? = null,
@@ -318,6 +319,7 @@ fun LibraryScreen(
         NuvioScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalPadding = 0.dp,
+            topPadding = topPadding,
             listState = listState,
         ) {
             stickyHeader {

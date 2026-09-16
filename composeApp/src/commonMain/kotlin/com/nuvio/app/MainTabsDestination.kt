@@ -138,6 +138,7 @@ internal fun MainTabsDestination(
                 ) {
                     AppTabHost(
                         selectedTab = selectedTab,
+                        isTabletLayout = isTabletLayout,
                         requests = requests,
                         state = state,
                         actions = actions(isTabletLayout),

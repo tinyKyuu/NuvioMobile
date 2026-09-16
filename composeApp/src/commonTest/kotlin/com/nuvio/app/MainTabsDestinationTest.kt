@@ -52,6 +52,12 @@ class MainTabsDestinationTest {
     }
 
     @Test
+    fun `tablet sticky root headers avoid a second status bar inset`() {
+        assertEquals(10.dp, rootListTopPaddingForStickyHeader(true, 10.dp))
+        assertEquals(null, rootListTopPaddingForStickyHeader(false, 10.dp))
+    }
+
+    @Test
     fun `offline status appears on root routes for connection failures`() {
         assertTrue(shouldShowRootOfflineStatus(true, NetworkCondition.NoInternet))
         assertTrue(shouldShowRootOfflineStatus(true, NetworkCondition.ServersUnreachable))

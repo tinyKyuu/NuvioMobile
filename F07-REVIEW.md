@@ -3,7 +3,7 @@
 Status: implementation complete on `codex/f07-network-recovery`; [PR #26](https://github.com/tinyKyuu/NuvioMobile/pull/26) is pending review. Do not merge or release from this note.
 
 - Stable base: `a5d37a02ccd5ff37f5511e2e90ffe40117f4d5ce` (`0.4.12`, build `122`)
-- Tested implementation head: `ddfddcec`
+- Tested implementation head: `1530d20b`
 - Review date: September 16, 2026
 - Pull request: [#26](https://github.com/tinyKyuu/NuvioMobile/pull/26)
 
@@ -54,8 +54,8 @@ ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
   :composeApp:testAndroidHostTest :androidApp:assembleFullDebug \
   --rerun-tasks --console=plain
 
-BUILD SUCCESSFUL in 1m 39s
-1,005 tests, 0 failures, 0 errors, 0 skipped
+BUILD SUCCESSFUL in 1m 38s
+1,006 tests, 0 failures, 0 errors, 0 skipped
 ```
 
 The Play Store variant passed in its required separate distribution invocation:
@@ -68,10 +68,10 @@ ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
   :androidApp:assemblePlaystoreDebug \
   --rerun-tasks --console=plain
 
-BUILD SUCCESSFUL in 1m 19s
+BUILD SUCCESSFUL in 1m 20s
 ```
 
-The generated APKs were `androidApp-full-debug.apk` and `androidApp-playstore-debug.apk`. Focused cache, coordinator, manifest-recovery, and Search request-state tests passed with this command:
+The generated APKs were `androidApp-full-debug.apk` and `androidApp-playstore-debug.apk`. Focused Home batching, cache, coordinator, manifest-recovery, and Search request-state tests passed with this command:
 
 ```text
 JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
@@ -79,16 +79,18 @@ ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
 ./gradlew -Pnuvio.ios.distribution=appstore \
   -Pnuvio.android.distribution=playstore \
   :composeApp:testAndroidHostTest \
+  --tests 'com.nuvio.app.core.network.NetworkRecoveryHomeIntegrationTest' \
   --tests 'com.nuvio.app.features.addons.ManifestRecoveryTest' \
   --tests 'com.nuvio.app.features.addons.AddonManifestCacheTest' \
   --tests 'com.nuvio.app.core.network.NetworkRecoveryCoordinatorTest' \
   --tests 'com.nuvio.app.features.search.SearchRequestStateTest' \
   --console=plain
 
-BUILD SUCCESSFUL in 4s
+BUILD SUCCESSFUL in 51s
+27 tests, 0 failures, 0 errors, 0 skipped
 ```
 
-These tests cover a healthy manifest publishing while another request remains suspended, a no-cache cold offline launch followed by reconnect without process restart, rapid reconnect and Retry coalescing, profile invalidation, and clearing rows when the Search query changes.
+The integration test drives the production recovery ordering and `HomeRepository` batching path. Its partial pass contains only the recovered provider, publishes that provider's Home row before a stale provider's catalog request starts, and still includes the stale provider in the final reconciliation after its manifest attempt settles. The focused tests also cover selecting a missing manifest when the cache is empty, replacing a suspended background manifest request with a reconnect-generation request in the same process, rapid reconnect and Retry coalescing, profile invalidation, and clearing rows when the Search query changes. They do not model a complete cold offline app launch and reconnect orchestration.
 
 Kotlin/Native test compilation passed:
 
@@ -101,7 +103,7 @@ NUVIO_ENGINE_ROOT='/Users/muharrem/Documents/ChatGPT/Nuvio iOS/build/nuvio-engin
   :composeApp:compileTestKotlinIosSimulatorArm64 \
   --rerun-tasks --console=plain
 
-BUILD SUCCESSFUL in 49s
+BUILD SUCCESSFUL in 48s
 ```
 
 The first Xcode attempt correctly failed because the pinned MPVKit submodule was absent. After initializing repository-pinned MPVKit commit `d5cf091c80368bbbc1bbf2d195fbc55d926df888`, the complete unsigned iOS simulator build passed:
@@ -113,7 +115,7 @@ JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
 xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp \
   -configuration Debug -sdk iphonesimulator \
   -destination 'id=68A42C7D-B136-4518-A02B-F4CED41E2986' \
-  -derivedDataPath /private/tmp/nuvio-f07-rereview-derived \
+  -derivedDataPath /private/tmp/nuvio-f07-final-derived \
   -disableAutomaticPackageResolution \
   build CODE_SIGNING_ALLOWED=NO
 

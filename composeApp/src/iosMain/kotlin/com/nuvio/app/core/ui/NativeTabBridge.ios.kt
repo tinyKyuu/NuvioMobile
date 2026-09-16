@@ -46,12 +46,12 @@ internal actual fun publishNativeTabTitles(
     home: String,
     search: String,
     library: String,
-    profile: String,
+    settings: String,
 ) {
     publishString(nativeTabTitleHomeKey, home)
     publishString(nativeTabTitleSearchKey, search)
     publishString(nativeTabTitleLibraryKey, library)
-    publishString(nativeTabTitleProfileKey, profile)
+    publishString(nativeTabTitleProfileKey, settings)
     notifyNativeTabChromeChanged()
 }
 

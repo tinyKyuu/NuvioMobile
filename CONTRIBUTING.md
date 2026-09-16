@@ -149,6 +149,19 @@ Opening a feature request does **not** mean a pull request will be accepted for 
 
 ---
 
+## Public change tracking
+
+Every behavior or UI pull request must assess whether it changes the public
+[feature ledger](./Docs/feature-status.md). The ledger records merged changes,
+their provenance, platform evidence, upstream relationship, and known limits.
+Work still under review may be listed as `In testing` when that distinction is
+useful.
+
+Update the README only for current user-facing fork distinctions or major
+scope changes, not for every internal fix. If official upstream later provides
+equivalent behavior, keep the history in the ledger and remove the README
+differentiator.
+
 ## Before opening a PR
 
 Please make sure your PR is all of the following:

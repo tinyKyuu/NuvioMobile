@@ -1,13 +1,61 @@
 package com.nuvio.app
 
+import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.features.home.shouldShowOfflineHomeConnectionCard
+import com.nuvio.app.features.settings.NavBarStyle
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class MainTabsDestinationTest {
+
+    @Test
+    fun `tablet floating navigation reserves only bottom overlay space`() {
+        val padding = rootNavigationOverlayPadding(
+            isTabletLayout = true,
+            useNativeBottomTabs = false,
+            navBarStyle = NavBarStyle.ADAPTIVE,
+        )
+
+        assertEquals(0.dp, padding.top)
+        assertEquals(64.dp, padding.bottom)
+    }
+
+    @Test
+    fun `phone and native tab overlay padding stays unchanged`() {
+        assertEquals(
+            RootNavigationOverlayPadding(top = 0.dp, bottom = 49.dp),
+            rootNavigationOverlayPadding(
+                isTabletLayout = false,
+                useNativeBottomTabs = true,
+                navBarStyle = NavBarStyle.CLASSIC,
+            ),
+        )
+        assertEquals(
+            RootNavigationOverlayPadding(top = 0.dp, bottom = 72.dp),
+            rootNavigationOverlayPadding(
+                isTabletLayout = false,
+                useNativeBottomTabs = false,
+                navBarStyle = NavBarStyle.ADAPTIVE,
+            ),
+        )
+        assertEquals(
+            RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp),
+            rootNavigationOverlayPadding(
+                isTabletLayout = false,
+                useNativeBottomTabs = false,
+                navBarStyle = NavBarStyle.CLASSIC,
+            ),
+        )
+    }
+
+    @Test
+    fun `tablet sticky root headers avoid a second status bar inset`() {
+        assertEquals(10.dp, rootListTopPaddingForStickyHeader(true, 10.dp))
+        assertEquals(null, rootListTopPaddingForStickyHeader(false, 10.dp))
+    }
 
     @Test
     fun `offline status appears on root routes for connection failures`() {

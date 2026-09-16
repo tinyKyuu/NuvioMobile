@@ -591,7 +591,7 @@ final class AppNavigationCoordinator: ObservableObject {
         home: String,
         search: String,
         library: String,
-        profile: String,
+        settings: String,
         switchProfile: String,
         addProfile: String
     ) {
@@ -599,7 +599,7 @@ final class AppNavigationCoordinator: ObservableObject {
             .home: home,
             .search: search,
             .library: library,
-            .settings: profile,
+            .settings: settings,
         ]
         localizedSwitchProfileTitle = switchProfile
         localizedAddProfileTitle = addProfile
@@ -692,12 +692,12 @@ struct NativeNavComposeView: UIViewControllerRepresentable {
             onActivate: { tabName in
                 appCoordinator.activateTab(named: tabName)
             },
-            onTabTitles: { home, search, library, profile, switchProfile, addProfile in
+            onTabTitles: { home, search, library, settings, switchProfile, addProfile in
                 appCoordinator.updateTabTitles(
                     home: home,
                     search: search,
                     library: library,
-                    profile: profile,
+                    settings: settings,
                     switchProfile: switchProfile,
                     addProfile: addProfile
                 )

@@ -6,7 +6,7 @@ official NuvioMobile. It is the detailed companion to the public README.
 
 - Last reviewed: September 16, 2026
 - Stable branch: `codex/testflight-internal`
-- Stable commit at review: `249332335c9ce235f2dda93f8a7c6ec993046e8e`
+- Stable base reviewed: `2f8f7c674bed24394ae408c57bfbce40cb636abc`
 - Source version at review: `0.4.12` build `121`
 - Reviewed upstream release: `0.4.22-beta`
 
@@ -83,6 +83,8 @@ history and attribution.
 | Release temporary GIF decoding resources | Official Nuvio backport | iOS and iPadOS | Merged | Backport | [PR #15](https://github.com/tinyKyuu/NuvioMobile/pull/15); malformed GIF, memory-growth, and physical-device checks were deferred |
 | Hardware keyboard playback controls | Adapted from [`luqmanfadlli/NuvioMobile-Enhanced`](https://github.com/luqmanfadlli/NuvioMobile-Enhanced) | iOS, iPadOS, and Android | Merged | Adapted | [PR #16](https://github.com/tinyKyuu/NuvioMobile/pull/16); simulator and emulator verified, physical keyboards deferred |
 | Player brightness can reach the device minimum | Official Nuvio backport | iOS, iPadOS, and Android | Merged | Backport | [PR #17](https://github.com/tinyKyuu/NuvioMobile/pull/17); Android emulator verified, physical display checks deferred |
+| Shared catalog and Continue Watching poster sizing, device-local Automatic phone/tablet sizing, Extra Large, and a one-time Poster default migration | Adapted from official Nuvio commit [`cf4674a`](https://github.com/NuvioMedia/NuvioMobile/commit/cf4674a81c88eade150f12a27f7313b1296ccea1), with fork-local responsive sizing and persistence | iOS, iPadOS, and Android | Merged | Adapted; official upstream supplied the shared sizing base, while Automatic sizing, Extra Large, the local size-storage split, and migration rules are fork additions | [PR #22](https://github.com/tinyKyuu/NuvioMobile/pull/22); 965 Android-host tests, Android build, and iOS simulator compile/build passed; the iPad simulator directly verified Automatic and Extra Large, while the iPhone simulator launched and rotated and the phone Automatic size was verified by the resolver test; physical-device and narrow split-view checks are deferred |
+| Bottom tablet root-navigation dock and `Settings` fourth-tab label | Fork addition | iPadOS and Android tablets, with the label shared on phones | Merged | Fork addition; no official equivalent found at the reviewed base | [PR #23](https://github.com/tinyKyuu/NuvioMobile/pull/23); the combined base passed 967 Android-host tests, Android debug assembly, and iOS simulator compile/build; iPad and Android tablet simulator/emulator checks cover portrait, landscape, safe-area clearance, offline Retry placement, and RTL, while physical tablet and iPad split-view checks are deferred |
 
 ## Release and distribution work
 

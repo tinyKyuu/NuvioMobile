@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.network.NetworkCondition
@@ -36,8 +37,8 @@ import dev.chrisbanes.haze.rememberHazeState
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_nav_home
 import nuvio.composeapp.generated.resources.compose_nav_library
-import nuvio.composeapp.generated.resources.compose_nav_profile
 import nuvio.composeapp.generated.resources.compose_nav_search
+import nuvio.composeapp.generated.resources.compose_settings_page_root
 import nuvio.composeapp.generated.resources.sidebar_library
 import nuvio.composeapp.generated.resources.sidebar_search
 import org.jetbrains.compose.resources.stringResource
@@ -81,6 +82,11 @@ internal fun MainTabsDestination(
         val navBarScrollState = rememberNuvioNavBarScrollState()
         val navBarHazeState = rememberHazeState()
         val navBarStyleSetting by remember { ThemeSettingsRepository.navBarStyle }.collectAsStateWithLifecycle()
+        val navigationOverlayPadding = rootNavigationOverlayPadding(
+            isTabletLayout = isTabletLayout,
+            useNativeBottomTabs = useNativeBottomTabs,
+            navBarStyle = navBarStyleSetting,
+        )
 
         Scaffold(
             modifier = Modifier
@@ -126,12 +132,13 @@ internal fun MainTabsDestination(
         ) { innerPadding ->
             Box(modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(
-                    LocalNuvioBottomNavigationOverlayPadding provides if (useNativeBottomTabs) 49.dp else if (!isTabletLayout && navBarStyleSetting != NavBarStyle.CLASSIC) 72.dp else 0.dp,
-                    LocalNuvioTopNavigationOverlayPadding provides if (isTabletLayout && !useNativeBottomTabs) 64.dp else 0.dp,
+                    LocalNuvioBottomNavigationOverlayPadding provides navigationOverlayPadding.bottom,
+                    LocalNuvioTopNavigationOverlayPadding provides navigationOverlayPadding.top,
                     LocalNuvioNavBarScrollState provides navBarScrollState,
                 ) {
                     AppTabHost(
                         selectedTab = selectedTab,
+                        isTabletLayout = isTabletLayout,
                         requests = requests,
                         state = state,
                         actions = actions(isTabletLayout),
@@ -144,11 +151,12 @@ internal fun MainTabsDestination(
                 }
 
                 if (isTabletLayout && !useNativeBottomTabs) {
-                    TabletFloatingTopBar(
+                    TabletFloatingBottomDock(
                         selectedTab = selectedTab,
                         onTabSelected = onTabSelected,
                         onProfileSelected = onProfileSelected,
                         onAddProfileRequested = onAddProfileRequested,
+                        modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }
 
@@ -196,7 +204,7 @@ internal fun MainTabsDestination(
                         NavItem(
                             selected = selectedTab == AppScreenTab.Settings,
                             onClick = { onTabSelected(AppScreenTab.Settings) },
-                            label = stringResource(Res.string.compose_nav_profile),
+                            label = stringResource(Res.string.compose_settings_page_root),
                         ) {
                             ProfileSwitcherTab(
                                 selected = selectedTab == AppScreenTab.Settings,
@@ -210,6 +218,22 @@ internal fun MainTabsDestination(
             }
         }
     }
+}
+
+internal data class RootNavigationOverlayPadding(
+    val top: Dp,
+    val bottom: Dp,
+)
+
+internal fun rootNavigationOverlayPadding(
+    isTabletLayout: Boolean,
+    useNativeBottomTabs: Boolean,
+    navBarStyle: NavBarStyle,
+): RootNavigationOverlayPadding = when {
+    useNativeBottomTabs -> RootNavigationOverlayPadding(top = 0.dp, bottom = 49.dp)
+    isTabletLayout -> RootNavigationOverlayPadding(top = 0.dp, bottom = 64.dp)
+    navBarStyle != NavBarStyle.CLASSIC -> RootNavigationOverlayPadding(top = 0.dp, bottom = 72.dp)
+    else -> RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp)
 }
 
 internal fun shouldShowRootOfflineStatus(

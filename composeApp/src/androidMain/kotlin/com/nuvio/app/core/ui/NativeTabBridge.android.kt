@@ -14,7 +14,7 @@ internal actual fun publishNativeTabTitles(
     home: String,
     search: String,
     library: String,
-    profile: String,
+    settings: String,
 ) = Unit
 
 internal actual fun publishNativeProfileTabIcon(

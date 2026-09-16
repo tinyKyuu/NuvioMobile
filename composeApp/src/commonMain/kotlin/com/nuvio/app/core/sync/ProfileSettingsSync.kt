@@ -10,6 +10,7 @@ import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.debrid.DebridSettingsStorage
 import com.nuvio.app.features.details.MetaScreenSettingsStorage
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
+import com.nuvio.app.features.details.metaScreenSettingsPayloadNeedsSectionOrderMigration
 import com.nuvio.app.features.mdblist.MdbListMetadataService
 import com.nuvio.app.features.mdblist.MdbListSettingsStorage
 import com.nuvio.app.features.mdblist.MdbListSettingsRepository
@@ -143,14 +144,21 @@ object ProfileSettingsSync {
                         continueWatchingPayloadNeedsStyleMigration(
                             remoteBlob.features.continueWatchingSettingsPayload,
                         )
+                    val shouldPushMetaScreenMigration =
+                        metaScreenSettingsPayloadNeedsSectionOrderMigration(
+                            remoteBlob.features.metaScreenSettingsPayload,
+                        )
                     applyRemoteBlob(remoteBlob)
                     skipNextPushSignature = currentObservedStateSignature()
-                    if (shouldPushContinueWatchingMigration && ProfileRepository.activeProfileId == profileId) {
+                    if (
+                        (shouldPushContinueWatchingMigration || shouldPushMetaScreenMigration) &&
+                        ProfileRepository.activeProfileId == profileId
+                    ) {
                         try {
                             pushToRemoteLocked(profileId, exportSettingsBlob())
                         } catch (error: Exception) {
                             log.e(error) {
-                                "pull(profileId=$profileId) — failed to persist Continue Watching migration"
+                                "pull(profileId=$profileId) — failed to persist settings migration"
                             }
                         }
                     }

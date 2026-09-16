@@ -24,6 +24,11 @@ enum class SeasonViewMode {
     }
 }
 
+internal fun seasonViewModeOrDefault(savedMode: SeasonViewMode?): SeasonViewMode =
+    savedMode ?: SeasonViewMode.Text
+
+internal fun shouldShowSelectedSeasonHeading(seasonCount: Int): Boolean = seasonCount == 1
+
 internal expect object SeasonViewModeStorage {
     fun load(): SeasonViewMode?
     fun save(mode: SeasonViewMode)

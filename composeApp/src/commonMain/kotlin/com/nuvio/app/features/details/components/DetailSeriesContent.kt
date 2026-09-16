@@ -55,6 +55,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,6 +83,8 @@ import com.nuvio.app.features.details.metaVideoSeasonEpisodeComparator
 import com.nuvio.app.features.details.normalizeSeasonNumber
 import com.nuvio.app.features.details.preferredEpisodeNumberForSeason
 import com.nuvio.app.features.details.seasonSortKey
+import com.nuvio.app.features.details.seasonViewModeOrDefault
+import com.nuvio.app.features.details.shouldShowSelectedSeasonHeading
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
@@ -200,7 +203,7 @@ fun DetailSeriesContent(
         ?: defaultSeason
 
     var seasonViewMode by remember {
-        mutableStateOf(SeasonViewModeStorage.load() ?: SeasonViewMode.Posters)
+        mutableStateOf(seasonViewModeOrDefault(SeasonViewModeStorage.load()))
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
@@ -301,17 +304,18 @@ fun DetailSeriesContent(
                 },
                 label = "season_episodes",
             ) { seasonForContent ->
-                val sectionTitle = if (meta.type != "series" && seasons.size == 1 && seasonForContent <= 0) {
-                    stringResource(Res.string.details_videos)
-                } else {
-                    seasonForContent.label()
-                }
                 Column(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    DetailSectionTitle(
-                        title = sectionTitle,
-                    )
+                    if (shouldShowSelectedSeasonHeading(seasons.size)) {
+                        DetailSectionTitle(
+                            title = if (meta.type != "series" && seasonForContent <= 0) {
+                                stringResource(Res.string.details_videos)
+                            } else {
+                                seasonForContent.label()
+                            },
+                        )
+                    }
                     val seasonEpisodes = groupedEpisodes.getValue(seasonForContent)
                     if (episodeCardStyle == MetaEpisodeCardStyle.Horizontal) {
                         EpisodeHorizontalRow(
@@ -391,19 +395,13 @@ private fun SeasonViewModeToggle(
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(
-                if (isPosters) {
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
-                },
-            )
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
             .border(
                 width = 1.dp,
-                color = Color.White.copy(alpha = if (isPosters) 0.2f else 0.3f),
+                color = Color.White.copy(alpha = 0.2f),
                 shape = RoundedCornerShape(8.dp),
             )
-            .clickable(onClick = onClick)
+            .clickable(role = Role.Button, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -417,11 +415,7 @@ private fun SeasonViewModeToggle(
                 fontSize = sizing.seasonToggleTextSize,
                 fontWeight = FontWeight.SemiBold,
             ),
-            color = if (isPosters) {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            } else {
-                MaterialTheme.colorScheme.onBackground
-            },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

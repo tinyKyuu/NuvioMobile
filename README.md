@@ -42,7 +42,7 @@ Last reviewed on September 16, 2026.
 | Item | Current state |
 | --- | --- |
 | Stable source branch | [`codex/testflight-internal`](https://github.com/tinyKyuu/NuvioMobile/tree/codex/testflight-internal) |
-| Source version | `0.4.12` build `121` |
+| Source version | `0.4.12` build `122` |
 | Upstream comparison | Based on NuvioMobile commit [`e68cbb0`](https://github.com/NuvioMedia/NuvioMobile/commit/e68cbb08415c81630f7955b7c1b6ed8d1fdd6e28); selected later fixes are integrated separately |
 | Latest upstream release reviewed | [`0.4.22-beta`](https://github.com/NuvioMedia/NuvioMobile/releases/tag/0.4.22-beta) |
 | Public binaries | None |
@@ -94,6 +94,7 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Offline Home keeps Continue Watching and Downloaded content available while remote catalog rows stay hidden | Home | Shared mobile source, iOS tested | Merged |
 | Compact connection status keeps Retry reachable without covering playable local content | Home | Shared mobile source, iOS tested | Merged |
 | Continue Watching can reuse verified local artwork for downloaded titles | Home | Shared mobile source, iOS tested | Merged |
+| Add-ons recover before Home, Search, catalog, and details refresh after connectivity returns, without restarting the app | Home and discovery | Shared mobile source, Android transition tested | [In review](./F07-REVIEW.md) |
 
 ### Navigation and appearance
 

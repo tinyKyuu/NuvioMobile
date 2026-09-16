@@ -77,11 +77,9 @@ internal fun LibraryItem.withArtworkFallback(
         add(id.normalizedLibraryArtworkId())
         imdbId?.let { add(it.normalizedLibraryArtworkId()) }
         tmdbId?.let { value ->
-            add(value.toString())
             add("tmdb:$value")
         }
         traktId?.let { value ->
-            add(value.toString())
             add("trakt:$value")
         }
     }.filterTo(linkedSetOf(), String::isNotBlank)

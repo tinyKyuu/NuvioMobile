@@ -193,6 +193,61 @@ class LibraryDisplaySettingsTest {
     }
 
     @Test
+    fun `artwork fallback keeps numeric provider ids in their namespaces`() {
+        val tmdbItem = item("provider-item", name = "TMDB item").copy(
+            poster = "https://images.test/remote.jpg",
+            tmdbId = 42,
+        )
+        val unrelatedTraktFallback = LibraryArtworkFallback(
+            type = "movie",
+            ids = setOf("42", "trakt:42"),
+            poster = "file:///offline/wrong.jpg",
+        )
+
+        assertEquals(tmdbItem, tmdbItem.withArtworkFallback(listOf(unrelatedTraktFallback)))
+        assertEquals(
+            "file:///offline/tmdb.jpg",
+            tmdbItem.withArtworkFallback(
+                listOf(
+                    LibraryArtworkFallback(
+                        type = "movie",
+                        ids = setOf("tmdb:42"),
+                        poster = "file:///offline/tmdb.jpg",
+                    ),
+                ),
+            ).poster,
+        )
+
+        val traktItem = item("another-provider-item", name = "Trakt item").copy(traktId = 77)
+        assertEquals(
+            "file:///offline/trakt.jpg",
+            traktItem.withArtworkFallback(
+                listOf(
+                    LibraryArtworkFallback(
+                        type = "movie",
+                        ids = setOf("trakt:77"),
+                        poster = "file:///offline/trakt.jpg",
+                    ),
+                ),
+            ).poster,
+        )
+
+        val exactItem = item("stable-id", name = "Exact item")
+        assertEquals(
+            "file:///offline/exact.jpg",
+            exactItem.withArtworkFallback(
+                listOf(
+                    LibraryArtworkFallback(
+                        type = "movie",
+                        ids = setOf("stable-id"),
+                        poster = "file:///offline/exact.jpg",
+                    ),
+                ),
+            ).poster,
+        )
+    }
+
+    @Test
     fun `display settings payload round trips and invalid values fall back safely`() {
         val state = LibraryDisplaySettingsUiState(
             layoutMode = LibraryLayoutMode.VERTICAL,

@@ -127,6 +127,8 @@ internal data class OfflineTitle(
 ) {
     val playableDownloads: List<DownloadItem> = downloads.filter(DownloadItem::isPlayable)
     val isPlayable: Boolean get() = playableDownloads.isNotEmpty()
+    val latestPlayableDownloadUpdatedAtEpochMs: Long?
+        get() = playableDownloads.maxOfOrNull(DownloadItem::updatedAtEpochMs)
 
     fun toMetaDetails(): MetaDetails = record.metadata.toMetaDetails(record.artwork).copy(
         id = record.metaId,
@@ -165,7 +167,7 @@ internal data class OfflineTitle(
             genres = meta.genres,
             posterShape = PosterShape.Poster,
             imdbId = meta.id.takeIf { it.startsWith("tt") },
-            savedAtEpochMs = record.createdAtEpochMs,
+            savedAtEpochMs = latestPlayableDownloadUpdatedAtEpochMs ?: record.createdAtEpochMs,
         )
     }
 }

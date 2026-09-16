@@ -1248,6 +1248,7 @@ internal fun MainAppContent(
                         useNativeTabBar = useNativeTabBar,
                         liquidGlassNativeTabBarSupported = liquidGlassNativeTabBarSupported,
                         liquidGlassNativeTabBarEnabled = liquidGlassNativeTabBarEnabled,
+                        networkCondition = networkStatusUiState.condition,
                         requests = AppTabRequests(
                             homeScrollToTopRequests = homeScrollToTopRequests,
                             searchScrollToTopRequests = searchScrollToTopRequests,
@@ -1409,6 +1410,9 @@ internal fun MainAppContent(
                             SyncManager.pullAllForProfile(profile.profileIndex)
                         },
                         onAddProfileRequested = onSwitchProfile,
+                        onNetworkRetry = {
+                            NetworkStatusRepository.requestRefresh(force = true)
+                        },
                     )
                 }
                 entry<DetailRoute> { route ->

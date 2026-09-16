@@ -169,6 +169,27 @@ internal data class OfflineTitle(
     }
 }
 
+internal data class OfflinePlaybackArtwork(
+    val poster: String?,
+    val background: String?,
+    val logo: String?,
+    val episodeThumbnail: String?,
+)
+
+internal fun OfflineTitle.localPlaybackArtwork(
+    seasonNumber: Int?,
+    episodeNumber: Int?,
+): OfflinePlaybackArtwork = OfflinePlaybackArtwork(
+    poster = record.artwork.localArtwork(offlinePosterRole),
+    background = record.artwork.localArtwork(offlineBackgroundRole),
+    logo = record.artwork.localArtwork(offlineLogoRole),
+    episodeThumbnail = if (seasonNumber != null || episodeNumber != null) {
+        record.artwork.localArtwork(offlineEpisodeThumbnailRole(seasonNumber, episodeNumber))
+    } else {
+        null
+    },
+)
+
 internal data class OfflineLibraryUiState(
     val titles: List<OfflineTitle> = emptyList(),
     val refreshingKeys: Set<String> = emptySet(),

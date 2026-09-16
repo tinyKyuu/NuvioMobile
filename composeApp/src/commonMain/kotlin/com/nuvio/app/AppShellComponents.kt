@@ -17,10 +17,17 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.rounded.PublicOff
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PlainTooltip
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipAnchorPosition
+import androidx.compose.material3.TooltipBox
+import androidx.compose.material3.TooltipDefaults
+import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -32,6 +39,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.nuvio.app.core.network.NetworkCondition
+import com.nuvio.app.core.network.titleForEmptyState
 import com.nuvio.app.core.ui.DisintegrationRequest
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.NuvioTokens
@@ -57,6 +66,7 @@ import com.nuvio.app.navigation.AppRoute
 import com.nuvio.app.navigation.NuvioNavigator
 import kotlinx.coroutines.flow.Flow
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.action_retry
 import nuvio.composeapp.generated.resources.app_brand_name
 import nuvio.composeapp.generated.resources.compose_nav_home
 import nuvio.composeapp.generated.resources.compose_nav_library
@@ -327,6 +337,70 @@ internal fun TabletFloatingTopBar(
                             },
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun RootOfflineStatusPill(
+    condition: NetworkCondition,
+    showRetryLabel: Boolean,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = MaterialTheme.nuvio
+    val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val tooltipText = condition.titleForEmptyState()
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(
+                top = statusBarPadding + NuvioTokens.Space.s10,
+                end = NuvioTokens.Space.s16,
+            ),
+        contentAlignment = Alignment.TopEnd,
+    ) {
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
+            tooltip = {
+                PlainTooltip {
+                    Text(tooltipText)
+                }
+            },
+            state = rememberTooltipState(),
+        ) {
+            Surface(
+                color = tokens.colors.surface.copy(alpha = tokens.opacity.visible - tokens.opacity.subtle),
+                shape = tokens.shapes.chip,
+                tonalElevation = tokens.elevation.playerControls,
+                shadowElevation = tokens.elevation.overlay,
+                modifier = Modifier.clickable(onClick = onRetry),
+            ) {
+                Row(
+                    modifier = Modifier.padding(
+                        horizontal = if (showRetryLabel) tokens.components.chipHorizontalPadding else NuvioTokens.Space.s12,
+                        vertical = NuvioTokens.Space.s10,
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (showRetryLabel) {
+                        Text(
+                            text = stringResource(Res.string.action_retry),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = tokens.colors.textMuted,
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Rounded.PublicOff,
+                        contentDescription = tooltipText,
+                        modifier = Modifier.size(NuvioTokens.Space.s18),
+                        tint = tokens.colors.textMuted,
+                    )
                 }
             }
         }

@@ -5,7 +5,7 @@
 - The branch now includes stable integration commit `2f8f7c674bed24394ae408c57bfbce40cb636abc`, which contains PR22/F04 and the public README/feature-ledger baseline.
 - The integration merge completed cleanly as `910d5458353b3d57416dc5104b1fddbd2ac9c585`. F05's code diff remains limited to navigation, tablet root insets, Search/Library header spacing, and the fourth-tab label.
 - `README.md` now gives concise user-facing F04 and F05 entries under Navigation and appearance.
-- `Docs/feature-status.md` records PR22 provenance and migration/storage boundaries, PR23 platform evidence and deferrals, and the reviewed stable commit.
+- `Docs/feature-status.md` records PR22 provenance and migration/storage boundaries, PR23 platform evidence and deferrals, and the reviewed stable base.
 - `CONTRIBUTING.md` now requires behavior and UI pull requests to assess the public ledger and reserves the README for current user-facing fork distinctions and major scope.
 - The PR23 entries use `Merged` because these public documents land in the same merge as F05. The pull request itself remains open pending organizer approval.
 

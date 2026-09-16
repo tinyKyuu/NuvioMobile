@@ -27,6 +27,18 @@ This follow-up starts from `08dee1be78dfa8032d3b860e0a0be2b40b729897` on `codex/
 
 The focused tests cover the bounded cast artwork plan, automatic reconciliation of records created by an older build, local artwork reuse by matching Saved items, Downloaded type filtering and sorting, and the native iOS artwork filesystem implementation.
 
+## Visual evidence
+
+Before, Downloaded replaced the screen title and did not expose the Library layout action:
+
+![Downloaded before the polish](review-assets/f02-offline-library-polish/before-downloaded.png)
+
+After, Downloaded keeps the Library title and supports the shared horizontal shelves and vertical grid:
+
+![Downloaded horizontal shelves](review-assets/f02-offline-library-polish/after-downloaded-horizontal.png)
+
+![Downloaded vertical grid](review-assets/f02-offline-library-polish/after-downloaded-vertical.png)
+
 ## Physical-device review
 
 After installing the updated build, open Home or Library once while online. Existing downloads with cast metadata will fetch their missing cast images through the normal background artwork refresh. Then disconnect and verify the cast row, Saved poster, Downloaded horizontal shelves, and Downloaded vertical grid. Cast members without a source photo will continue to show the ordinary placeholder.

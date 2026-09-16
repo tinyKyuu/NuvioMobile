@@ -170,6 +170,7 @@ fun MetaDetailsScreen(
     modifier: Modifier = Modifier,
 ) {
     val uiState by MetaDetailsRepository.uiState.collectAsStateWithLifecycle()
+    val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
     val offlineLibraryUiState by remember {
         OfflineLibraryRepository.ensureLoaded()
         OfflineLibraryRepository.uiState
@@ -177,9 +178,15 @@ fun MetaDetailsScreen(
     val offlineMeta = remember(offlineLibraryUiState.titles, type, id) {
         OfflineLibraryRepository.details(type, id)
     }
-    val displayedMeta = uiState.meta?.takeIf { it.type == type && it.id == id }
-        ?: offlineMeta
-        ?: MetaDetailsRepository.peek(type, id)
+    val repositoryMeta = uiState.meta?.takeIf { it.type == type && it.id == id }
+    val cachedMeta = MetaDetailsRepository.peek(type, id)
+    val displayPolicy = resolveMetaDetailsDisplayPolicy(
+        repositoryMeta = repositoryMeta,
+        offlineMeta = offlineMeta,
+        cachedMeta = cachedMeta,
+        isOfflineLike = networkStatusUiState.isOfflineLike,
+    )
+    val displayedMeta = displayPolicy.displayedMeta
     val metaScreenSettingsUiState by remember {
         MetaScreenSettingsRepository.ensureLoaded()
         MetaScreenSettingsRepository.uiState
@@ -216,8 +223,8 @@ fun MetaDetailsScreen(
         PlayerSettingsRepository.ensureLoaded()
         PlayerSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
-    val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
     var autoLoadAttempted by remember(type, id) { mutableStateOf(false) }
+    var enrichmentLoadFingerprint by remember(type, id) { mutableStateOf<String?>(null) }
     var observedOfflineState by remember(type, id) { mutableStateOf(false) }
     var selectedEpisodeForActions by remember(type, id) { mutableStateOf<MetaVideo?>(null) }
     var selectedEpisodeZoomAnchor by remember(type, id) { mutableStateOf<PosterZoomAnchor?>(null) }
@@ -245,7 +252,8 @@ fun MetaDetailsScreen(
     }
     val trackingListsUpdateFailedMessage = stringResource(Res.string.tracking_lists_update_failed)
     var episodeImdbRatings by remember(type, id) { mutableStateOf<Map<Pair<Int, Int>, Double>>(emptyMap()) }
-    var deferredMetaWorkAllowed by remember(type, id) { mutableStateOf(false) }
+    var deferredMetaWorkReady by remember(type, id) { mutableStateOf(false) }
+    val deferredMetaWorkAllowed = deferredMetaWorkReady && displayPolicy.deferredOnlineWorkAllowed
 
     LaunchedEffect(
         displayedMeta?.id,
@@ -302,15 +310,18 @@ fun MetaDetailsScreen(
     }
 
     val shouldShowComments = commentsEnabled &&
+        displayPolicy.deferredOnlineWorkAllowed &&
         traktAuthUiState.mode == TraktConnectionMode.CONNECTED &&
         displayedMeta != null &&
         displayedMeta.type.lowercase().let { it == "movie" || it == "series" || it == "show" || it == "tv" }
 
-    LaunchedEffect(displayedMeta?.id) {
-        deferredMetaWorkAllowed = false
-        if (displayedMeta != null) {
+    LaunchedEffect(displayedMeta?.id, displayPolicy.deferredOnlineWorkAllowed) {
+        deferredMetaWorkReady = false
+        if (displayPolicy.deferredOnlineWorkAllowed) {
             delay(250)
-            deferredMetaWorkAllowed = true
+            if (displayPolicy.deferredOnlineWorkAllowed) {
+                deferredMetaWorkReady = true
+            }
         }
     }
 
@@ -336,9 +347,17 @@ fun MetaDetailsScreen(
         isCommentsLoading = false
     }
 
-    LaunchedEffect(displayedMeta?.id, displayedMeta?.videos, deferredMetaWorkAllowed) {
+    LaunchedEffect(
+        displayedMeta?.id,
+        displayedMeta?.videos,
+        deferredMetaWorkAllowed,
+        displayPolicy.deferredOnlineWorkAllowed,
+    ) {
         val metaForRatings = displayedMeta
-        if (!deferredMetaWorkAllowed) return@LaunchedEffect
+        if (!deferredMetaWorkAllowed || !displayPolicy.deferredOnlineWorkAllowed) {
+            episodeImdbRatings = emptyMap()
+            return@LaunchedEffect
+        }
         if (metaForRatings == null || !metaForRatings.isSeriesLikeForEpisodeRatings()) {
             episodeImdbRatings = emptyMap()
             return@LaunchedEffect
@@ -361,9 +380,30 @@ fun MetaDetailsScreen(
         )
     }
 
-    LaunchedEffect(type, id, displayedMeta, uiState.isLoading, autoLoadAttempted) {
-        if (!autoLoadAttempted && displayedMeta == null && !uiState.isLoading) {
+    val currentEnrichmentFingerprint = remember(
+        type,
+        id,
+        trackingSettingsUiState.moreLikeThisSource,
+        traktAuthUiState.mode,
+        tmdbSettingsUiState.enabled,
+        tmdbSettingsUiState.useMoreLikeThis,
+        tmdbSettingsUiState.language,
+    ) {
+        listOf(
+            type,
+            id,
+            trackingSettingsUiState.moreLikeThisSource.name,
+            traktAuthUiState.mode.name,
+            tmdbSettingsUiState.enabled.toString(),
+            tmdbSettingsUiState.useMoreLikeThis.toString(),
+            tmdbSettingsUiState.language,
+        ).joinToString("|")
+    }
+
+    LaunchedEffect(type, id, displayPolicy, uiState.isLoading, autoLoadAttempted) {
+        if (shouldScheduleInitialMetaLoad(displayPolicy, uiState.isLoading, autoLoadAttempted)) {
             autoLoadAttempted = true
+            enrichmentLoadFingerprint = currentEnrichmentFingerprint
             MetaDetailsRepository.load(type, id)
         }
     }
@@ -371,15 +411,20 @@ fun MetaDetailsScreen(
     LaunchedEffect(
         type,
         id,
-        displayedMeta?.id,
+        displayPolicy,
         uiState.isLoading,
-        trackingSettingsUiState.moreLikeThisSource,
-        traktAuthUiState.mode,
-        tmdbSettingsUiState.enabled,
-        tmdbSettingsUiState.useMoreLikeThis,
-        tmdbSettingsUiState.language,
+        currentEnrichmentFingerprint,
+        enrichmentLoadFingerprint,
     ) {
-        if (displayedMeta != null && !uiState.isLoading) {
+        if (
+            shouldScheduleMetaEnrichment(
+                policy = displayPolicy,
+                isLoading = uiState.isLoading,
+                attemptedFingerprint = enrichmentLoadFingerprint,
+                currentFingerprint = currentEnrichmentFingerprint,
+            )
+        ) {
+            enrichmentLoadFingerprint = currentEnrichmentFingerprint
             MetaDetailsRepository.load(type, id)
         }
     }
@@ -460,7 +505,9 @@ fun MetaDetailsScreen(
                     Button(
                         onClick = {
                             NetworkStatusRepository.requestRefresh(force = true)
-                            MetaDetailsRepository.load(type, id)
+                            if (displayPolicy.ordinaryOnlineRequestsAllowed) {
+                                MetaDetailsRepository.load(type, id)
+                            }
                         },
                     ) {
                         Text(stringResource(Res.string.action_retry))
@@ -560,8 +607,16 @@ fun MetaDetailsScreen(
                         Unit
                     }
                 }
-                LaunchedEffect(meta.id, meta.type, watchProgressUiState.hasLoadedRemoteProgress) {
-                    if (meta.type.lowercase() in setOf("series", "show", "tv", "tvshow")) {
+                LaunchedEffect(
+                    meta.id,
+                    meta.type,
+                    watchProgressUiState.hasLoadedRemoteProgress,
+                    displayPolicy.ordinaryOnlineRequestsAllowed,
+                ) {
+                    if (
+                        displayPolicy.ordinaryOnlineRequestsAllowed &&
+                        meta.type.lowercase() in setOf("series", "show", "tv", "tvshow")
+                    ) {
                         WatchProgressRepository.refreshEpisodeProgress(meta.id)
                     }
                 }

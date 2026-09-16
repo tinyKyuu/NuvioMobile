@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.features.details.offlineEpisodeRequiresInternet
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -347,7 +348,11 @@ fun DetailSeriesContent(
                                 )
                                 val isDownloaded = episode.seasonEpisodeKey()
                                     ?.let(downloadedEpisodeKeys::contains) == true
-                                val requiresInternet = offlineOnly && !isDownloaded
+                                val requiresInternet = offlineEpisodeRequiresInternet(
+                                    meta = meta,
+                                    isOfflineLike = networkStatusUiState.isOfflineLike,
+                                    isDownloaded = isDownloaded,
+                                )
                                 EpisodeListCard(
                                     video = episode,
                                     fallbackImage = meta.background ?: meta.poster,

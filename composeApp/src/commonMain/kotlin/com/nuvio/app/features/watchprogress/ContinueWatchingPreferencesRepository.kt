@@ -9,10 +9,13 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+internal const val ContinueWatchingPosterDefaultMigrationVersion = 1
+
 @Serializable
 private data class StoredContinueWatchingPreferences(
     val isVisible: Boolean = true,
     val style: ContinueWatchingSectionStyle = ContinueWatchingSectionStyle.Card,
+    val styleMigrationVersion: Int = 0,
     val upNextFromFurthestEpisode: Boolean = true,
     @SerialName("use_episode_thumbnails_in_cw")
     val useEpisodeThumbnails: Boolean = true,
@@ -26,16 +29,57 @@ private data class StoredContinueWatchingPreferences(
     val sortMode: ContinueWatchingSortMode = ContinueWatchingSortMode.DEFAULT,
 )
 
-object ContinueWatchingPreferencesRepository {
-    private val json = Json {
-        ignoreUnknownKeys = true
-        encodeDefaults = true
-    }
+private val continueWatchingPreferencesJson = Json {
+    ignoreUnknownKeys = true
+    encodeDefaults = true
+}
 
+internal data class ContinueWatchingStyleMigrationResult(
+    val style: ContinueWatchingSectionStyle,
+    val migrationVersion: Int,
+    val shouldPersist: Boolean,
+)
+
+internal fun resolveContinueWatchingStyleMigration(
+    storedStyle: ContinueWatchingSectionStyle,
+    storedMigrationVersion: Int,
+): ContinueWatchingStyleMigrationResult {
+    val migrationAlreadyApplied = storedMigrationVersion >=
+        ContinueWatchingPosterDefaultMigrationVersion
+    return if (migrationAlreadyApplied) {
+        ContinueWatchingStyleMigrationResult(
+            style = storedStyle,
+            migrationVersion = ContinueWatchingPosterDefaultMigrationVersion,
+            shouldPersist = storedMigrationVersion < ContinueWatchingPosterDefaultMigrationVersion,
+        )
+    } else {
+        ContinueWatchingStyleMigrationResult(
+            style = ContinueWatchingSectionStyle.Poster,
+            migrationVersion = ContinueWatchingPosterDefaultMigrationVersion,
+            shouldPersist = true,
+        )
+    }
+}
+
+internal fun continueWatchingPayloadNeedsStyleMigration(payload: String): Boolean {
+    val stored = payload
+        .trim()
+        .takeIf(String::isNotEmpty)
+        ?.let { storedPayload ->
+            runCatching {
+                continueWatchingPreferencesJson.decodeFromString<StoredContinueWatchingPreferences>(storedPayload)
+            }.getOrNull()
+        }
+        ?: return true
+    return stored.styleMigrationVersion < ContinueWatchingPosterDefaultMigrationVersion
+}
+
+object ContinueWatchingPreferencesRepository {
     private val _uiState = MutableStateFlow(ContinueWatchingPreferencesUiState())
     val uiState: StateFlow<ContinueWatchingPreferencesUiState> = _uiState.asStateFlow()
 
     private var hasLoaded = false
+    private var styleMigrationVersion = ContinueWatchingPosterDefaultMigrationVersion
 
     fun ensureLoaded() {
         if (hasLoaded) return
@@ -48,6 +92,7 @@ object ContinueWatchingPreferencesRepository {
 
     fun clearLocalState() {
         hasLoaded = false
+        styleMigrationVersion = ContinueWatchingPosterDefaultMigrationVersion
         _uiState.value = ContinueWatchingPreferencesUiState()
     }
 
@@ -80,19 +125,24 @@ object ContinueWatchingPreferencesRepository {
         hasLoaded = true
 
         val payload = ContinueWatchingPreferencesStorage.loadPayload().orEmpty().trim()
-        if (payload.isEmpty()) {
-            _uiState.value = ContinueWatchingPreferencesUiState()
-            return
-        }
+        val stored = payload
+            .takeIf(String::isNotEmpty)
+            ?.let { storedPayload ->
+                runCatching {
+                    continueWatchingPreferencesJson.decodeFromString<StoredContinueWatchingPreferences>(storedPayload)
+                }.getOrNull()
+            }
+            ?: StoredContinueWatchingPreferences()
+        val styleMigration = resolveContinueWatchingStyleMigration(
+            storedStyle = stored.style,
+            storedMigrationVersion = stored.styleMigrationVersion,
+        )
+        styleMigrationVersion = styleMigration.migrationVersion
 
-        val stored = runCatching {
-            json.decodeFromString<StoredContinueWatchingPreferences>(payload)
-        }.getOrNull()
-
-        _uiState.value = if (stored != null) {
+        _uiState.value =
             ContinueWatchingPreferencesUiState(
                 isVisible = stored.isVisible,
-                style = stored.style,
+                style = styleMigration.style,
                 upNextFromFurthestEpisode = stored.upNextFromFurthestEpisode,
                 useEpisodeThumbnails = stored.useEpisodeThumbnails,
                 showUnairedNextUp = stored.showUnairedNextUp,
@@ -101,8 +151,9 @@ object ContinueWatchingPreferencesRepository {
                 showResumePromptOnLaunch = stored.showResumePromptOnLaunch,
                 sortMode = stored.sortMode,
             )
-        } else {
-            ContinueWatchingPreferencesUiState()
+
+        if (styleMigration.shouldPersist || payload.isEmpty()) {
+            persist()
         }
     }
 
@@ -178,10 +229,11 @@ object ContinueWatchingPreferencesRepository {
 
     private fun persist() {
         ContinueWatchingPreferencesStorage.savePayload(
-            json.encodeToString(
+            continueWatchingPreferencesJson.encodeToString(
                 StoredContinueWatchingPreferences(
                     isVisible = _uiState.value.isVisible,
                     style = _uiState.value.style,
+                    styleMigrationVersion = styleMigrationVersion,
                     upNextFromFurthestEpisode = _uiState.value.upNextFromFurthestEpisode,
                     useEpisodeThumbnails = _uiState.value.useEpisodeThumbnails,
                     showUnairedNextUp = _uiState.value.showUnairedNextUp,

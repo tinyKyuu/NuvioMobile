@@ -57,6 +57,8 @@ import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsUiState
 import com.nuvio.app.core.ui.PosterCardStyleRepository
 import com.nuvio.app.core.ui.PosterCardStyleUiState
+import com.nuvio.app.core.ui.isTabletFormFactor
+import com.nuvio.app.core.ui.resolvePosterCardStyle
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.debrid.DebridSettings
@@ -231,6 +233,13 @@ fun SettingsScreen(
             PosterCardStyleRepository.ensureLoaded()
             PosterCardStyleRepository.uiState
         }.collectAsStateWithLifecycle()
+        val effectivePosterCardStyleUiState = remember(posterCardStyleUiState, maxWidth.value) {
+            resolvePosterCardStyle(
+                state = posterCardStyleUiState,
+                isTabletFormFactor = isTabletFormFactor(),
+                usableWindowWidthDp = maxWidth.value,
+            )
+        }
         val episodeReleaseNotificationsUiState by remember {
             EpisodeReleaseNotificationsRepository.ensureLoaded()
             EpisodeReleaseNotificationsRepository.uiState
@@ -426,7 +435,7 @@ fun SettingsScreen(
                 homescreenItems = homescreenSettingsUiState.items,
                 metaScreenSettingsUiState = metaScreenSettingsUiState,
                 continueWatchingPreferencesUiState = continueWatchingPreferencesUiState,
-                posterCardStyleUiState = posterCardStyleUiState,
+                posterCardStyleUiState = effectivePosterCardStyleUiState,
                 onSwitchProfile = onSwitchProfile,
                 onDownloadsClick = onDownloadsClick,
                 onSupportersContributorsClick = openSupportersContributors,
@@ -490,7 +499,7 @@ fun SettingsScreen(
                 homescreenItems = homescreenSettingsUiState.items,
                 metaScreenSettingsUiState = metaScreenSettingsUiState,
                 continueWatchingPreferencesUiState = continueWatchingPreferencesUiState,
-                posterCardStyleUiState = posterCardStyleUiState,
+                posterCardStyleUiState = effectivePosterCardStyleUiState,
                 onSwitchProfile = onSwitchProfile,
                 onHomescreenClick = openHomescreen,
                 onMetaScreenClick = openMetaScreen,

@@ -15,9 +15,11 @@ import kotlinx.io.readByteArray
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSHomeDirectory
 import platform.Foundation.NSURL
+import platform.Foundation.NSUUID
 import platform.posix.fclose
 import platform.posix.fopen
 import platform.posix.fwrite
+import platform.posix.rename
 
 internal actual object OfflineArtworkPlatform {
     private val client = HttpClient(Darwin) { expectSuccess = false }
@@ -60,13 +62,15 @@ internal actual object OfflineArtworkPlatform {
             error = null,
         )
         val target = "$directory/$assetKey"
-        val temporary = "$directory/.$assetKey.tmp"
-        if (!bytes.writeToFile(temporary)) return null
-        NSFileManager.defaultManager.removeItemAtPath(target, null)
-        return if (NSFileManager.defaultManager.moveItemAtPath(temporary, target, null)) {
+        val temporary = "$directory/${offlineArtworkTemporaryName(assetKey, NSUUID().UUIDString)}"
+        val replaced = commitOfflineArtworkReplacement(
+            writeTemporary = { bytes.writeToFile(temporary) },
+            replaceAtomically = { rename(temporary, target) == 0 },
+            cleanupTemporary = { NSFileManager.defaultManager.removeItemAtPath(temporary, null) },
+        )
+        return if (replaced) {
             NSURL.fileURLWithPath(target).absoluteString ?: "file://$target"
         } else {
-            NSFileManager.defaultManager.removeItemAtPath(temporary, null)
             null
         }
     }

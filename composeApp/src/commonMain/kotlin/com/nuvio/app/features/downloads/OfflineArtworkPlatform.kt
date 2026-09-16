@@ -32,6 +32,19 @@ internal fun validOfflineArtwork(
     return response.bytes.hasSupportedImageSignature()
 }
 
+internal fun offlineArtworkTemporaryName(assetKey: String, nonce: String): String =
+    ".$assetKey.$nonce.tmp"
+
+internal fun commitOfflineArtworkReplacement(
+    writeTemporary: () -> Boolean,
+    replaceAtomically: () -> Boolean,
+    cleanupTemporary: () -> Unit,
+): Boolean = try {
+    writeTemporary() && replaceAtomically()
+} finally {
+    cleanupTemporary()
+}
+
 private fun ByteArray.hasSupportedImageSignature(): Boolean {
     if (size < 4) return false
     val isJpeg = this[0] == 0xFF.toByte() && this[1] == 0xD8.toByte() && this[2] == 0xFF.toByte()

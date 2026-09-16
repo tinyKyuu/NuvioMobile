@@ -105,19 +105,24 @@ object OfflineLibraryRepository {
         ensureLoaded()
         val now = DownloadsClock.nowEpochMs()
         val candidates = synchronized(stateLock) {
-            val activeKeys = activeRefreshes
+            val activeMetadataKeys = activeRefreshes
                 .filterValues(Job::isActive)
                 .keys
-            _uiState.value.titles
-                .asSequence()
-                .map(OfflineTitle::record)
-                .filter { record -> record.key !in activeKeys }
-                .filter { record -> decideOfflineRefresh(record, now, manual = false).shouldRefresh }
-                .take(MaxAutomaticBackfillTitles)
-                .map(OfflineTitleRecord::key)
-                .toList()
+            val activeArtworkKeys = activeArtworkRefreshes
+                .filterValues { refresh -> refresh.job.isActive }
+                .keys
+            planOfflineAutomaticRefresh(
+                records = _uiState.value.titles.map(OfflineTitle::record),
+                activeMetadataKeys = activeMetadataKeys,
+                activeArtworkKeys = activeArtworkKeys,
+                nowEpochMs = now,
+                maxTitles = MaxAutomaticBackfillTitles,
+            )
         }
-        candidates.forEach { key -> refreshRecord(key, manual = false) }
+        candidates.metadataKeys.forEach { key -> refreshRecord(key, manual = false) }
+        candidates.artwork.forEach { (key, generation) ->
+            refreshArtwork(key = key, generation = generation, validateExisting = false)
+        }
     }
 
     internal fun onDownloadsChanged(
@@ -332,7 +337,7 @@ object OfflineLibraryRepository {
             try {
                 refreshSlots.withPermit {
                     val initial = synchronized(stateLock) {
-                        store.record(key)?.takeIf { record ->
+                        val current = store.record(key)?.takeIf { record ->
                             canApplyOfflineRefresh(
                                 record = record,
                                 capturedOwnerProfileKey = record.ownerProfileKey,
@@ -340,7 +345,12 @@ object OfflineLibraryRepository {
                                 capturedDownloadIds = record.downloadIds,
                                 loadedOwnerProfileKey = loadedOwnerProfileKey,
                             )
-                        }
+                        } ?: return@synchronized null
+                        val attemptAt = DownloadsClock.nowEpochMs()
+                        current.copy(
+                            lastArtworkAttemptEpochMs = attemptAt,
+                            updatedAtEpochMs = attemptAt,
+                        ).also { marked -> store.commit(recordsToUpsert = listOf(marked)) }
                     } ?: return@withPermit
                     val downloads = synchronized(stateLock) {
                         currentDownloads.filter { it.id in initial.downloadIds }
@@ -416,15 +426,20 @@ object OfflineLibraryRepository {
                         removed += current.artwork
                             .filterKeys { role -> role !in retained }
                             .values
+                        val locallyAvailableAssetKeys = retained.values
+                            .mapNotNullTo(hashSetOf()) { reference ->
+                                reference.assetKey.takeIf { assetKey ->
+                                    OfflineArtworkPlatform.localUri(assetKey) != null
+                                }
+                            }
                         store.commit(
                             recordsToUpsert = listOf(
-                                current.copy(
+                                finishOfflineArtworkAttempt(
+                                    record = current,
                                     artwork = retained,
-                                    artworkComplete = stillRequired.all { (role, _) ->
-                                        retained[role]?.assetKey
-                                            ?.let(OfflineArtworkPlatform::localUri) != null
-                                    },
-                                    updatedAtEpochMs = now,
+                                    requiredArtwork = stillRequired,
+                                    locallyAvailableAssetKeys = locallyAvailableAssetKeys,
+                                    nowEpochMs = now,
                                 ),
                             ),
                         )

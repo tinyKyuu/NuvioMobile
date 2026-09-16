@@ -20,23 +20,39 @@ internal fun decideOfflineRefresh(
     manual: Boolean,
 ): OfflineRefreshDecision {
     if (manual) return OfflineRefreshDecision(true, OfflineRefreshReason.Due)
-    val missing = !record.metadataComplete
-    if (missing) {
-        val retryAt = record.nextRetryEpochMs
-        return if (retryAt != null && nowEpochMs < retryAt) {
+    record.nextRetryEpochMs?.let { retryAt ->
+        return if (nowEpochMs < retryAt) {
             OfflineRefreshDecision(false, OfflineRefreshReason.BackingOff)
         } else {
-            OfflineRefreshDecision(true, OfflineRefreshReason.Missing)
+            OfflineRefreshDecision(
+                shouldRefresh = true,
+                reason = if (record.metadataComplete) OfflineRefreshReason.Due else OfflineRefreshReason.Missing,
+            )
         }
     }
-    val lastAttempt = listOfNotNull(
-        record.lastAutomaticAttemptEpochMs,
-        record.lastSuccessfulRefreshEpochMs,
-    ).maxOrNull()
-    return if (lastAttempt == null || nowEpochMs - lastAttempt >= OfflineMetadataFreshnessMs) {
+    if (!record.metadataComplete) {
+        return OfflineRefreshDecision(true, OfflineRefreshReason.Missing)
+    }
+    val lastSuccess = record.lastSuccessfulRefreshEpochMs
+    return if (lastSuccess == null || nowEpochMs - lastSuccess >= OfflineMetadataFreshnessMs) {
         OfflineRefreshDecision(true, OfflineRefreshReason.Due)
     } else {
         OfflineRefreshDecision(false, OfflineRefreshReason.Fresh)
+    }
+}
+
+internal fun decideOfflineArtworkRefresh(
+    record: OfflineTitleRecord,
+    nowEpochMs: Long,
+): OfflineRefreshDecision {
+    if (record.artworkComplete) {
+        return OfflineRefreshDecision(false, OfflineRefreshReason.Fresh)
+    }
+    val retryAt = record.nextArtworkRetryEpochMs
+    return if (retryAt != null && nowEpochMs < retryAt) {
+        OfflineRefreshDecision(false, OfflineRefreshReason.BackingOff)
+    } else {
+        OfflineRefreshDecision(true, OfflineRefreshReason.Missing)
     }
 }
 
@@ -44,6 +60,57 @@ internal fun offlineRetryDelayMs(failureCount: Int): Long {
     val exponent = (failureCount - 1).coerceIn(0, 6)
     return (30_000L * (1L shl exponent)).coerceAtMost(30L * 60L * 1_000L)
 }
+
+internal fun finishOfflineArtworkAttempt(
+    record: OfflineTitleRecord,
+    artwork: Map<String, OfflineArtworkRef>,
+    requiredArtwork: Map<String, String>,
+    locallyAvailableAssetKeys: Set<String>,
+    nowEpochMs: Long,
+): OfflineTitleRecord {
+    val complete = requiredArtwork.all { (role, remoteUrl) ->
+        artwork[role]?.let { reference ->
+            reference.remoteUrl == remoteUrl && reference.assetKey in locallyAvailableAssetKeys
+        } == true
+    }
+    val failureCount = if (complete) 0 else record.artworkFailureCount + 1
+    return record.copy(
+        artwork = artwork,
+        artworkComplete = complete,
+        lastArtworkFailureEpochMs = if (complete) null else nowEpochMs,
+        artworkFailureCount = failureCount,
+        nextArtworkRetryEpochMs = if (complete) null else nowEpochMs + offlineRetryDelayMs(failureCount),
+        updatedAtEpochMs = nowEpochMs,
+    )
+}
+
+internal data class OfflineAutomaticRefreshPlan(
+    val metadataKeys: List<String>,
+    val artwork: List<Pair<String, Long>>,
+)
+
+internal fun planOfflineAutomaticRefresh(
+    records: List<OfflineTitleRecord>,
+    activeMetadataKeys: Set<String>,
+    activeArtworkKeys: Set<String>,
+    nowEpochMs: Long,
+    maxTitles: Int,
+): OfflineAutomaticRefreshPlan = OfflineAutomaticRefreshPlan(
+    metadataKeys = records
+        .asSequence()
+        .filter { record -> record.key !in activeMetadataKeys }
+        .filter { record -> decideOfflineRefresh(record, nowEpochMs, manual = false).shouldRefresh }
+        .take(maxTitles)
+        .map(OfflineTitleRecord::key)
+        .toList(),
+    artwork = records
+        .asSequence()
+        .filter { record -> record.key !in activeArtworkKeys }
+        .filter { record -> decideOfflineArtworkRefresh(record, nowEpochMs).shouldRefresh }
+        .take(maxTitles)
+        .map { record -> record.key to record.generation }
+        .toList(),
+)
 
 internal data class OfflineRecordReconciliation(
     val recordsToUpsert: List<OfflineTitleRecord>,
@@ -96,14 +163,28 @@ internal fun reconcileOfflineRecords(
             removedArtwork += previous.artwork
                 .filterKeys { role -> role !in retainedArtwork }
                 .values
+            val artworkComplete = previous.artworkComplete &&
+                requiredArtwork.keys.all(retainedArtwork::containsKey)
             previous.copy(
                 providerAddonIds = previous.providerAddonIds + providers,
                 localeTag = previous.localeTag ?: localeTag,
                 downloadIds = downloadIds,
                 metadata = metadata,
                 artwork = retainedArtwork,
-                artworkComplete = previous.artworkComplete &&
-                    requiredArtwork.keys.all(retainedArtwork::containsKey),
+                artworkComplete = artworkComplete,
+                lastArtworkFailureEpochMs = when {
+                    artworkComplete -> null
+                    referencesChanged -> null
+                    else -> previous.lastArtworkFailureEpochMs
+                },
+                artworkFailureCount = when {
+                    artworkComplete || referencesChanged -> 0
+                    else -> previous.artworkFailureCount
+                },
+                nextArtworkRetryEpochMs = when {
+                    artworkComplete || referencesChanged -> null
+                    else -> previous.nextArtworkRetryEpochMs
+                },
                 generation = if (referencesChanged) previous.generation + 1L else previous.generation,
                 updatedAtEpochMs = if (referencesChanged) nowEpochMs else previous.updatedAtEpochMs,
             )

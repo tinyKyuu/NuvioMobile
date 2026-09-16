@@ -68,8 +68,8 @@ class OfflineLibraryLogicTest {
         val recent = record(
             metadataComplete = true,
             lastAutomaticAttemptEpochMs = now - OfflineMetadataFreshnessMs + 1,
-        )
-        val stale = recent.copy(lastAutomaticAttemptEpochMs = now - OfflineMetadataFreshnessMs)
+        ).copy(lastSuccessfulRefreshEpochMs = now - OfflineMetadataFreshnessMs + 1)
+        val stale = recent.copy(lastSuccessfulRefreshEpochMs = now - OfflineMetadataFreshnessMs)
 
         assertFalse(decideOfflineRefresh(recent, now, manual = false).shouldRefresh)
         assertTrue(decideOfflineRefresh(stale, now, manual = false).shouldRefresh)
@@ -109,6 +109,121 @@ class OfflineLibraryLogicTest {
         assertTrue(decideOfflineRefresh(waiting, now + 1, manual = false).shouldRefresh)
         assertEquals(30_000L, offlineRetryDelayMs(1))
         assertEquals(30L * 60L * 1_000L, offlineRetryDelayMs(20))
+    }
+
+    @Test
+    fun `complete stale metadata retries at failure backoff boundary`() {
+        val successAt = 1_000_000L
+        val failureAt = successAt + OfflineMetadataFreshnessMs + 1L
+        val retryAt = failureAt + 30_000L
+        val failed = record(
+            metadataComplete = true,
+            lastAutomaticAttemptEpochMs = failureAt,
+            nextRetryEpochMs = retryAt,
+        ).copy(
+            lastSuccessfulRefreshEpochMs = successAt,
+            lastRefreshFailureEpochMs = failureAt,
+            refreshFailureCount = 1,
+        )
+
+        assertFalse(decideOfflineRefresh(failed, retryAt - 1L, manual = false).shouldRefresh)
+        assertTrue(decideOfflineRefresh(failed, retryAt, manual = false).shouldRefresh)
+    }
+
+    @Test
+    fun `partial artwork failure backs off then completes without replacing good artwork`() {
+        val now = 5_000_000L
+        val poster = artwork(offlinePosterRole, "poster")
+        val background = artwork(offlineBackgroundRole, "background")
+        val required = mapOf(
+            offlinePosterRole to poster.remoteUrl,
+            offlineBackgroundRole to background.remoteUrl,
+        )
+        val partial = finishOfflineArtworkAttempt(
+            record = record(metadataComplete = true),
+            artwork = mapOf(offlinePosterRole to poster),
+            requiredArtwork = required,
+            locallyAvailableAssetKeys = setOf(poster.assetKey),
+            nowEpochMs = now,
+        )
+
+        assertFalse(partial.artworkComplete)
+        assertEquals(poster, partial.artwork[offlinePosterRole])
+        assertEquals(1, partial.artworkFailureCount)
+        assertEquals(now + 30_000L, partial.nextArtworkRetryEpochMs)
+        assertFalse(decideOfflineArtworkRefresh(partial, now + 29_999L).shouldRefresh)
+        assertTrue(decideOfflineArtworkRefresh(partial, now + 30_000L).shouldRefresh)
+        val freshPartial = partial.copy(lastSuccessfulRefreshEpochMs = now)
+        val beforeRetry = planOfflineAutomaticRefresh(
+            records = listOf(freshPartial),
+            activeMetadataKeys = emptySet(),
+            activeArtworkKeys = emptySet(),
+            nowEpochMs = now + 29_999L,
+            maxTitles = 8,
+        )
+        val atRetry = planOfflineAutomaticRefresh(
+            records = listOf(freshPartial),
+            activeMetadataKeys = emptySet(),
+            activeArtworkKeys = emptySet(),
+            nowEpochMs = now + 30_000L,
+            maxTitles = 8,
+        )
+        assertTrue(beforeRetry.metadataKeys.isEmpty())
+        assertTrue(beforeRetry.artwork.isEmpty())
+        assertTrue(atRetry.metadataKeys.isEmpty())
+        assertEquals(listOf(freshPartial.key to freshPartial.generation), atRetry.artwork)
+
+        val completed = finishOfflineArtworkAttempt(
+            record = freshPartial,
+            artwork = freshPartial.artwork + (offlineBackgroundRole to background),
+            requiredArtwork = required,
+            locallyAvailableAssetKeys = setOf(poster.assetKey, background.assetKey),
+            nowEpochMs = now + 30_000L,
+        )
+
+        assertTrue(completed.artworkComplete)
+        assertEquals(poster, completed.artwork[offlinePosterRole])
+        assertEquals(background, completed.artwork[offlineBackgroundRole])
+        assertEquals(0, completed.artworkFailureCount)
+        assertEquals(null, completed.nextArtworkRetryEpochMs)
+        assertFalse(decideOfflineArtworkRefresh(completed, now + 30_000L).shouldRefresh)
+    }
+
+    @Test
+    fun `failed atomic artwork replacement preserves target and cleans unique temporary file`() {
+        var target = "last-good"
+        var temporary: String? = null
+        val firstName = offlineArtworkTemporaryName("poster.jpg", "one")
+        val secondName = offlineArtworkTemporaryName("poster.jpg", "two")
+
+        val replaced = commitOfflineArtworkReplacement(
+            writeTemporary = {
+                temporary = "replacement"
+                true
+            },
+            replaceAtomically = { false },
+            cleanupTemporary = { temporary = null },
+        )
+
+        assertFalse(replaced)
+        assertEquals("last-good", target)
+        assertEquals(null, temporary)
+        assertFalse(firstName == secondName)
+
+        val successful = commitOfflineArtworkReplacement(
+            writeTemporary = {
+                temporary = "replacement"
+                true
+            },
+            replaceAtomically = {
+                target = requireNotNull(temporary)
+                true
+            },
+            cleanupTemporary = { temporary = null },
+        )
+        assertTrue(successful)
+        assertEquals("replacement", target)
+        assertEquals(null, temporary)
     }
 
     @Test
@@ -165,6 +280,10 @@ class OfflineLibraryLogicTest {
                     updatedAtEpochMs = 456L,
                 ),
             ),
+            lastArtworkAttemptEpochMs = 400L,
+            lastArtworkFailureEpochMs = 410L,
+            artworkFailureCount = 2,
+            nextArtworkRetryEpochMs = 470L,
         )
 
         assertEquals(record, OfflineTitleRecordCodec.decode(OfflineTitleRecordCodec.encode(record)))
@@ -393,6 +512,7 @@ class OfflineLibraryLogicTest {
         role = role,
         remoteUrl = when {
             role == offlinePosterRole -> "https://images.test/poster.jpg"
+            role == offlineBackgroundRole -> "https://images.test/background.jpg"
             name == "one" -> "https://images.test/1-1.jpg"
             else -> "https://images.test/1-2.jpg"
         },

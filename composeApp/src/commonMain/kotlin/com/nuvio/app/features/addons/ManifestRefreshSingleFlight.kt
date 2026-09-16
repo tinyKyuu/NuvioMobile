@@ -161,3 +161,33 @@ internal suspend fun collectManifestRecoveryResults(
         stale = !isCurrent(),
     )
 }
+
+/** Shared by AddonRepository and recovery integration tests; only transport is injected. */
+internal suspend fun recoverAddonManifestBatch(
+    addons: List<ManagedAddon>,
+    cache: Map<String, CachedAddonManifest>,
+    nowEpochMs: Long,
+    forceAll: Boolean,
+    isCurrent: () -> Boolean,
+    startRefresh: (String) -> Deferred<Boolean>,
+    onManifestRecovered: suspend (String) -> Unit,
+): AddonManifestRecoveryResult {
+    if (!isCurrent()) return AddonManifestRecoveryResult(emptySet(), emptySet(), emptySet(), stale = true)
+    val attemptedUrls = selectAddonManifestRefreshUrls(addons, cache, nowEpochMs, forceAll)
+    if (attemptedUrls.isEmpty()) {
+        return AddonManifestRecoveryResult(attemptedUrls, emptySet(), emptySet(), stale = !isCurrent())
+    }
+    val requests = attemptedUrls.associateWith(startRefresh)
+    // Selection intentionally omits fresh manifests. They are usable now, even
+    // while an unrelated missing/stale manifest is still in flight.
+    addons.asSequence()
+        .filter { it.enabled && it.manifest != null && !it.isRefreshing && it.manifestUrl !in attemptedUrls }
+        .map(ManagedAddon::manifestUrl)
+        .distinct()
+        .forEach { if (isCurrent()) onManifestRecovered(it) }
+    return collectManifestRecoveryResults(
+        requests = requests,
+        isCurrent = isCurrent,
+        onManifestRecovered = onManifestRecovered,
+    )
+}

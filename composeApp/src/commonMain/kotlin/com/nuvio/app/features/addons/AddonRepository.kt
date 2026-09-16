@@ -400,28 +400,20 @@ object AddonRepository {
         }
 
         val nowEpochMs = EpisodeReleaseDatePlatform.nowEpochMs()
-        val attemptedUrls = selectAddonManifestRefreshUrls(
+        return recoverAddonManifestBatch(
             addons = _uiState.value.addons,
             cache = manifestCacheStore.snapshot(operationOwner),
             nowEpochMs = nowEpochMs,
             forceAll = forceAll,
-        )
-        if (attemptedUrls.isEmpty()) {
-            return AddonManifestRecoveryResult(attemptedUrls, emptySet(), emptySet())
-        }
-
-        val requests = attemptedUrls.associateWith { manifestUrl ->
-            startManifestRefresh(
-                manifestUrl = manifestUrl,
-                forceRefresh = true,
-                surfaceCachedFailure = forceAll,
-                reason = ManifestRefreshReason.Recovery,
-                recoveryGeneration = recoveryGeneration,
-            )
-        }
-
-        return collectManifestRecoveryResults(
-            requests = requests,
+            startRefresh = { manifestUrl ->
+                startManifestRefresh(
+                    manifestUrl = manifestUrl,
+                    forceRefresh = true,
+                    surfaceCachedFailure = forceAll,
+                    reason = ManifestRefreshReason.Recovery,
+                    recoveryGeneration = recoveryGeneration,
+                )
+            },
             isCurrent = {
                 ownsProfile(effectiveProfileId, operationGeneration) &&
                     ProfileRepository.activeProfileId == profileId

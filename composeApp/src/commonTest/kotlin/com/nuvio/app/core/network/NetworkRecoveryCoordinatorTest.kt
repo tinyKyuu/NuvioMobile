@@ -309,6 +309,28 @@ class NetworkRecoveryCoordinatorTest {
         assertInterruptedRecovery(lateFailure = true)
     }
 
+    @Test
+    fun `manual refresh waits for its fresh probe then replaces held recovery with force-all`(): Unit = runBlocking {
+        val fixture = ReconnectFixture()
+        try {
+            fixture.reconnect()
+            val first = fixture.controller.uiState.value.generation
+            fixture.controller.retry(forceAllManifests = true)
+            fixture.controller.onNetworkState(NetworkStatusUiState(NetworkCondition.Online, 2L))
+            assertEquals(listOf(false), fixture.forceAllAttempts)
+            fixture.controller.onNetworkState(NetworkStatusUiState(NetworkCondition.Online, 10L))
+            val second = fixture.controller.uiState.value.generation
+            assertTrue(second > first)
+            assertEquals(listOf(false, true), fixture.forceAllAttempts)
+            fixture.holds.getValue(first).complete(false)
+            assertTrue(fixture.publications.isEmpty())
+            fixture.holds.getValue(second).complete(false)
+            withTimeout(5_000L) { fixture.controller.uiState.first { it.phase == NetworkRecoveryPhase.Completed } }
+            assertEquals(NetworkRecoveryTrigger.ManualRefresh, fixture.controller.uiState.value.trigger)
+            assertEquals(listOf(1 to second, 1 to second), fixture.publications)
+        } finally { fixture.close() }
+    }
+
     private suspend fun assertInterruptedRecovery(lateFailure: Boolean) {
         val fixture = ReconnectFixture()
         try {
@@ -372,6 +394,7 @@ class NetworkRecoveryCoordinatorTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         var profileId = 1
         val attempts = mutableListOf<Pair<Int, Long>>()
+        val forceAllAttempts = mutableListOf<Boolean>()
         val publications = mutableListOf<Pair<Int, Long>>()
         val holds = mutableMapOf<Long, CompletableDeferred<Boolean>>()
         val controller = NetworkRecoveryController(
@@ -386,6 +409,7 @@ class NetworkRecoveryCoordinatorTest {
                     onManifestRecovered: suspend (String) -> Unit,
                 ): ManifestRecoveryOutcome {
                     attempts += profileId to generation
+                    forceAllAttempts += forceAll
                     val hold = CompletableDeferred<Boolean>().also { holds[generation] = it }
                     // Model an already-dispatched transport callback that ignores cancellation.
                     return withContext(NonCancellable) {

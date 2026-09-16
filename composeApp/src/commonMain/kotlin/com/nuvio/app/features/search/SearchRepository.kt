@@ -78,7 +78,7 @@ object SearchRepository {
 
 internal class SearchRepositoryController(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
-    private val loadSearchSection: suspend (SearchCatalogRequest, Boolean) -> HomeCatalogSection =
+    private val loadSearchSection: suspend (SearchCatalogRequest, Boolean) -> HomeCatalogSection? =
         { request, forceRefresh -> request.toSection(forceRefresh) },
     private val loadDiscoverPage: suspend (DiscoverCatalogOption, String?, Int?, Boolean) -> CatalogPage =
         { source, genre, skip, forceRefresh ->
@@ -221,14 +221,13 @@ internal class SearchRepositoryController(
                 for (result in resultChannel) {
                     if (generation != searchGeneration) return@launch
                     results[result.index] = result
-                    result.section?.let { cachedSearchSections = cachedSearchSections + (requests[result.index].key to it) }
-                    val sections = retainedSections()
-                    if (sections.isNotEmpty()) {
-                        _uiState.value = SearchUiState(
-                            isLoading = true,
-                            sections = sections,
-                        )
+                    if (result.error == null) {
+                        val key = requests[result.index].key
+                        cachedSearchSections = result.section?.let { cachedSearchSections + (key to it) }
+                            ?: (cachedSearchSections - key)
                     }
+                    val sections = retainedSections()
+                    _uiState.value = SearchUiState(isLoading = true, sections = sections)
                 }
             } finally {
                 closeChannelJob.cancel()
@@ -237,8 +236,8 @@ internal class SearchRepositoryController(
 
             val completedResults = results.filterNotNull()
             if (generation != searchGeneration) return@launch
-            val firstFailure = completedResults.firstNotNullOfOrNull { it.error?.message }
-            val allFailed = completedResults.isNotEmpty() && completedResults.all { it.error != null }
+            val firstFailure = completedResults.firstNotNullOfOrNull { it.error?.message } ?: addonManifestErrorMessage
+            val hadFailure = completedResults.any { it.error != null } || addonManifestErrorMessage != null
             val publishedSections = retainedSections()
 
             _uiState.value = SearchUiState(
@@ -247,11 +246,11 @@ internal class SearchRepositoryController(
                 emptyStateReason = when {
                     publishedSections.isNotEmpty() -> null
                     hasPendingAddonManifests || hasDeferredCatalogs -> null
-                    allFailed -> SearchEmptyStateReason.RequestFailed
+                    hadFailure -> SearchEmptyStateReason.RequestFailed
                     else -> SearchEmptyStateReason.NoResults
                 },
                 errorMessage = firstFailure.takeIf {
-                    allFailed && publishedSections.isEmpty() && !hasPendingAddonManifests && !hasDeferredCatalogs
+                    hadFailure && publishedSections.isEmpty() && !hasPendingAddonManifests && !hasDeferredCatalogs
                 },
             )
         }
@@ -663,7 +662,7 @@ internal data class SearchCatalogRequest(
     val key: SearchCatalogKey get() = SearchCatalogKey(addon.manifestUrl, type, catalogId)
 }
 
-private suspend fun SearchCatalogRequest.toSection(forceRefresh: Boolean): HomeCatalogSection {
+private suspend fun SearchCatalogRequest.toSection(forceRefresh: Boolean): HomeCatalogSection? {
     val manifest = requireNotNull(addon.manifest)
     val page = fetchCatalogPage(
         manifestUrl = manifest.transportUrl,
@@ -672,14 +671,22 @@ private suspend fun SearchCatalogRequest.toSection(forceRefresh: Boolean): HomeC
         search = query,
         forceRefresh = forceRefresh,
     ).withUnreleasedFilter()
-    val items = page.items
-    require(items.isNotEmpty()) {
-        getString(Res.string.search_error_no_results_for_catalog, catalogName)
-    }
+    return sectionFromPage(
+        page = page,
+        title = getString(Res.string.discover_catalog_context, catalogName, type.displayLabel()),
+    )
+}
 
+internal fun SearchCatalogRequest.sectionFromPage(
+    page: CatalogPage,
+    title: String,
+): HomeCatalogSection? {
+    // An empty parsed page is authoritative success, not a transport failure.
+    if (page.items.isEmpty()) return null
+    val manifest = requireNotNull(addon.manifest)
     return HomeCatalogSection(
         key = "${manifest.id}:search:$type:$catalogId:${query.lowercase()}",
-        title = getString(Res.string.discover_catalog_context, catalogName, type.displayLabel()),
+        title = title,
         subtitle = addon.displayTitle,
         addonName = addon.displayTitle,
         target = CatalogTarget.Addon(
@@ -688,7 +695,7 @@ private suspend fun SearchCatalogRequest.toSection(forceRefresh: Boolean): HomeC
             catalogId = catalogId,
             supportsPagination = supportsPagination,
         ),
-        items = items,
+        items = page.items,
         availableItemCount = page.rawItemCount,
         hasMore = supportsPagination && page.nextSkip != null,
     )

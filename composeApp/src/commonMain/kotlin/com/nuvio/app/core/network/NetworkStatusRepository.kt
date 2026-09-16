@@ -1,5 +1,6 @@
 package com.nuvio.app.core.network
 
+import co.touchlab.kermit.Logger
 import androidx.compose.runtime.Composable
 import com.nuvio.app.features.addons.httpRequestRaw
 import kotlinx.atomicfu.locks.SynchronizedObject
@@ -59,6 +60,7 @@ fun NetworkCondition.messageForEmptyState(): String =
     }
 
 object NetworkStatusRepository {
+    private val log = Logger.withTag("NetworkStatus")
     private const val REQUEST_TIMEOUT_MS = 4_500L
     private const val FOREGROUND_REFRESH_DELAY_MS = 6_000L
     private const val FOREGROUND_FAILURE_CONFIRM_DELAY_MS = 2_000L
@@ -148,6 +150,7 @@ object NetworkStatusRepository {
         }
 
         _uiState.value = NetworkStatusUiState(condition = nextCondition, probeGeneration = generation)
+        log.d { "Probe generation=$generation condition=$nextCondition" }
     }
 
     private suspend fun probeCondition(): NetworkCondition {

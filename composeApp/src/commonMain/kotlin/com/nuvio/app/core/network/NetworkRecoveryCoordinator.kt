@@ -397,6 +397,7 @@ internal class NetworkRecoveryController(
                             requestGate.isCurrent(profileId, runGeneration) &&
                             activeProfileId() == profileId
                         ) {
+                            log.d { "Recovery profile=$profileId generation=$runGeneration phase=$phase" }
                             _uiState.value = NetworkRecoveryUiState(
                                 profileId = profileId,
                                 generation = runGeneration,

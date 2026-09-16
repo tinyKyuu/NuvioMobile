@@ -39,6 +39,37 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 
 object MetaDetailsRepository {
+    private val controller = MetaDetailsRepositoryController()
+    val uiState get() = controller.uiState
+    fun load(type: String, id: String, force: Boolean = false) = controller.load(type, id, force)
+    fun peek(type: String, id: String) = controller.peek(type, id)
+    fun clear() = controller.clear()
+    fun onRecoveryGeneration(generation: Long) = controller.onRecoveryGeneration(generation)
+    suspend fun fetch(type: String, id: String, cacheResult: Boolean = true) = controller.fetch(type, id, cacheResult)
+    internal suspend fun fetchForOffline(
+        type: String, id: String, validators: OfflineMetaValidators, savedMeta: MetaDetails,
+        preferredAddonIds: Set<String>, localeTag: String?,
+    ) = controller.fetchForOffline(type, id, validators, savedMeta, preferredAddonIds, localeTag)
+    fun findEmbeddedStreams(videoId: String) = controller.findEmbeddedStreams(videoId)
+}
+
+internal data class MetaDetailsLoadResult(
+    val meta: MetaDetails?,
+    val lookupId: String,
+    val noProviders: Boolean = false,
+)
+
+internal class MetaDetailsRepositoryController(
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
+    private val activeProfileId: () -> Int = { ProfileRepository.activeProfileId },
+    private val metadataLoader: (suspend (String, String) -> MetaDetailsLoadResult)? = null,
+    private val captureSnapshot: (String, String, MetaDetails) -> Unit = { type, id, meta ->
+        OfflineLibraryRepository.captureNormalDetails(type, id, meta)
+    },
+    private val failureMessage: suspend (Boolean) -> String = { noProviders ->
+        getString(if (noProviders) Res.string.details_no_addon_meta else Res.string.details_load_failed_all_addons)
+    },
+) {
     private data class CachedMetaEntry(
         val baseMeta: MetaDetails,
         val metaScreenMeta: MetaDetails? = null,
@@ -46,23 +77,25 @@ object MetaDetailsRepository {
     )
 
     private val log = Logger.withTag("MetaDetailsRepo")
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val _uiState = MutableStateFlow(MetaDetailsUiState())
     val uiState: StateFlow<MetaDetailsUiState> = _uiState.asStateFlow()
     private var activeRequestKey: String? = null
     private var activeRequestType: String? = null
     private var activeRequestId: String? = null
+    private var activeRequestProfileId: Int? = null
     private var requestGeneration: Long = 0L
     private var activeLoadJob: Job? = null
     private var latestRecoveryGeneration: Long = 0L
+    private var pendingRecoveryGeneration: Long? = null
     private val cachedMetaByRequestKey = mutableMapOf<String, CachedMetaEntry>()
 
     fun load(type: String, id: String, force: Boolean = false) {
         log.d { "load() called — type=$type id=$id" }
         val requestKey = "$type:$id"
-        val profileId = ProfileRepository.activeProfileId
+        val profileId = activeProfileId()
         activeRequestType = type
         activeRequestId = id
+        activeRequestProfileId = profileId
         val currentState = _uiState.value
         val mdbListSettings = MdbListSettingsRepository.snapshot()
         val metaScreenSettingsFingerprint = buildMetaScreenSettingsFingerprint(mdbListSettings)
@@ -100,6 +133,7 @@ object MetaDetailsRepository {
                     )
                 }
                 if (!ownsRequest(requestKey, generation, profileId)) return@launch
+                pendingRecoveryGeneration = null
                 cachedMetaByRequestKey[requestKey] = cachedEntry.copy(
                     metaScreenMeta = enrichedMeta,
                     metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
@@ -127,60 +161,18 @@ object MetaDetailsRepository {
         )
 
         activeLoadJob = scope.launch {
-            val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
-            if (!ownsRequest(requestKey, generation, profileId)) return@launch
-            val manifests = findReadyMetaManifests(type = type, id = metaLookupId)
-
-            if (manifests.isEmpty()) {
-                val tmdbMeta = tryFetchTmdbFallbackMeta(type = type, id = id)
-                if (!ownsRequest(requestKey, generation, profileId)) return@launch
-                if (tmdbMeta != null) {
-                    publishLoadedMeta(
-                        requestKey = requestKey,
-                        meta = tmdbMeta,
-                        fallbackItemId = id,
-                        fallbackItemType = type,
-                        mdbListSettings = mdbListSettings,
-                        metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
-                        generation = generation,
-                        profileId = profileId,
-                    )
-                    return@launch
-                }
-
-                log.w { "No addon provides meta for type=$type id=$id" }
-                _uiState.value = MetaDetailsUiState(errorMessage = getString(Res.string.details_no_addon_meta))
-                activeRequestKey = null
-                return@launch
+            val result = try {
+                metadataLoader?.invoke(type, id) ?: loadMetadata(type, id)
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                MetaDetailsLoadResult(null, id)
             }
-
-            for (manifest in manifests) {
-                val result = withContext(Dispatchers.Default) {
-                    tryFetchMeta(manifest, type, metaLookupId, includeMdbList = false)
-                }
-                if (!ownsRequest(requestKey, generation, profileId)) return@launch
-                if (result != null) {
-                    publishLoadedMeta(
-                        requestKey = requestKey,
-                        meta = result,
-                        fallbackItemId = metaLookupId,
-                        fallbackItemType = type,
-                        mdbListSettings = mdbListSettings,
-                        metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
-                        generation = generation,
-                        profileId = profileId,
-                    )
-                    return@launch
-                }
-            }
-
-            val tmdbMeta = tryFetchTmdbFallbackMeta(type = type, id = id)
             if (!ownsRequest(requestKey, generation, profileId)) return@launch
-            if (tmdbMeta != null) {
+            if (result.meta != null) {
                 publishLoadedMeta(
                     requestKey = requestKey,
-                    meta = tmdbMeta,
-                    fallbackItemId = id,
+                    meta = result.meta,
+                    fallbackItemId = result.lookupId,
                     fallbackItemType = type,
                     mdbListSettings = mdbListSettings,
                     metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
@@ -190,9 +182,27 @@ object MetaDetailsRepository {
                 return@launch
             }
 
-            _uiState.value = MetaDetailsUiState(errorMessage = getString(Res.string.details_load_failed_all_addons))
+            val message = failureMessage(result.noProviders)
+            if (!ownsRequest(requestKey, generation, profileId)) return@launch
+            pendingRecoveryGeneration?.let { recovery ->
+                pendingRecoveryGeneration = null
+                log.d { "Retrying interrupted details request=$generation after recovery=$recovery profile=$profileId" }
+                load(type, id, force = true)
+                return@launch
+            }
+            _uiState.value = _uiState.value.copy(isLoading = false, errorMessage = message)
             activeRequestKey = null
         }
+    }
+
+    private suspend fun loadMetadata(type: String, id: String): MetaDetailsLoadResult {
+        val lookupId = resolveMetaLookupId(itemId = id, itemType = type)
+        val manifests = findReadyMetaManifests(type, lookupId)
+        for (manifest in manifests) {
+            val meta = withContext(Dispatchers.Default) { tryFetchMeta(manifest, type, lookupId, includeMdbList = false) }
+            if (meta != null) return MetaDetailsLoadResult(meta, lookupId)
+        }
+        return MetaDetailsLoadResult(tryFetchTmdbFallbackMeta(type, id), id, noProviders = manifests.isEmpty())
     }
 
     fun peek(type: String, id: String): MetaDetails? {
@@ -214,19 +224,32 @@ object MetaDetailsRepository {
         activeRequestKey = null
         activeRequestType = null
         activeRequestId = null
+        activeRequestProfileId = null
         latestRecoveryGeneration = 0L
+        pendingRecoveryGeneration = null
         cachedMetaByRequestKey.clear()
         _uiState.value = MetaDetailsUiState()
     }
 
     fun onRecoveryGeneration(generation: Long) {
-        if (generation <= latestRecoveryGeneration) return
-        latestRecoveryGeneration = generation
-        val type = activeRequestType ?: return
-        val id = activeRequestId ?: return
-        val current = _uiState.value
-        if (current.meta != null || current.isLoading || current.errorMessage == null) return
-        load(type = type, id = id, force = true)
+        val profileId = activeProfileId()
+        val interruptedRequest = requestGeneration
+        // The coordinator runs off-main. Serialize recovery with normal UI loads,
+        // and do not replace a new load started after this notification.
+        scope.launch {
+            if (profileId != activeProfileId() || generation <= latestRecoveryGeneration) return@launch
+            latestRecoveryGeneration = generation
+            if (activeRequestProfileId != profileId || interruptedRequest != requestGeneration) return@launch
+            val type = activeRequestType ?: return@launch
+            val id = activeRequestId ?: return@launch
+            val current = _uiState.value
+            if (current.isLoading) {
+                pendingRecoveryGeneration = generation
+                log.d { "Deferred details recovery=$generation request=$interruptedRequest profile=$profileId" }
+            } else if (current.meta == null && current.errorMessage != null) {
+                load(type = type, id = id, force = true)
+            }
+        }
     }
 
     suspend fun fetch(type: String, id: String, cacheResult: Boolean = true): MetaDetails? {
@@ -366,11 +389,13 @@ object MetaDetailsRepository {
         )
     }
 
-    private const val FETCH_TIMEOUT_MS = 5_000L
-    private const val OFFLINE_META_MAX_BYTES = 4 * 1024 * 1024
-    private const val METADATA_PROVIDER_READY_TIMEOUT_MS = 10_000L
-    private const val TMDB_ENRICH_TIMEOUT_MS = 5_000L
-    private const val MDBLIST_ENRICH_TIMEOUT_MS = 5_000L
+    private companion object {
+        const val FETCH_TIMEOUT_MS = 5_000L
+        const val OFFLINE_META_MAX_BYTES = 4 * 1024 * 1024
+        const val METADATA_PROVIDER_READY_TIMEOUT_MS = 10_000L
+        const val TMDB_ENRICH_TIMEOUT_MS = 5_000L
+        const val MDBLIST_ENRICH_TIMEOUT_MS = 5_000L
+    }
 
     private suspend fun tryFetchMeta(
         manifest: AddonManifest,
@@ -492,11 +517,8 @@ object MetaDetailsRepository {
         profileId: Int,
     ) {
         if (!ownsRequest(requestKey, generation, profileId)) return
-        OfflineLibraryRepository.captureNormalDetails(
-            requestedType = fallbackItemType,
-            requestedId = fallbackItemId,
-            meta = meta,
-        )
+        pendingRecoveryGeneration = null
+        captureSnapshot(fallbackItemType, fallbackItemId, meta)
         val cachedEntry = CachedMetaEntry(baseMeta = meta)
         cachedMetaByRequestKey[requestKey] = cachedEntry
 
@@ -519,6 +541,7 @@ object MetaDetailsRepository {
             )
         }
         if (!ownsRequest(requestKey, generation, profileId)) return
+        pendingRecoveryGeneration = null
         cachedMetaByRequestKey[requestKey] = cachedEntry.copy(
             metaScreenMeta = enrichedMeta,
             metaScreenSettingsFingerprint = metaScreenSettingsFingerprint,
@@ -528,6 +551,7 @@ object MetaDetailsRepository {
     }
 
     private fun activateSynchronousRequest(requestKey: String) {
+        pendingRecoveryGeneration = null
         requestGeneration += 1L
         activeLoadJob?.cancel()
         activeLoadJob = null
@@ -535,6 +559,7 @@ object MetaDetailsRepository {
     }
 
     private fun beginAsyncRequest(requestKey: String): Long {
+        pendingRecoveryGeneration = null
         requestGeneration += 1L
         activeLoadJob?.cancel()
         activeLoadJob = null
@@ -545,7 +570,7 @@ object MetaDetailsRepository {
     private fun ownsRequest(requestKey: String, generation: Long, profileId: Int): Boolean =
         activeRequestKey == requestKey &&
             requestGeneration == generation &&
-            ProfileRepository.activeProfileId == profileId
+            activeProfileId() == profileId
 
     private suspend fun enrichForMetaScreen(
         meta: MetaDetails,

@@ -37,8 +37,11 @@ import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -105,6 +108,7 @@ import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.features.details.components.SeasonWatchedActionSheet
 import com.nuvio.app.features.details.components.TrailerPlayerPopup
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.OfflineLibraryRepository
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.library.PendingTrackingMembershipRemoval
@@ -166,8 +170,23 @@ fun MetaDetailsScreen(
     modifier: Modifier = Modifier,
 ) {
     val uiState by MetaDetailsRepository.uiState.collectAsStateWithLifecycle()
-    val displayedMeta = uiState.meta?.takeIf { it.type == type && it.id == id }
-        ?: MetaDetailsRepository.peek(type, id)
+    val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    val offlineLibraryUiState by remember {
+        OfflineLibraryRepository.ensureLoaded()
+        OfflineLibraryRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val offlineMeta = remember(offlineLibraryUiState.titles, type, id) {
+        OfflineLibraryRepository.details(type, id)
+    }
+    val repositoryMeta = uiState.meta?.takeIf { it.type == type && it.id == id }
+    val cachedMeta = MetaDetailsRepository.peek(type, id)
+    val displayPolicy = resolveMetaDetailsDisplayPolicy(
+        repositoryMeta = repositoryMeta,
+        offlineMeta = offlineMeta,
+        cachedMeta = cachedMeta,
+        isOfflineLike = networkStatusUiState.isOfflineLike,
+    )
+    val displayedMeta = displayPolicy.displayedMeta
     val metaScreenSettingsUiState by remember {
         MetaScreenSettingsRepository.ensureLoaded()
         MetaScreenSettingsRepository.uiState
@@ -204,8 +223,8 @@ fun MetaDetailsScreen(
         PlayerSettingsRepository.ensureLoaded()
         PlayerSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
-    val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
     var autoLoadAttempted by remember(type, id) { mutableStateOf(false) }
+    var enrichmentLoadFingerprint by remember(type, id) { mutableStateOf<String?>(null) }
     var observedOfflineState by remember(type, id) { mutableStateOf(false) }
     var selectedEpisodeForActions by remember(type, id) { mutableStateOf<MetaVideo?>(null) }
     var selectedEpisodeZoomAnchor by remember(type, id) { mutableStateOf<PosterZoomAnchor?>(null) }
@@ -233,7 +252,8 @@ fun MetaDetailsScreen(
     }
     val trackingListsUpdateFailedMessage = stringResource(Res.string.tracking_lists_update_failed)
     var episodeImdbRatings by remember(type, id) { mutableStateOf<Map<Pair<Int, Int>, Double>>(emptyMap()) }
-    var deferredMetaWorkAllowed by remember(type, id) { mutableStateOf(false) }
+    var deferredMetaWorkReady by remember(type, id) { mutableStateOf(false) }
+    val deferredMetaWorkAllowed = deferredMetaWorkReady && displayPolicy.deferredOnlineWorkAllowed
 
     LaunchedEffect(
         displayedMeta?.id,
@@ -290,15 +310,18 @@ fun MetaDetailsScreen(
     }
 
     val shouldShowComments = commentsEnabled &&
+        displayPolicy.deferredOnlineWorkAllowed &&
         traktAuthUiState.mode == TraktConnectionMode.CONNECTED &&
         displayedMeta != null &&
         displayedMeta.type.lowercase().let { it == "movie" || it == "series" || it == "show" || it == "tv" }
 
-    LaunchedEffect(displayedMeta?.id) {
-        deferredMetaWorkAllowed = false
-        if (displayedMeta != null) {
+    LaunchedEffect(displayedMeta?.id, displayPolicy.deferredOnlineWorkAllowed) {
+        deferredMetaWorkReady = false
+        if (displayPolicy.deferredOnlineWorkAllowed) {
             delay(250)
-            deferredMetaWorkAllowed = true
+            if (displayPolicy.deferredOnlineWorkAllowed) {
+                deferredMetaWorkReady = true
+            }
         }
     }
 
@@ -324,9 +347,17 @@ fun MetaDetailsScreen(
         isCommentsLoading = false
     }
 
-    LaunchedEffect(displayedMeta?.id, displayedMeta?.videos, deferredMetaWorkAllowed) {
+    LaunchedEffect(
+        displayedMeta?.id,
+        displayedMeta?.videos,
+        deferredMetaWorkAllowed,
+        displayPolicy.deferredOnlineWorkAllowed,
+    ) {
         val metaForRatings = displayedMeta
-        if (!deferredMetaWorkAllowed) return@LaunchedEffect
+        if (!deferredMetaWorkAllowed || !displayPolicy.deferredOnlineWorkAllowed) {
+            episodeImdbRatings = emptyMap()
+            return@LaunchedEffect
+        }
         if (metaForRatings == null || !metaForRatings.isSeriesLikeForEpisodeRatings()) {
             episodeImdbRatings = emptyMap()
             return@LaunchedEffect
@@ -349,9 +380,30 @@ fun MetaDetailsScreen(
         )
     }
 
-    LaunchedEffect(type, id, displayedMeta, uiState.isLoading, autoLoadAttempted) {
-        if (!autoLoadAttempted && displayedMeta == null && !uiState.isLoading) {
+    val currentEnrichmentFingerprint = remember(
+        type,
+        id,
+        trackingSettingsUiState.moreLikeThisSource,
+        traktAuthUiState.mode,
+        tmdbSettingsUiState.enabled,
+        tmdbSettingsUiState.useMoreLikeThis,
+        tmdbSettingsUiState.language,
+    ) {
+        listOf(
+            type,
+            id,
+            trackingSettingsUiState.moreLikeThisSource.name,
+            traktAuthUiState.mode.name,
+            tmdbSettingsUiState.enabled.toString(),
+            tmdbSettingsUiState.useMoreLikeThis.toString(),
+            tmdbSettingsUiState.language,
+        ).joinToString("|")
+    }
+
+    LaunchedEffect(type, id, displayPolicy, uiState.isLoading, autoLoadAttempted) {
+        if (shouldScheduleInitialMetaLoad(displayPolicy, uiState.isLoading, autoLoadAttempted)) {
             autoLoadAttempted = true
+            enrichmentLoadFingerprint = currentEnrichmentFingerprint
             MetaDetailsRepository.load(type, id)
         }
     }
@@ -359,15 +411,20 @@ fun MetaDetailsScreen(
     LaunchedEffect(
         type,
         id,
-        displayedMeta?.id,
+        displayPolicy,
         uiState.isLoading,
-        trackingSettingsUiState.moreLikeThisSource,
-        traktAuthUiState.mode,
-        tmdbSettingsUiState.enabled,
-        tmdbSettingsUiState.useMoreLikeThis,
-        tmdbSettingsUiState.language,
+        currentEnrichmentFingerprint,
+        enrichmentLoadFingerprint,
     ) {
-        if (displayedMeta != null && !uiState.isLoading) {
+        if (
+            shouldScheduleMetaEnrichment(
+                policy = displayPolicy,
+                isLoading = uiState.isLoading,
+                attemptedFingerprint = enrichmentLoadFingerprint,
+                currentFingerprint = currentEnrichmentFingerprint,
+            )
+        ) {
+            enrichmentLoadFingerprint = currentEnrichmentFingerprint
             MetaDetailsRepository.load(type, id)
         }
     }
@@ -381,6 +438,9 @@ fun MetaDetailsScreen(
             }
 
             NetworkCondition.Online -> {
+                if (offlineMeta != null) {
+                    OfflineLibraryRepository.refresh(type, id)
+                }
                 if (!observedOfflineState) return@LaunchedEffect
                 observedOfflineState = false
                 if (displayedMeta == null && !uiState.isLoading) {
@@ -445,7 +505,9 @@ fun MetaDetailsScreen(
                     Button(
                         onClick = {
                             NetworkStatusRepository.requestRefresh(force = true)
-                            MetaDetailsRepository.load(type, id)
+                            if (displayPolicy.ordinaryOnlineRequestsAllowed) {
+                                MetaDetailsRepository.load(type, id)
+                            }
                         },
                     ) {
                         Text(stringResource(Res.string.action_retry))
@@ -545,8 +607,16 @@ fun MetaDetailsScreen(
                         Unit
                     }
                 }
-                LaunchedEffect(meta.id, meta.type, watchProgressUiState.hasLoadedRemoteProgress) {
-                    if (meta.type.lowercase() in setOf("series", "show", "tv", "tvshow")) {
+                LaunchedEffect(
+                    meta.id,
+                    meta.type,
+                    watchProgressUiState.hasLoadedRemoteProgress,
+                    displayPolicy.ordinaryOnlineRequestsAllowed,
+                ) {
+                    if (
+                        displayPolicy.ordinaryOnlineRequestsAllowed &&
+                        meta.type.lowercase() in setOf("series", "show", "tv", "tvshow")
+                    ) {
                         WatchProgressRepository.refreshEpisodeProgress(meta.id)
                     }
                 }
@@ -1150,6 +1220,14 @@ fun MetaDetailsScreen(
                             backgroundColor = dominantBackdropColor.takeIf { dominantColorEnabled },
                             onBack = onBackFromDetails,
                             onToggleSaved = toggleSaved,
+                            onRefresh = if (offlineMeta != null) {
+                                {
+                                    OfflineLibraryRepository.refresh(type, id, manual = true)
+                                    NetworkStatusRepository.requestRefresh(force = true)
+                                }
+                            } else {
+                                null
+                            },
                         )
 
                         selectedEpisodeForActions
@@ -1597,6 +1675,7 @@ private fun DetailHeaderOverlay(
     backgroundColor: Color?,
     onBack: () -> Unit,
     onToggleSaved: () -> Unit,
+    onRefresh: (() -> Unit)?,
 ) {
     val headerTarget = if (isHeroCollapsed.value) 1f else 0f
     val headerProgress by animateFloatAsState(
@@ -1608,29 +1687,49 @@ private fun DetailHeaderOverlay(
         label = "detail_floating_header_progress",
     )
 
-    if (headerProgress <= 0.05f) {
-        NuvioBackButton(
-            onClick = onBack,
-            modifier = Modifier
-                .padding(
-                    start = 12.dp,
-                    top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
-                )
-                .zIndex(2f),
-            containerColor = Color.Transparent,
-            contentColor = MaterialTheme.colorScheme.onBackground,
+    Box(modifier = Modifier.fillMaxWidth()) {
+        if (headerProgress <= 0.05f) {
+            NuvioBackButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .padding(
+                        start = 12.dp,
+                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
+                    )
+                    .zIndex(2f),
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.onBackground,
+            )
+            if (onRefresh != null) {
+                IconButton(
+                    onClick = onRefresh,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(
+                            end = 12.dp,
+                            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
+                        )
+                        .zIndex(2f),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Refresh,
+                        contentDescription = stringResource(Res.string.offline_metadata_refresh),
+                        tint = MaterialTheme.colorScheme.onBackground,
+                    )
+                }
+            }
+        }
+
+        DetailFloatingHeader(
+            meta = meta,
+            isSaved = isSaved,
+            progress = headerProgress,
+            backgroundColor = backgroundColor,
+            onBack = onBack,
+            onToggleSaved = onToggleSaved,
+            modifier = Modifier.zIndex(2f),
         )
     }
-
-    DetailFloatingHeader(
-        meta = meta,
-        isSaved = isSaved,
-        progress = headerProgress,
-        backgroundColor = backgroundColor,
-        onBack = onBack,
-        onToggleSaved = onToggleSaved,
-        modifier = Modifier.zIndex(2f),
-    )
 }
 
 @Composable

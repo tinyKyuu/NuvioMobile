@@ -7,6 +7,8 @@ import com.nuvio.app.features.cloud.CloudLibraryProviderState
 import com.nuvio.app.features.cloud.CloudLibraryUiState
 import com.nuvio.app.features.cloud.playbackVideoId
 import com.nuvio.app.features.debrid.DebridProviders
+import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.watchprogress.CachedInProgressItem
 import com.nuvio.app.features.watchprogress.CachedNextUpItem
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
@@ -27,6 +29,32 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HomeScreenTest {
+
+    @Test
+    fun `offline continue watching keeps local media and preserves its live resume position`() {
+        val local = progressEntry("show:1:4", "Show", 500L).toContinueWatchingItem()
+        val remote = progressEntry("remote:1:4", "Remote", 600L).toContinueWatchingItem()
+        val result = filterHomeContinueWatchingForOffline(
+            items = listOf(remote, local),
+            downloads = listOf(offlineDownload("show", DownloadStatus.Completed, "file:///show.mp4")),
+        )
+
+        assertEquals(listOf(local), result)
+        assertEquals(local.resumePositionMs, result.single().resumePositionMs)
+        assertEquals(local.progressFraction, result.single().progressFraction)
+    }
+
+    @Test
+    fun `offline continue watching rejects paused and missing-file downloads`() {
+        val item = progressEntry("show:1:4", "Show", 500L).toContinueWatchingItem()
+        val nonPlayable = listOf(
+            offlineDownload("show", DownloadStatus.Paused, "file:///partial.mp4"),
+            offlineDownload("show", DownloadStatus.Completed, null),
+            offlineDownload("other", DownloadStatus.Completed, "file:///other.mp4"),
+        )
+
+        assertTrue(filterHomeContinueWatchingForOffline(listOf(item), nonPlayable).isEmpty())
+    }
 
     @Test
     fun `home trakt continue watching candidate limits match TV`() {
@@ -901,6 +929,25 @@ class HomeScreenTest {
             lastUpdatedEpochMs = lastUpdatedEpochMs,
             isCompleted = isCompleted,
         )
+
+    private fun offlineDownload(parentId: String, status: DownloadStatus, localUri: String?) = DownloadItem(
+        id = "$parentId-$status",
+        contentType = "series",
+        parentMetaId = parentId,
+        parentMetaType = "series",
+        videoId = "$parentId:1:4",
+        title = "Show",
+        seasonNumber = 1,
+        episodeNumber = 4,
+        streamTitle = "Local",
+        providerName = "Fixture",
+        sourceUrl = "https://fixture.test/video.mp4",
+        localFileUri = localUri,
+        fileName = "$parentId.mp4",
+        status = status,
+        createdAtEpochMs = 1L,
+        updatedAtEpochMs = 2L,
+    )
 
     private fun continueWatchingItem(
         videoId: String,

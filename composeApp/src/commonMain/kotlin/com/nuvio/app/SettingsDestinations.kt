@@ -79,10 +79,8 @@ internal fun DownloadsDestination(
     DownloadsScreen(
         onBack = onBack,
         onOpenDownload = onOpenDownload,
-        onNavigateToShow = if (useNativeNavigation) {
-            { showId, title -> navController.navigate(DownloadShowRoute(showId, title)) }
-        } else {
-            null
+        onNavigateToShow = { showId, title ->
+            navController.navigate(DetailRoute(type = "series", id = showId, title = title))
         },
     )
 }

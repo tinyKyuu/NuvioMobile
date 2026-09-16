@@ -6,6 +6,9 @@ import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
+import com.nuvio.app.features.addons.httpRequestRaw
+import com.nuvio.app.features.downloads.OfflineLibraryRepository
+import com.nuvio.app.features.downloads.canonicalOfflineMetaType
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.filterReleasedItems
 import com.nuvio.app.features.mdblist.MdbListMetadataService
@@ -208,6 +211,18 @@ object MetaDetailsRepository {
                 if (cacheResult) {
                     cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = result)
                 }
+                OfflineLibraryRepository.captureNormalDetails(
+                    requestedType = type,
+                    requestedId = id,
+                    meta = result,
+                    sourceUrl = buildAddonResourceUrl(
+                        manifestUrl = manifest.transportUrl,
+                        resource = "meta",
+                        type = type,
+                        id = metaLookupId,
+                    ),
+                    providerAddonId = manifest.id,
+                )
                 return result
             }
         }
@@ -216,10 +231,110 @@ object MetaDetailsRepository {
             if (cacheResult) {
                 cachedMetaByRequestKey[requestKey] = CachedMetaEntry(baseMeta = result)
             }
+            OfflineLibraryRepository.captureNormalDetails(type, id, result)
         }
     }
 
+    internal suspend fun fetchForOffline(
+        type: String,
+        id: String,
+        validators: OfflineMetaValidators,
+        savedMeta: MetaDetails,
+        preferredAddonIds: Set<String>,
+        localeTag: String?,
+    ): OfflineMetaFetchResult {
+        val metaLookupId = resolveMetaLookupId(itemId = id, itemType = type)
+        val manifests = findReadyMetaManifests(type = type, id = metaLookupId)
+            .sortedByDescending { manifest -> manifest.id in preferredAddonIds }
+        val tmdbSettings = TmdbSettingsRepository.snapshot().let { settings ->
+            localeTag?.takeIf(String::isNotBlank)
+                ?.let { language -> settings.copy(language = language) }
+                ?: settings
+        }
+        for (manifest in manifests) {
+            val url = buildAddonResourceUrl(
+                manifestUrl = manifest.transportUrl,
+                resource = "meta",
+                type = type,
+                id = metaLookupId,
+            )
+            val headers = buildMap {
+                if (validators.sourceUrl == url) {
+                    validators.etag?.let { put("If-None-Match", it) }
+                    validators.lastModified?.let { put("If-Modified-Since", it) }
+                }
+                put("Accept", "application/json")
+            }
+            val response = withTimeoutOrNull(FETCH_TIMEOUT_MS) {
+                runCatching {
+                    httpRequestRaw(
+                        method = "GET",
+                        url = url,
+                        headers = headers,
+                        body = "",
+                        maxResponseBodyBytes = OFFLINE_META_MAX_BYTES,
+                    )
+                }.getOrNull()
+            } ?: continue
+            if (response.status == 304 && validators.sourceUrl == url) {
+                // The validator belongs only to the addon response. TMDB remains
+                // an independent enrichment request with its own caching policy.
+                val enriched = withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
+                    TmdbMetadataService.enrichMeta(
+                        meta = savedMeta,
+                        fallbackItemId = metaLookupId,
+                        settings = tmdbSettings,
+                    )
+                }
+                return OfflineMetaFetchResult.NotModified(
+                    sourceUrl = url,
+                    etag = response.headers["etag"] ?: validators.etag,
+                    lastModified = response.headers["last-modified"] ?: validators.lastModified,
+                    enrichedMeta = enriched,
+                )
+            }
+            if (response.status !in 200..299 || response.body.isBlank()) continue
+            val parsed = runCatching { MetaDetailsParser.parse(response.body) }.getOrNull() ?: continue
+            if (
+                parsed.name.isBlank() ||
+                parsed.id !in setOf(id, metaLookupId) ||
+                canonicalOfflineMetaType(parsed.type) != canonicalOfflineMetaType(type)
+            ) continue
+            val enriched = withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
+                TmdbMetadataService.enrichMeta(
+                    meta = parsed,
+                    fallbackItemId = metaLookupId,
+                    settings = tmdbSettings,
+                )
+            } ?: parsed
+            cachedMetaByRequestKey["$type:$id"] = CachedMetaEntry(baseMeta = enriched)
+            return OfflineMetaFetchResult.Updated(
+                meta = enriched,
+                sourceUrl = url,
+                etag = response.headers["etag"],
+                lastModified = response.headers["last-modified"],
+            )
+        }
+
+        val fallback = withTimeoutOrNull(TMDB_ENRICH_TIMEOUT_MS) {
+            TmdbMetadataService.fetchStandaloneMeta(
+                type = type,
+                id = id,
+                settings = tmdbSettings,
+            )
+        }
+            ?: return OfflineMetaFetchResult.Failed
+        cachedMetaByRequestKey["$type:$id"] = CachedMetaEntry(baseMeta = fallback)
+        return OfflineMetaFetchResult.Updated(
+            meta = fallback,
+            sourceUrl = null,
+            etag = null,
+            lastModified = null,
+        )
+    }
+
     private const val FETCH_TIMEOUT_MS = 5_000L
+    private const val OFFLINE_META_MAX_BYTES = 4 * 1024 * 1024
     private const val METADATA_PROVIDER_READY_TIMEOUT_MS = 10_000L
     private const val TMDB_ENRICH_TIMEOUT_MS = 5_000L
     private const val MDBLIST_ENRICH_TIMEOUT_MS = 5_000L
@@ -341,6 +456,11 @@ object MetaDetailsRepository {
         mdbListSettings: com.nuvio.app.features.mdblist.MdbListSettings,
         metaScreenSettingsFingerprint: String,
     ) {
+        OfflineLibraryRepository.captureNormalDetails(
+            requestedType = fallbackItemType,
+            requestedId = fallbackItemId,
+            meta = meta,
+        )
         val cachedEntry = CachedMetaEntry(baseMeta = meta)
         cachedMetaByRequestKey[requestKey] = cachedEntry
 

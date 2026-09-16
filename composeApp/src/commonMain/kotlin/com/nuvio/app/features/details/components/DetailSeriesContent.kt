@@ -19,6 +19,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
+import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.features.details.offlineEpisodeRequiresInternet
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -118,6 +120,8 @@ fun DetailSeriesContent(
         DownloadsRepository.ensureLoaded()
         DownloadsRepository.uiState
     }.collectAsStateWithLifecycle()
+    val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    val offlineOnly = meta.isOfflineSnapshot && networkStatusUiState.isOfflineLike
     val downloadedEpisodeKeys = remember(downloadsUiState.completedItems, meta.id) {
         downloadsUiState.completedItems
             .asSequence()
@@ -321,6 +325,7 @@ fun DetailSeriesContent(
                             progressByVideoId = progressByVideoId,
                             episodeRatings = episodeRatings,
                             downloadedEpisodeKeys = downloadedEpisodeKeys,
+                            offlineOnly = offlineOnly,
                             blurUnwatchedEpisodes = blurUnwatchedEpisodes,
                             preferredEpisodeNumber = preferredEpisodeNumberForSeason(
                                 displayedSeasonNumber = seasonForContent,
@@ -341,6 +346,13 @@ fun DetailSeriesContent(
                                     episodeNumber = episode.episode,
                                     fallbackVideoId = episode.id,
                                 )
+                                val isDownloaded = episode.seasonEpisodeKey()
+                                    ?.let(downloadedEpisodeKeys::contains) == true
+                                val requiresInternet = offlineEpisodeRequiresInternet(
+                                    meta = meta,
+                                    isOfflineLike = networkStatusUiState.isOfflineLike,
+                                    isDownloaded = isDownloaded,
+                                )
                                 EpisodeListCard(
                                     video = episode,
                                     fallbackImage = meta.background ?: meta.poster,
@@ -354,11 +366,11 @@ fun DetailSeriesContent(
                                             episode = episode,
                                         ),
                                     blurUnwatchedEpisodes = blurUnwatchedEpisodes,
-                                    isDownloaded = episode.seasonEpisodeKey()
-                                        ?.let(downloadedEpisodeKeys::contains) == true,
+                                    isDownloaded = isDownloaded,
+                                    requiresInternet = requiresInternet,
                                     sizing = sizing,
-                                    onClick = { onEpisodeClick?.invoke(episode) },
-                                    onLongPress = { onEpisodeLongPress?.invoke(episode) },
+                                    onClick = if (requiresInternet) null else ({ onEpisodeClick?.invoke(episode) }),
+                                    onLongPress = if (requiresInternet) null else ({ onEpisodeLongPress?.invoke(episode) }),
                                 )
                             }
                         }
@@ -641,6 +653,7 @@ private fun EpisodeHorizontalRow(
     progressByVideoId: Map<String, WatchProgressEntry>,
     episodeRatings: Map<Pair<Int, Int>, Double>,
     downloadedEpisodeKeys: Set<Pair<Int, Int>>,
+    offlineOnly: Boolean,
     blurUnwatchedEpisodes: Boolean,
     preferredEpisodeNumber: Int? = null,
     onEpisodeClick: ((MetaVideo) -> Unit)?,
@@ -687,6 +700,9 @@ private fun EpisodeHorizontalRow(
                 episodeNumber = episode.episode,
                 fallbackVideoId = episode.id,
             )
+            val isDownloaded = episode.seasonEpisodeKey()
+                ?.let(downloadedEpisodeKeys::contains) == true
+            val requiresInternet = offlineOnly && !isDownloaded
             EpisodeHorizontalCard(
                 video = episode,
                 fallbackImage = fallbackImage,
@@ -700,11 +716,11 @@ private fun EpisodeHorizontalRow(
                         episode = episode,
                     ),
                 blurUnwatchedEpisodes = blurUnwatchedEpisodes,
-                isDownloaded = episode.seasonEpisodeKey()
-                    ?.let(downloadedEpisodeKeys::contains) == true,
+                isDownloaded = isDownloaded,
+                requiresInternet = requiresInternet,
                 metrics = rowMetrics,
-                onClick = { onEpisodeClick?.invoke(episode) },
-                onLongPress = { onEpisodeLongPress?.invoke(episode) },
+                onClick = if (requiresInternet) null else ({ onEpisodeClick?.invoke(episode) }),
+                onLongPress = if (requiresInternet) null else ({ onEpisodeLongPress?.invoke(episode) }),
             )
         }
     }
@@ -720,6 +736,7 @@ private fun EpisodeHorizontalCard(
     isWatched: Boolean,
     blurUnwatchedEpisodes: Boolean,
     isDownloaded: Boolean,
+    requiresInternet: Boolean,
     metrics: EpisodeHorizontalCardMetrics,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
@@ -794,6 +811,15 @@ private fun EpisodeHorizontalCard(
             if (isDownloaded) {
                 EpisodeCodeBadge(
                     text = stringResource(Res.string.compose_player_downloaded),
+                    textSize = metrics.badgeTextSize,
+                    radius = metrics.badgeRadius,
+                    horizontalPadding = metrics.badgeHorizontalPadding,
+                    verticalPadding = metrics.badgeVerticalPadding,
+                    backgroundAlpha = 0.85f,
+                )
+            } else if (requiresInternet) {
+                EpisodeCodeBadge(
+                    text = stringResource(Res.string.offline_episode_requires_internet),
                     textSize = metrics.badgeTextSize,
                     radius = metrics.badgeRadius,
                     horizontalPadding = metrics.badgeHorizontalPadding,
@@ -1116,6 +1142,7 @@ private fun EpisodeListCard(
     isWatched: Boolean,
     blurUnwatchedEpisodes: Boolean,
     isDownloaded: Boolean,
+    requiresInternet: Boolean,
     sizing: SeriesContentSizing,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
@@ -1193,6 +1220,15 @@ private fun EpisodeListCard(
                     if (isDownloaded) {
                         EpisodeCodeBadge(
                             text = stringResource(Res.string.compose_player_downloaded),
+                            textSize = sizing.badgeTextSize,
+                            radius = sizing.badgeRadius,
+                            horizontalPadding = sizing.badgeHorizontalPadding,
+                            verticalPadding = sizing.badgeVerticalPadding,
+                            backgroundAlpha = 0.85f,
+                        )
+                    } else if (requiresInternet) {
+                        EpisodeCodeBadge(
+                            text = stringResource(Res.string.offline_episode_requires_internet),
                             textSize = sizing.badgeTextSize,
                             radius = sizing.badgeRadius,
                             horizontalPadding = sizing.badgeHorizontalPadding,

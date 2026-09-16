@@ -1,6 +1,7 @@
 package com.nuvio.app.features.downloads
 
 import co.touchlab.kermit.Logger
+import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.profiles.ProfileRepository
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
@@ -246,6 +247,16 @@ object DownloadsRepository {
         }
 
         val record = commit.record ?: return commit.result
+        MetaDetailsRepository.peek(
+            type = record.item.parentMetaType,
+            id = record.item.parentMetaId,
+        )?.let { meta ->
+            OfflineLibraryRepository.captureNormalDetails(
+                requestedType = record.item.parentMetaType,
+                requestedId = record.item.parentMetaId,
+                meta = meta,
+            )
+        }
         commit.detachedHandle?.cancel()
             ?: commit.replacedRecord?.let { DownloadsPlatformDownloader.cancel(it.downloadId) }
         commit.replacedRecord?.let { old ->
@@ -392,6 +403,61 @@ object DownloadsRepository {
                 pumpScheduler(forcePublishCurrentProfile = true)
             },
         )
+        return targets.size
+    }
+
+    internal fun deleteProfileDownloads(profileId: Int): Int {
+        val ownerProfileKey = downloadOwnerProfileKey(profileId)
+        val (targets, deletedLoadedProfile) = synchronized(stateLock) {
+            val storedRecords = store.recordsForProfile(ownerProfileKey)
+            if (storedRecords.isEmpty()) {
+                return@synchronized emptyList<DownloadBatchRemovalTarget>() to
+                    (loadedProfileKey == ownerProfileKey)
+            }
+
+            val selected = storedRecords.map { stored ->
+                runtimeRecordsById[stored.downloadId]
+                    ?.takeIf { it.ownerProfileKey == ownerProfileKey }
+                    ?: stored
+            }
+            store.commit(downloadIdsToDelete = selected.map(DownloadRecord::downloadId))
+            val removalTargets = selected.map { record ->
+                runtimeRecordsById.remove(record.downloadId)
+                progressPersistencePolicy.remove(record.downloadId)
+                DownloadBatchRemovalTarget(
+                    record = record,
+                    activeHandle = activeHandles.remove(record.downloadId),
+                )
+            }
+            val isLoadedProfile = loadedProfileKey == ownerProfileKey
+            if (isLoadedProfile) {
+                currentProfileRecords = emptyList()
+                publishCurrentProfileLocked()
+            }
+            removalTargets to isLoadedProfile
+        }
+
+        performDownloadBatchCleanup(
+            targets = targets,
+            cancelPlatformTask = DownloadsPlatformDownloader::cancel,
+            removeRequest = DownloadsRequestStorage::remove,
+            removeCompletedFile = { record ->
+                DownloadsPlatformDownloader.removeFile(resolveLocalUri(record))
+            },
+            removePartialFile = { record ->
+                DownloadsPlatformDownloader.removePartialFile(
+                    downloadId = record.downloadId,
+                    destinationFileName = record.item.fileName,
+                )
+            },
+            onBatchCleaned = {},
+        )
+        DownloadsStorage.removeLegacyPayload(profileId)
+        OfflineLibraryRepository.deleteProfile(profileId)
+        if (deletedLoadedProfile) {
+            notifyLiveStatusPlatform()
+            pumpScheduler(forcePublishCurrentProfile = true)
+        }
         return targets.size
     }
 
@@ -848,9 +914,13 @@ object DownloadsRepository {
     }
 
     private fun publishCurrentProfileLocked() {
-        _uiState.value = DownloadsUiState(
+        val state = DownloadsUiState(
             items = currentProfileRecords.map(::runtimeItemFor),
         )
+        _uiState.value = state
+        loadedProfileKey?.let { ownerProfileKey ->
+            OfflineLibraryRepository.onDownloadsChanged(ownerProfileKey, state.items)
+        }
     }
 
     private fun runtimeItemFor(record: DownloadRecord): DownloadItem {

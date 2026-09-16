@@ -29,6 +29,7 @@
     <string name="action_reset">Reset to Default</string>
     <string name="action_resume">Resume</string>
     <string name="action_retry">Retry</string>
+    <string name="offline_metadata_refresh">Refresh downloaded details</string>
     <string name="action_save">Save</string>
     <string name="action_saving">Saving…</string>
     <string name="action_switch">Switch</string>
@@ -470,6 +471,10 @@
     <string name="compose_player_volume_level">Volume %1$s</string>
     <string name="compose_player_muted">Muted</string>
     <string name="compose_player_downloaded">Downloaded</string>
+    <string name="offline_downloaded_title">Downloaded</string>
+    <string name="offline_library_empty_title">No downloaded titles</string>
+    <string name="offline_library_empty_message">Completed downloads will appear here for offline browsing.</string>
+    <string name="offline_episode_requires_internet">Internet required</string>
     <string name="compose_player_airs_prefix">Airs</string>
     <string name="compose_player_tba">TBA</string>
     <string name="compose_player_tap_to_unlock">Tap to unlock</string>

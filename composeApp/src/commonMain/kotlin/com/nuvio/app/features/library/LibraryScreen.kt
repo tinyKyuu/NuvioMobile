@@ -150,7 +150,6 @@ fun LibraryScreen(
     var selectedCloudItemKey by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedLibrarySectionKey by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedLibraryType by rememberSaveable { mutableStateOf<String?>(null) }
-    var selectedDownloadedType by rememberSaveable { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val isRemoteSource = uiState.sourceMode != LibrarySourceMode.LOCAL
@@ -213,28 +212,21 @@ fun LibraryScreen(
             }
             .sortedBy { section -> section.displayTitle }
     }
-    val downloadedSortOption = effectiveLibrarySortOption(
-        selected = displaySettings.sortOption,
-        sourceMode = LibrarySourceMode.LOCAL,
-    )
-    val sortedDownloadedSections = remember(downloadedSections, displaySettings.sortOption) {
+    val downloadedSortOption = LibrarySortOption.ADDED_DESC
+    val sortedDownloadedSections = remember(downloadedSections) {
         sortLibrarySections(
             sections = downloadedSections,
-            selected = displaySettings.sortOption,
+            selected = downloadedSortOption,
             sourceMode = LibrarySourceMode.LOCAL,
         )
     }
-    val downloadedVerticalProjection = remember(
-        downloadedSections,
-        selectedDownloadedType,
-        displaySettings.sortOption,
-    ) {
+    val downloadedVerticalProjection = remember(downloadedSections) {
         buildLibraryVerticalProjection(
             sections = downloadedSections,
             sourceMode = LibrarySourceMode.LOCAL,
             selectedSectionKey = null,
-            selectedType = selectedDownloadedType,
-            sortOption = displaySettings.sortOption,
+            selectedType = null,
+            sortOption = downloadedSortOption,
         )
     }
     val downloadedHorizontalSections = remember(sortedDownloadedSections) {
@@ -421,22 +413,6 @@ fun LibraryScreen(
                         )
                     }
                 } else {
-                    item(
-                        key = "library-downloaded-controls:" +
-                            "${displaySettings.layoutMode}:$downloadedSortOption",
-                    ) {
-                        LibrarySavedControls(
-                            layoutMode = displaySettings.layoutMode,
-                            sourceMode = LibrarySourceMode.LOCAL,
-                            sortOption = downloadedSortOption,
-                            verticalProjection = downloadedVerticalProjection,
-                            onSectionSelected = {},
-                            onTypeSelected = { type -> selectedDownloadedType = type },
-                            onSortSelected = LibraryDisplaySettingsRepository::setSortOption,
-                            modifier = libraryContentTransitionModifier()
-                                .padding(horizontal = 16.dp),
-                        )
-                    }
                     when (displaySettings.layoutMode) {
                         LibraryLayoutMode.HORIZONTAL -> librarySections(
                             displaySections = downloadedHorizontalSections,

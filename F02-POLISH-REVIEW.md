@@ -10,9 +10,9 @@ This follow-up starts from `08dee1be78dfa8032d3b860e0a0be2b40b729897` on `codex/
 - Existing downloaded titles are reconciled against the expanded artwork plan. A record produced by the earlier build becomes artwork-incomplete when cast photos are missing, then performs the existing artwork-only refresh the next time Home or Library is online. The title and media do not need to be downloaded again.
 - Offline details resolve each cached cast photo to its local file. Missing or failed photos continue to use the existing remote URL and artwork retry policy.
 - Saved Library items reuse verified local poster, backdrop, and logo files from a matching downloaded title. The Saved item keeps its original ID, type, and navigation data.
-- Downloaded uses the same horizontal shelves and vertical poster grid as Saved, including the top-right layout control, type filter, and sort control. Movies and series remain separate shelves in horizontal mode, while the vertical view can show all types or one type.
+- Downloaded uses the same horizontal shelves and vertical poster grid as Saved, including the top-right layout control. It omits Saved's filter and sort row because downloaded collections are intentionally small. Movies and series remain separate shelves in horizontal mode, while the vertical view combines every downloaded title in recent-download order.
 - The Downloaded tab now keeps `Library` as the screen title and no longer adds another `Downloaded` heading below the source selector.
-- Saved and Downloaded keep independent type-filter selections while sharing the persisted layout and sort preferences.
+- Saved keeps its persisted filter and sort preferences. Downloaded shares only the persisted horizontal or vertical layout preference.
 
 ## Validation
 
@@ -22,10 +22,10 @@ This follow-up starts from `08dee1be78dfa8032d3b860e0a0be2b40b729897` on `codex/
 | Focused iOS simulator suite | 3 suites, 29 tests, 0 failures, 0 errors, 0 skipped |
 | Default iOS player regression harness | Passed |
 | Fresh iOS simulator app build | Passed |
-| iOS simulator Library runtime review | `Library` header, Downloaded horizontal shelves, layout button, and Downloaded vertical grid verified |
+| iOS simulator Library runtime review | `Library` header, Downloaded horizontal shelves, layout button, clean control-free content area, and Downloaded vertical grid verified |
 | Diff whitespace check | Passed |
 
-The focused tests cover the bounded cast artwork plan, automatic reconciliation of records created by an older build, local artwork reuse by matching Saved items, Downloaded type filtering and sorting, and the native iOS artwork filesystem implementation.
+The focused tests cover the bounded cast artwork plan, automatic reconciliation of records created by an older build, local artwork reuse by matching Saved items, Downloaded combined-grid ordering, and the native iOS artwork filesystem implementation.
 
 ## Visual evidence
 
@@ -41,7 +41,7 @@ After, Downloaded keeps the Library title and supports the shared horizontal she
 
 ## Physical-device review
 
-After installing the updated build, open Home or Library once while online. Existing downloads with cast metadata will fetch their missing cast images through the normal background artwork refresh. Then disconnect and verify the cast row, Saved poster, Downloaded horizontal shelves, and Downloaded vertical grid. Cast members without a source photo will continue to show the ordinary placeholder.
+After installing the updated build, open Home or Library once while online. Existing downloads with cast metadata will fetch their missing cast images through the normal background artwork refresh. Then disconnect and verify the cast row, Saved poster, Downloaded horizontal shelves, and Downloaded vertical grid without a filter row. Cast members without a source photo will continue to show the ordinary placeholder.
 
 ## Rollback
 

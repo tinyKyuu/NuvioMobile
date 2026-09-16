@@ -137,7 +137,7 @@ class LibraryDisplaySettingsTest {
     }
 
     @Test
-    fun `downloaded projection combines type sections and supports the shared grid controls`() {
+    fun `downloaded projection combines all types in recent download order`() {
         val sections = listOf(
             LibrarySection(
                 type = "movie",
@@ -158,14 +158,14 @@ class LibraryDisplaySettingsTest {
             sections = sections,
             sourceMode = LibrarySourceMode.LOCAL,
             selectedSectionKey = null,
-            selectedType = "series",
-            sortOption = LibrarySortOption.TITLE_ASC,
+            selectedType = null,
+            sortOption = LibrarySortOption.ADDED_DESC,
         )
 
         assertEquals(emptyList(), projection.availableSections)
         assertEquals(listOf("movie", "series"), projection.availableTypes)
-        assertEquals("series", projection.selectedType)
-        assertEquals(listOf("series-a", "series-z"), projection.entries.map { it.item.id })
+        assertEquals(null, projection.selectedType)
+        assertEquals(listOf("series-a", "series-z", "movie"), projection.entries.map { it.item.id })
     }
 
     @Test

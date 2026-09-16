@@ -264,6 +264,71 @@ class OfflineLibraryLogicTest {
     }
 
     @Test
+    fun `artwork plan includes a bounded set of principal cast photos`() {
+        val cast = (0 until maxOfflineCastPhotos + 2).map { index ->
+            OfflinePerson(
+                name = "Person $index",
+                photo = "https://images.test/cast-$index.jpg",
+                tmdbId = 1_000 + index,
+            )
+        }
+        val plan = requiredOfflineArtwork(
+            metadata = OfflineMetaSnapshot(
+                id = "tt123",
+                type = "movie",
+                name = "A Movie",
+                poster = "https://images.test/poster.jpg",
+                cast = cast,
+            ),
+            downloads = listOf(download(id = "movie", season = null, episode = null, title = "A Movie")),
+        )
+
+        assertEquals(
+            "https://images.test/cast-0.jpg",
+            plan[offlineCastPhotoRole(0, cast[0])],
+        )
+        assertTrue(offlineCastPhotoRole(maxOfflineCastPhotos - 1, cast[maxOfflineCastPhotos - 1]) in plan)
+        assertFalse(offlineCastPhotoRole(maxOfflineCastPhotos, cast[maxOfflineCastPhotos]) in plan)
+    }
+
+    @Test
+    fun `reconciliation schedules cast photos for records completed by an older build`() {
+        val download = download(id = "movie", season = null, episode = null, title = "A Movie")
+        val poster = artwork(offlinePosterRole, "poster")
+        val existing = record(metadataComplete = true).copy(
+            key = "profile:1|movie|tt123",
+            metaType = "movie",
+            downloadIds = setOf(download.id),
+            metadata = OfflineMetaSnapshot(
+                id = "tt123",
+                type = "movie",
+                name = "A Movie",
+                poster = poster.remoteUrl,
+                cast = listOf(
+                    OfflinePerson(
+                        name = "Lead",
+                        photo = "https://images.test/lead.jpg",
+                        tmdbId = 42,
+                    ),
+                ),
+            ),
+            artwork = mapOf(offlinePosterRole to poster),
+            artworkComplete = true,
+        )
+
+        val reconciled = reconcileOfflineRecords(
+            existingRecords = listOf(existing),
+            ownerProfileKey = existing.ownerProfileKey,
+            downloads = listOf(download),
+            localeTag = "en-US",
+            nowEpochMs = 20L,
+        ).recordsToUpsert.single()
+
+        assertFalse(reconciled.artworkComplete)
+        assertEquals(poster, reconciled.artwork[offlinePosterRole])
+    }
+
+    @Test
     fun `record codec keeps ownership refresh and download references`() {
         val record = record(
             metadataComplete = true,

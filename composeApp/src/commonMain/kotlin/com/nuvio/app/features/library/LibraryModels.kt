@@ -61,6 +61,48 @@ data class LibraryUiState(
     val errorMessage: String? = null,
 )
 
+internal data class LibraryArtworkFallback(
+    val type: String,
+    val ids: Set<String>,
+    val poster: String? = null,
+    val banner: String? = null,
+    val logo: String? = null,
+)
+
+internal fun LibraryItem.withArtworkFallback(
+    candidates: List<LibraryArtworkFallback>,
+): LibraryItem {
+    val itemType = type.normalizedLibraryArtworkType()
+    val itemIds = buildSet {
+        add(id.normalizedLibraryArtworkId())
+        imdbId?.let { add(it.normalizedLibraryArtworkId()) }
+        tmdbId?.let { value ->
+            add(value.toString())
+            add("tmdb:$value")
+        }
+        traktId?.let { value ->
+            add(value.toString())
+            add("trakt:$value")
+        }
+    }.filterTo(linkedSetOf(), String::isNotBlank)
+    val fallback = candidates.firstOrNull { candidate ->
+        candidate.type.normalizedLibraryArtworkType() == itemType &&
+            candidate.ids.any { id -> id.normalizedLibraryArtworkId() in itemIds }
+    } ?: return this
+    return copy(
+        poster = fallback.poster ?: poster,
+        banner = fallback.banner ?: banner,
+        logo = fallback.logo ?: logo,
+    )
+}
+
+private fun String.normalizedLibraryArtworkType(): String = when (trim().lowercase()) {
+    "show", "tv", "tvshow" -> "series"
+    else -> trim().lowercase()
+}
+
+private fun String.normalizedLibraryArtworkId(): String = trim().lowercase()
+
 fun MetaDetails.toLibraryItem(savedAtEpochMs: Long): LibraryItem =
     LibraryItem(
         id = id,

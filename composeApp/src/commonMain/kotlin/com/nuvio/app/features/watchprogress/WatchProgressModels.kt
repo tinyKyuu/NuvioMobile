@@ -218,6 +218,7 @@ data class ContinueWatchingItem(
     val progressFraction: Float,
     val isReleaseAlert: Boolean = false,
     val isNewSeasonRelease: Boolean = false,
+    val localArtwork: ContinueWatchingArtworkSet? = null,
 )
 
 internal fun continueWatchingItemKey(item: ContinueWatchingItem): String {

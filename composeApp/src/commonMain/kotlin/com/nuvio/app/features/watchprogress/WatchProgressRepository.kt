@@ -10,6 +10,7 @@ import com.nuvio.app.features.addons.AddonsUiState
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaDetailsRepository
+import com.nuvio.app.features.downloads.OfflineLibraryRepository
 import com.nuvio.app.features.player.PlayerPlaybackSnapshot
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.tracking.TrackingProgressProvider
@@ -1307,7 +1308,22 @@ object WatchProgressRepository {
             return
         }
 
-        val entry = localEntriesSnapshot().resolveIdentityForUpsert(candidateEntry)
+        val localEntries = localEntriesSnapshot()
+        val resolvedIdentity = localEntries.resolveIdentityForUpsert(candidateEntry)
+        val previousEntry = localEntries
+            .newestByProgressKey()[resolvedIdentity.resolvedProgressKey()]
+        val artworkResolution = OfflineLibraryRepository.resolveContinueWatchingArtwork(
+            profileId = targetProfileId,
+            parentMetaId = resolvedIdentity.parentMetaId,
+            parentMetaType = resolvedIdentity.parentMetaType,
+            mediaTitle = resolvedIdentity.title,
+            seasonNumber = resolvedIdentity.seasonNumber,
+            episodeNumber = resolvedIdentity.episodeNumber,
+        )
+        val entry = resolvedIdentity.withDurableArtwork(
+            resolution = artworkResolution,
+            previous = previousEntry,
+        )
         if (
             syncRemote &&
             !remoteWriteDeduplicator.shouldSend(
@@ -1381,7 +1397,12 @@ object WatchProgressRepository {
         } else {
             WatchProgressCodec.decodePayload(payload).entries
         }
-        return storedEntries.resolveIdentityForUpsert(entry)
+        val resolved = storedEntries.resolveIdentityForUpsert(entry)
+        val previous = storedEntries.newestByProgressKey()[resolved.resolvedProgressKey()]
+        return resolved.withDurableArtwork(
+            resolution = null,
+            previous = previous,
+        )
     }
 
     private fun pushScrobbleToServer(entry: WatchProgressEntry, profileId: Int) {

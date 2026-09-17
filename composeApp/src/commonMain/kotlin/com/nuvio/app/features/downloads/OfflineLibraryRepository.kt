@@ -7,6 +7,7 @@ import com.nuvio.app.features.details.OfflineMetaFetchResult
 import com.nuvio.app.features.details.OfflineMetaValidators
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.tmdb.TmdbSettingsRepository
+import com.nuvio.app.features.watchprogress.ContinueWatchingArtworkResolution
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
@@ -50,6 +51,30 @@ object OfflineLibraryRepository {
         return _uiState.value.titles.firstOrNull { title ->
             title.record.metaId == id && canonicalOfflineMetaType(title.record.metaType) == normalizedType
         }?.toMetaDetails()
+    }
+
+    internal fun resolveContinueWatchingArtwork(
+        profileId: Int,
+        parentMetaId: String,
+        parentMetaType: String,
+        mediaTitle: String,
+        seasonNumber: Int?,
+        episodeNumber: Int?,
+    ): ContinueWatchingArtworkResolution? {
+        if (ProfileRepository.activeProfileId != profileId) return null
+        ensureLoaded()
+        val expectedOwner = downloadOwnerProfileKey(profileId)
+        return synchronized(stateLock) {
+            if (loadedOwnerProfileKey != expectedOwner) return@synchronized null
+            _uiState.value.titles.resolveContinueWatchingArtwork(
+                profileId = profileId,
+                parentMetaId = parentMetaId,
+                parentMetaType = parentMetaType,
+                mediaTitle = mediaTitle,
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+            )
+        }
     }
 
     fun captureNormalDetails(

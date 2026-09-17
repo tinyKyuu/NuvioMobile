@@ -1,75 +1,119 @@
 # F07 network recovery review
 
-Status: correction complete on `codex/f07-network-recovery`; [PR #26](https://github.com/tinyKyuu/NuvioMobile/pull/26) is ready for organizer review. Do not merge or release from this note.
+Status: final correction complete on `codex/f07-network-recovery`; [PR #26](https://github.com/tinyKyuu/NuvioMobile/pull/26) is open for organizer review. Do not merge or release from this note.
 
 - Stable base: `a5d37a02ccd5ff37f5511e2e90ffe40117f4d5ce`
-- Tested implementation: `d84afa64307e12f0c7d88d5aa14a8d06146284ca`
+- Reviewed head superseded by this correction: `563e1950a0d69d3504f0f8653cecf5c5fd64e795`
+- Tested implementation: `e6b584774b6290a9c5a72c22a11478e101fa0279`
 - Version/build: `0.4.12` / `122` (unchanged)
 - Review date: September 17, 2026
 - Pull request: [#26](https://github.com/tinyKyuu/NuvioMobile/pull/26)
 
-## Final behavior
+## Final correction diagnosis
 
-### Connectivity detection and recovery
+The six correction tests were written against production seams before their implementations changed. The initial consolidated red run executed 69 tests and failed exactly six tests, one for each requested finding. A seventh Android loss-edge regression was added after the controlled runtime pass exposed stale capabilities during `onLost()`; that test also failed for the intended reason before the loss mapping changed.
 
-Android now observes the default network with `ConnectivityManager.NetworkCallback`; iOS uses `NWPathMonitor`. These observers are wake-up signals only. Every state change is still classified by the existing public-internet and configured-server HTTP probes before the app publishes `Online`, `NoInternet`, or `ServersUnreachable`.
+| Finding | Diagnosed root cause | Red regression | Resulting contract |
+| --- | --- | --- | --- |
+| Forced probe during an active probe | `requestRefresh()` returned the active generation for every overlapping request, so an availability edge or Reconnect was discarded and the old result could consume the only wake-up. | `availability during an active offline probe queues one fresh probe and one recovery`; retained `repeated Reconnect requests share one probe and a failed probe permits another attempt`. | One forced pending generation is reserved behind the active probe. Further forced requests reuse it, failure-confirmation intent is promoted, the pending probe starts in `finally`, and only its fresh Online result can start recovery. No offline timer was added. |
+| Android path validation | `onAvailable()` emitted `Available` before validation, and `NET_CAPABILITY_INTERNET` was treated as sufficient. `distinctUntilChanged()` could then suppress the later validation edge. The runtime pass also showed `onLost()` re-reading stale validated capabilities. | `android recovery availability requires validated internet capability`; follow-up `android default path loss is unavailable even while active capabilities are stale`. | `onAvailable()` emits nothing. Capability changes require both INTERNET and VALIDATED. Default-path loss is unconditionally Unavailable. The path is only a wake-up; HTTP still decides Online, NoInternet, or ServersUnreachable. |
+| Settings card refresh | The Settings wrapper accepted only `(String) -> Unit`, so the repository defaulted `forceRefresh` to false even though the selected URL was correct. | `addon card refresh force reloads only its selected manifest`. | A card calls `AddonRepository.refreshAddon(selectedManifestUrl, true)` and never calls the global recovery/refresh-all coordinator. |
+| Manual force-all partial publication | The manifest collector notified the coordinator only for `Changed`, so a successful `Unchanged` provider could not publish until the whole force-all batch settled. | `manual force all publishes an unchanged provider before another provider settles`. | Every successful force-all result, Changed or Unchanged, emits a provider-specific partial event as it settles. All enabled URLs are attempted and the final full reconciliation still runs after the batch. |
+| Changed-provider scope | `onManifestRecovered(String)` did not describe why a URL was ready. The coordinator accumulated every callback URL, so a later changed A reused the initial cumulative `{A, B}` set. | `changed stale provider reconciles without refetching an unrelated ready provider`. | `ManifestRecoveryEvent` distinguishes cached admission, missing recovery, stale change, and manual force result. Only cached admission builds the initial cumulative set; changed, newly recovered, and force-all results reconcile their one provider. |
+| Home reset lifetime | The app-shell producer used `remember`, while Home persisted its acknowledged generation with `rememberSaveable`. After saved-state restoration the consumer could be ahead of the new producer and reject the next real transition. | `saved state restoration cannot suppress the next real presentation transition`; retained `hidden Home consumes a pending presentation reset once without replay`. | One profile-scoped app-shell `HomePresentationResetState` owns both production and consumption. Activity recreation resets both sides together; hidden Home consumes a pending token once and returning later cannot replay it. |
 
-The observer is owned by the foreground app shell and has explicit start, duplicate-start coalescing, cancellation, and disposal behavior. The probe policy is:
+## Traced event sequences
 
-- Online has no timer. Startup, foreground entry, explicit Reconnect, and meaningful path changes are the only triggers.
-- A possible path loss while Online is debounced, then confirmed by HTTP. An initial failed HTTP classification is checked a second time before the confirmed condition changes.
-- NoInternet waits passively for the operating system to report an available path. That event starts one immediate, coalesced HTTP probe; there is no airplane-mode polling loop.
-- ServersUnreachable gets at most three foreground-only retries at 5, 15, and 30 seconds. Success, backgrounding, or exhausting the window stops the schedule.
-- Backgrounding cancels delayed and fallback work. Foreground entry schedules the existing six-second confirmation probe.
+### Probe and path events
 
-A confirmed offline-like-to-Online transition starts one profile-owned recovery generation. Recovery restores manifests, publishes usable providers as they become ready, then performs a full Home/Search/Discover reconciliation. The final pass now waits for current Home, Search, and Discover work to settle before publishing `Completed`. A renewed confirmed outage cancels the active generation and rejects late completion. Profile changes and replacement generations retain the same ownership guards.
-
-### Reconnect control and completion notification
-
-The root control is derived from one state machine:
-
-1. Confirmed offline and idle: `Offline · Reconnect`.
-2. HTTP probe active: spinner and `Reconnecting…`.
-3. Catalog recovery active: spinner and `Restoring content…`.
-4. Failed probe: return to the actionable offline state.
-5. Global recovery failure: `Couldn’t restore content · Reconnect`.
-6. Completed recovery: hide the control.
-
-The root action calls `NetworkRecoveryCoordinator.retry()`; it no longer bypasses the coordinator. Repeated presses and automatic events coalesce. During a retry, `isProbing` is separate from the last confirmed condition, so Home remains in its confirmed offline presentation until the HTTP result changes it.
-
-The wide control uses the tablet dock's surface color, chip shape, tonal elevation, and shadow tokens. The compact control has equivalent state descriptions for accessibility. `Back online` is emitted only for a later successful, currently-online `Completed` generation, after catalog reconciliation has returned. A failed or interrupted generation cannot claim success.
-
-### Home presentation, artwork, and scroll ownership
-
-Home uses one presentation value derived from the confirmed network condition:
-
-- Online keeps the remote hero and remote catalog rows together and omits the Downloaded row.
-- Confirmed offline hides the remote hero and remote rows atomically, filters Continue Watching to locally playable titles, and shows Downloaded content.
-- An unconfirmed probe retains the last confirmed presentation and cached metadata.
-
-Hero artwork tries the item's banner, then its poster, then the neutral themed surface. Catalog and hero metadata remain in memory through transport failures; no second persistence layer was added.
-
-An always-composed, profile-scoped transition tracker increments once for each confirmed Online→Offline and Offline→Online/recovery topology change. Home consumes the pending generation with a non-animated `scrollToItem(0)`. Duplicate states, recomposition, ordinary refresh, and manifest revalidation do not increment it. If Home is on another tab, the generation remains pending in the app shell and is consumed the next time Home is presented.
-
-### Manifest stale-while-revalidate contract
-
-Six hours remains a freshness threshold, not an expiry. Any valid parsed cached manifest remains in the ready-provider set while background validation is active, including when `isRefreshing == true`. Missing or invalid manifests still wait because no usable provider definition exists.
-
-Refresh results are explicit:
-
-- Unchanged: renew the successful-fetch timestamp and clear refresh state without provider-specific catalog reconciliation.
-- Changed: atomically publish the new manifest and reconcile only that provider before the final pass.
-- Failed: keep the old valid manifest and existing Home/Search/Discover content usable.
-
-The per-URL single-flight, profile/generation ownership, bounded versioned cache, partial healthy-provider publication, and final reconciliation remain intact. Manual `forceAllManifests` still fetches all enabled manifests. The refresh button on an add-on card again calls the per-add-on repository operation; no new global Settings action was added.
-
-## Regression evidence
-
-The first correction tests were added before the implementation change. Both failed on the audited production seams: a stale valid provider was not published while validation was held, and an explicitly ready parsed manifest was excluded when `isRefreshing` was true. The final focused correction suite passed 100 tests with no failures:
+The active-probe collision regression records this sequence through the production controller seam:
 
 ```text
-JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
-ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
+probe 1 -> NoInternet (confirmed offline)
+probe 2 -> held active
+Android/path Available -> reserve pending generation 3
+two more forced requests -> generation 3, generation 3
+probe 2 -> NoInternet
+probe 3 -> starts after probe 2 settles -> Online
+recovery transitions -> exactly 1
+```
+
+This is a three-probe, one-recovery trace. No delay is scheduled after confirmed NoInternet; only a platform event, explicit Reconnect, or foreground confirmation can request the next probe.
+
+The Android decision trace is:
+
+```text
+onAvailable -> no event
+INTERNET without VALIDATED -> Unavailable
+INTERNET plus VALIDATED -> Available -> HTTP probe
+onLost, even with stale active capabilities -> Unavailable -> debounced HTTP confirmation
+```
+
+### Manifest and catalog reconciliation
+
+Automatic recovery now has explicit event meaning:
+
+```text
+valid cached A, B -> CachedProviderAdmitted(A), then CachedProviderAdmitted(B)
+                    -> cumulative initial passes {A}, then {A, B}
+stale A Changed   -> StaleProviderChanged(A) -> affected-provider pass {A}
+missing B Changed -> MissingProviderRecovered(B) -> affected-provider pass {B}
+stale Unchanged   -> timestamp renewal only; no provider-specific pass
+batch settled     -> final full pass (readyManifestUrls = null)
+                    -> await Home, Search, and Discover -> Completed
+```
+
+Manual force-all preserves early publication without changing the final boundary:
+
+```text
+attempt A and B
+A -> Unchanged -> ManualForceResult(A) -> partial pass {A}
+B -> still held (A is already published)
+B -> failure
+batch settled -> final full pass -> Completed/Failed according to global reconciliation
+```
+
+Failures keep a usable cached manifest. Missing providers remain excluded until successful recovery. A changed provider never causes an unrelated valid provider to be fetched during its affected-provider pass.
+
+### Settings refresh and Home reset
+
+The Settings trace is `selected card URL -> refreshAddon(url, forceRefresh = true)`. The global coordinator is not involved.
+
+The Home trace is `confirmed presentation change -> app-shell generation +1 -> Home consume(token) -> scrollToItem(0)`. Duplicate conditions, probes, recompositions, and manifest work do not increment the token. If Home is hidden, consumption waits; the same token is rejected on return. After activity restoration, the app-shell-owned producer and consumer start a new session together, so the next real transition is accepted.
+
+## Preserved F07 behavior
+
+- Android uses `ConnectivityManager.NetworkCallback`; iOS uses `NWPathMonitor`. HTTP probes remain authoritative.
+- Online has no timer. NoInternet has no polling loop. ServersUnreachable keeps only the bounded foreground retry window at 5, 15, and 30 seconds.
+- Manual Reconnect is owned by `NetworkRecoveryCoordinator.retry()` and keeps confirmed-offline Home local-only while a probe is active.
+- Confirmed offline Home hides the remote hero and remote rows atomically, filters Continue Watching to locally playable titles, and shows Downloaded content. Online omits the Downloaded row.
+- Stale valid manifests remain usable during background validation; failed validation retains them and missing manifests wait.
+- Profile ownership, cancellation, generation guards, single-flight refreshes, partial publication, and the final full reconciliation remain intact.
+- Recovery stays visible until Home, Search, and Discover reconciliation settles. `Back online` is eligible only after a successful, currently-online `Completed` generation.
+- Hero artwork still falls back from banner to poster to the neutral themed surface. No navigation redesign was introduced.
+
+## Regression and build evidence
+
+### Red evidence
+
+The initial pre-implementation run covered the four affected test classes and produced:
+
+```text
+69 tests, 6 failures, 0 errors, 0 skipped
+```
+
+The failures were the six primary regressions named in the diagnosis table. After the first Android runtime attempt showed stale validated capabilities at default-path loss, the added loss-edge test produced:
+
+```text
+1 test, 1 assertion failure
+NetworkConnectivityRecoveryTest > android default path loss is unavailable even while active capabilities are stale
+```
+
+### Focused F07 suite
+
+The final focused command covered connectivity, coordinator, boundary, Home/Search/Details integration, manifest recovery, tabs, Home/hero, and Settings-card behavior:
+
+```text
 ./gradlew -Pnuvio.ios.distribution=appstore \
   -Pnuvio.android.distribution=full \
   :composeApp:testAndroidHostTest \
@@ -77,6 +121,8 @@ ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
   --tests 'com.nuvio.app.core.network.NetworkRecoveryBoundaryTest' \
   --tests 'com.nuvio.app.core.network.NetworkRecoveryCoordinatorTest' \
   --tests 'com.nuvio.app.core.network.NetworkRecoveryHomeIntegrationTest' \
+  --tests 'com.nuvio.app.core.network.NetworkRecoverySearchIntegrationTest' \
+  --tests 'com.nuvio.app.core.network.NetworkRecoveryDetailsTest' \
   --tests 'com.nuvio.app.features.addons.ManifestRecoveryTest' \
   --tests 'com.nuvio.app.MainTabsDestinationTest' \
   --tests 'com.nuvio.app.features.home.HomeScreenTest' \
@@ -84,116 +130,51 @@ ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
   --tests 'com.nuvio.app.features.addons.AddonsScreenTest' \
   --rerun-tasks --console=plain
 
-BUILD SUCCESSFUL in 55s
-100 tests, 0 failures, 0 errors, 0 skipped
+BUILD SUCCESSFUL in 53s
+124 tests, 0 failures, 0 errors, 0 skipped
 ```
 
-The case-by-case matrix covers:
+### Complete matrix
 
-| Acceptance case | Final regression evidence |
+| Check | Exact final result |
 | --- | --- |
-| Automatic foreground restoration | Platform-availability observation triggers a coalesced HTTP probe from confirmed offline and reaches coordinator recovery without a button. Duplicate start/event, cleanup, foreground/background, transient loss confirmation, and no-poll policies are asserted. |
-| Manual Reconnect | Retry requests a fresh probe through the coordinator; stale Online cannot start recovery; repeated input coalesces; failed probes remain offline; a successful fresh result starts one generation. |
-| Control states | Offline, probing, restoring, global failure, completed/hidden, and compact/wide presentation decisions are covered while the last confirmed condition remains unchanged during a probe. |
-| Completion boundary | The coordinator remains in `RefreshingCatalogs` while final reconciliation is suspended. Production Home, Search, and Discover awaiters do not return until their current jobs settle. A renewed outage invalidates late completion. |
-| Back online | The notification tracker rejects restoring, failed, duplicate, and completed-while-offline generations and accepts only a later successful online completion. |
-| Stale manifests | Held, unchanged, changed, failed, fresh, missing, and force-all paths use the production batch/single-flight seams. Valid stale manifests publish immediately and remain usable in Home, Search, and selected Discover while validation is active. |
-| Targeted Settings refresh | The add-on card operation records exactly its selected manifest URL; a separate force-all recovery still attempts every enabled add-on. |
-| Atomic Home | The presentation helper switches hero/remote rows and Downloaded visibility together only on confirmed state. Offline content is local-only; probing preserves the prior confirmed mode. |
-| Scroll reset | Exactly one reset generation is produced for each confirmed direction, duplicates produce none, and a generation remains pending while Home is not presented. |
-| Hero fallback | Metadata survives partial, held, and failed transports. Artwork candidates are banner, distinct poster, then neutral surface. |
-| Existing F07 behavior | Cold/warm partial publication, Search empty-versus-failure handling, interrupted Details retry, generation/profile rejection, offline snapshots, Downloaded, Continue Watching, and local playback regressions remain in the complete suite. |
+| Complete Android-host suite + Full debug APK | `BUILD SUCCESSFUL in 1m 34s`; 1,071 tests, 0 failures, 0 errors, 0 skipped; 69 tasks executed |
+| Full debug artifact | `androidApp/build/outputs/apk/full/debug/androidApp-full-debug.apk`; 158,020,576 bytes |
+| Play Store debug APK | `BUILD SUCCESSFUL in 1m 16s`; 63 tasks executed |
+| Play Store debug artifact | `androidApp/build/outputs/apk/playstore/debug/androidApp-playstore-debug.apk`; 155,611,599 bytes |
+| Kotlin/Native iOS simulator test target | `:composeApp:compileTestKotlinIosSimulatorArm64`; `BUILD SUCCESSFUL in 46s`; 24 tasks executed |
+| Unsigned Full iOS simulator app | `xcodebuild ... CODE_SIGNING_ALLOWED=NO`; `** BUILD SUCCEEDED **` |
 
-## Complete build matrix
+The Android and Kotlin commands used the Android Studio JBR, Android SDK at `/Users/muharrem/Library/Android/sdk`, and the configured Nuvio engine at `/Users/muharrem/Documents/ChatGPT/Nuvio iOS/build/nuvio-engine`. The Xcode product is `/private/tmp/nuvio-f07-consolidated-final-derived/Build/Products/Debug-iphonesimulator/Nuvio.app`.
 
-The tested implementation passed the complete Android-host suite and Full debug build:
+## Controlled Android foreground runtime
 
-```text
-JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
-ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
-./gradlew -Pnuvio.ios.distribution=appstore \
-  -Pnuvio.android.distribution=full \
-  :composeApp:testAndroidHostTest :androidApp:assembleFullDebug \
-  --rerun-tasks --console=plain
+The final Full APK was installed on a Pixel 8 API 36 emulator as `com.nuviodebug.com`. Nuvio remained the top-resumed activity; there was no relaunch, tab change, or background/foreground shortcut.
 
-BUILD SUCCESSFUL in 1m 39s
-1,063 tests, 0 failures, 0 errors, 0 skipped
-```
+1. Startup probes 1 and 2 classified Online.
+2. Airplane mode produced probe 3 `NoInternet`. Accessibility exposed `No internet connection · Reconnect` while Home remained in its local presentation.
+3. Activating the root control while airplane mode remained enabled produced one fresh probe 4 `NoInternet` and returned to the actionable offline state.
+4. Disabling airplane mode produced probe 5 `Online` from the validated Android path edge. Recovery generation 2 logged `RestoringAddons`, `RefreshingCatalogs`, and `Completed`; the reconnect control was absent after completion.
+5. A bounded 10-second emulator transport delay made `Reconnecting…` observable in the live accessibility tree during a follow-up restoration.
+6. A temporary eight-second local response hold on the already configured `10.0.2.2:8766` manifest made `Restoring content…` observable. Recovery generation 4 remained in reconciliation until the hold released, logged `Completed` at `11:08:18.615`, and only then did the accessibility tree contain no reconnect/restoring control.
 
-The separate Play Store build passed:
+The temporary fixture and emulator were stopped after verification. The configured catalog endpoints do not provide a durable production fixture, so this pass does not claim rendered remote catalog rows. Repository/controller regressions provide deterministic evidence for partial publication, provider-only reconciliation, final settlement, warm-content retention, and completion gating.
 
-```text
-JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
-ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
-./gradlew -Pnuvio.ios.distribution=appstore \
-  -Pnuvio.android.distribution=playstore \
-  :androidApp:assemblePlaystoreDebug \
-  --rerun-tasks --console=plain
+The active-probe/availability collision was exercised through the controlled production `NetworkStatusController` seam: the older probe was held, Available reserved one pending probe, repeated forced requests coalesced, the old NoInternet result settled, the pending Online result ran, and recovery fired once.
 
-BUILD SUCCESSFUL in 1m 21s
-```
-
-Artifacts:
-
-- `androidApp-full-debug.apk`: 158,015,256 bytes
-- `androidApp-playstore-debug.apk`: 155,606,263 bytes
-
-Kotlin/Native simulator test compilation passed:
-
-```text
-JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
-ANDROID_HOME='/Users/muharrem/Library/Android/sdk' \
-NUVIO_ENGINE_ROOT='/Users/muharrem/Documents/ChatGPT/Nuvio iOS/build/nuvio-engine' \
-./gradlew -Pnuvio.ios.distribution=full \
-  -Pnuvio.android.distribution=full \
-  :composeApp:compileTestKotlinIosSimulatorArm64 \
-  --rerun-tasks --console=plain
-
-BUILD SUCCESSFUL in 50s
-```
-
-The unsigned Full iOS simulator app also passed:
-
-```text
-NUVIO_IOS_DISTRIBUTION=full \
-NUVIO_ENGINE_ROOT='/Users/muharrem/Documents/ChatGPT/Nuvio iOS/build/nuvio-engine' \
-JAVA_HOME='/Applications/Android Studio.app/Contents/jbr/Contents/Home' \
-xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp \
-  -configuration Debug -sdk iphonesimulator \
-  -destination 'generic/platform=iOS Simulator' \
-  -derivedDataPath /private/tmp/nuvio-f07-final-correction-derived \
-  -disableAutomaticPackageResolution \
-  build CODE_SIGNING_ALLOWED=NO
-
-** BUILD SUCCEEDED **
-```
-
-## Runtime evidence
-
-The final Full APK was installed on a Pixel 8 API 36 emulator as `com.nuviodebug.com`. Nuvio stayed the foreground activity for the complete sequence; there was no relaunch, tab change, or background/foreground trigger.
-
-1. Startup classified Online (`NetworkStatus` generations 1 and 2).
-2. Enabling airplane mode produced generation 3 `NoInternet`. Accessibility exposed `No internet connection · Reconnect`, and Home showed the local offline presentation.
-3. Activating the root control while airplane mode remained enabled produced a fresh generation 4 `NoInternet` and returned to the same actionable offline state. This is the manual failed-probe path through the coordinator.
-4. Disabling airplane mode produced generation 5 `Online` from the Android path callback without a button. Recovery generation 2 logged `RestoringAddons`, `RefreshingCatalogs`, then `Completed`; the root reconnect control disappeared.
-
-The emulator's configured catalog fixture at `10.0.2.2:8765` was not running, so this final runtime pass does not claim rendered remote catalog content. Catalog restoration, completion gating, warm-content retention, and success/failure replacement are covered at production repository/controller seams in the 100 focused tests and retained complete suite. The emulator was stopped after verification.
-
-The unsigned iOS app installed and cold-launched on simulator `68A42C7D-B136-4518-A02B-F4CED41E2986` with bundle ID `com.tinykyuu.nuvio.internal`. `simctl` does not expose a supported Wi-Fi/airplane toggle, so this pass does not claim an interactive iOS path transition. `NWPathMonitor` compilation and observer lifecycle are covered by the iOS build and shared observation tests, respectively.
-
-## Upstream and donor relationship
+## Provenance
 
 - Official NuvioMobile was reviewed through [`95347544`](https://github.com/NuvioMedia/NuvioMobile/commit/95347544858e31d8cf36569a3b154961276ed46e). Official commit [`085e8dc6`](https://github.com/NuvioMedia/NuvioMobile/commit/085e8dc6aaf5072541130be852a782998fc3dbad) is the delayed loading/error-state presentation source; it does not provide this coordinator, event-driven path observation, or cache contract.
-- Official draft [PR #1897](https://github.com/NuvioMedia/NuvioMobile/pull/1897), reviewed at `929757d0e4193eadc2c0b0e9eda19de54b6e88b3`, is the donor for the six-hour manifest-cache freshness intent. Its unversioned, unbounded draft cache was not copied. F07 adds schema versioning, bounds, profile lifecycle, stale-while-revalidate semantics, single-flight requests, and generation guards.
+- Official draft [PR #1897](https://github.com/NuvioMedia/NuvioMobile/pull/1897), reviewed at `929757d0e4193eadc2c0b0e9eda19de54b6e88b3`, is the donor for the six-hour manifest-cache freshness intent. Its unversioned, unbounded draft cache was not copied.
 - Official [issue #1612](https://github.com/NuvioMedia/NuvioMobile/issues/1612) records related stale profile/manifest/Home ordering symptoms and was closed as not planned.
 - `luqmanfadlli/NuvioMobile-Enhanced` at `db904462af18570cf023d69b57c9632efea816f9` and `AKRusso/NuvioMobile-Enhanced` at `ac03c46a` were checked; neither supplies an equivalent recovery state machine.
 
 ## Deferred organizer and release checks
 
-No merge, TestFlight upload, signed Android release, or public artifact was produced.
+No merge, TestFlight upload, signed release, version change, or public artifact was produced.
 
-Physical iPad and Android interaction remains deferred. The release-candidate checklist must cover foreground Wi-Fi off/on, automatic restoration after a long offline interval, manual Reconnect after a failed probe, Home hero/row synchronization, both one-shot scroll resets including a hidden Home tab, light/dark/AMOLED tablet and compact control styling, Downloads, local Continue Watching, offline Details, and local playback. iOS interactive path switching is part of that physical-device pass.
+Physical iPad and Android interaction remains deferred. Interactive iOS path switching is also deferred because `simctl` has no supported Wi-Fi/airplane control. The release-candidate checklist must cover physical foreground Wi-Fi off/on, automatic restoration after a long offline interval, failed manual Reconnect, visible and hidden-Home one-shot scroll resets, Home hero/row synchronization, light/dark/AMOLED styling, Downloads, local Continue Watching, offline Details, local playback, and signed/TestFlight release-candidate work.
 
 ## Rollback
 
-Rollback is source-only: remove the platform path monitor and root observer, restore direct status retry routing, revert the coordinator completion join and manifest outcome comparison, and remove the presentation reset tracker. Stored `addon_manifest_cache_<profileId>` values remain safe to discard; they contain no downloads or catalog-result databases. Unsupported cache schema versions already decode as empty.
+Rollback is source-only: remove the platform path monitor and root observer, restore direct status retry routing, revert typed manifest recovery events and provider-scoped reconciliation, restore the prior Home reset ownership, and remove the coordinator completion join. Stored `addon_manifest_cache_<profileId>` values remain safe to discard; they contain no downloads or catalog-result databases. Unsupported cache schema versions already decode as empty.

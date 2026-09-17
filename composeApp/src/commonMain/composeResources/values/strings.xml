@@ -1533,6 +1533,10 @@
     <string name="meta_section_trailers_description">Trailer rail and playback shortcuts.</string>
     <string name="network_back_online">Back online</string>
     <string name="network_cannot_reach_servers">Cannot reach servers</string>
+    <string name="network_reconnect">Reconnect</string>
+    <string name="network_reconnecting">Reconnecting…</string>
+    <string name="network_restore_failed_reconnect">Couldn’t restore content · Reconnect</string>
+    <string name="network_restoring_content">Restoring content…</string>
     <string name="network_error_empty_response_body">Empty response body</string>
     <string name="network_error_request_failed_http">Request failed with HTTP %1$d</string>
     <string name="network_no_internet_connection">No internet connection</string>

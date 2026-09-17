@@ -17,9 +17,27 @@ import kotlin.test.assertTrue
 
 class ManifestRecoveryTest {
     @Test
+    fun `unchanged manifest renews successfully without redundant provider reconciliation`() = runBlocking {
+        var reconciliationCount = 0
+
+        val result = collectManifestRecoveryResults(
+            requests = mapOf(
+                "https://unchanged.example/manifest.json" to
+                    CompletableDeferred(ManifestRefreshOutcome.Unchanged),
+            ),
+            isCurrent = { true },
+            onManifestRecovered = { reconciliationCount += 1 },
+        )
+
+        assertEquals(setOf("https://unchanged.example/manifest.json"), result.recoveredUrls)
+        assertTrue(result.changedUrls.isEmpty())
+        assertEquals(0, reconciliationCount)
+    }
+
+    @Test
     fun `healthy manifest publishes before another provider settles`() = runBlocking {
-        val healthy = CompletableDeferred(true)
-        val hanging = CompletableDeferred<Boolean>()
+        val healthy = CompletableDeferred(ManifestRefreshOutcome.Changed)
+        val hanging = CompletableDeferred<ManifestRefreshOutcome>()
         val healthyPublished = CompletableDeferred<String>()
 
         val recovery = async {
@@ -36,7 +54,7 @@ class ManifestRecoveryTest {
         assertEquals("healthy", healthyPublished.await())
         assertFalse(recovery.isCompleted)
 
-        hanging.complete(false)
+        hanging.complete(ManifestRefreshOutcome.Failed)
         val result = recovery.await()
         assertEquals(setOf("healthy"), result.recoveredUrls)
         assertEquals(setOf("hanging"), result.failedUrls)
@@ -48,7 +66,7 @@ class ManifestRecoveryTest {
         val singleFlight = ManifestRefreshSingleFlight()
         val url = "https://first-launch.example/manifest.json"
         val offlineRequestStarted = CompletableDeferred<Unit>()
-        val offlineRequestNeverCompletes = CompletableDeferred<Boolean>()
+        val offlineRequestNeverCompletes = CompletableDeferred<ManifestRefreshOutcome>()
         val offlineRequest = singleFlight.start(
             scope = scope,
             manifestUrl = url,
@@ -72,7 +90,7 @@ class ManifestRecoveryTest {
                 reason = ManifestRefreshReason.Recovery,
                 recoveryGeneration = 1L,
             ),
-        ) { true }
+        ) { ManifestRefreshOutcome.Changed }
         assertNotSame(offlineRequest, reconnectRequest)
 
         var contentRecovered = false
@@ -93,7 +111,7 @@ class ManifestRecoveryTest {
     fun `same recovery generation keeps one request`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val singleFlight = ManifestRefreshSingleFlight()
-        val hold = CompletableDeferred<Boolean>()
+        val hold = CompletableDeferred<ManifestRefreshOutcome>()
         val identity = ManifestRefreshIdentity(
             profileId = 1,
             profileGeneration = 2L,
@@ -112,7 +130,7 @@ class ManifestRecoveryTest {
 
     @Test
     fun `profile switch rejects a late manifest result`() = runBlocking {
-        val late = CompletableDeferred<Boolean>()
+        val late = CompletableDeferred<ManifestRefreshOutcome>()
         var current = true
         var published = false
         val recovery = async {
@@ -124,7 +142,7 @@ class ManifestRecoveryTest {
         }
 
         current = false
-        late.complete(true)
+        late.complete(ManifestRefreshOutcome.Changed)
         val result = recovery.await()
 
         assertTrue(result.stale)

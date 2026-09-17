@@ -52,11 +52,34 @@ data class NetworkRecoveryUiState(
         generation.takeIf { this.profileId == profileId && phase != NetworkRecoveryPhase.Idle }
 }
 
+internal class BackOnlineToastTracker(initialGeneration: Long) {
+    private var lastTerminalGeneration = initialGeneration
+    private var offlinePending = false
+
+    fun onNetworkCondition(condition: NetworkCondition) {
+        if (condition == NetworkCondition.NoInternet || condition == NetworkCondition.ServersUnreachable) {
+            offlinePending = true
+        }
+    }
+
+    fun onRecoveryState(state: NetworkRecoveryUiState, isOnline: Boolean = true): Boolean {
+        if (state.phase != NetworkRecoveryPhase.Completed && state.phase != NetworkRecoveryPhase.Failed) {
+            return false
+        }
+        if (state.generation <= lastTerminalGeneration) return false
+        lastTerminalGeneration = state.generation
+        if (state.phase != NetworkRecoveryPhase.Completed || !offlinePending || !isOnline) return false
+        offlinePending = false
+        return true
+    }
+}
+
 internal data class ManifestRecoveryOutcome(
     val attemptedUrls: Set<String> = emptySet(),
     val recoveredUrls: Set<String> = emptySet(),
     val failedUrls: Set<String> = emptySet(),
     val stale: Boolean = false,
+    val changedUrls: Set<String> = emptySet(),
 )
 
 internal interface NetworkRecoveryOperations {
@@ -81,8 +104,7 @@ internal fun addonsForRecoveryPass(
     if (readyManifestUrls == null) return enabledAddons
     return enabledAddons.filter { addon ->
         addon.manifestUrl in readyManifestUrls &&
-            addon.manifest != null &&
-            !addon.isRefreshing
+            addon.manifest != null
     }
 }
 
@@ -242,6 +264,7 @@ object NetworkRecoveryCoordinator {
             return ManifestRecoveryOutcome(
                 attemptedUrls = result.attemptedUrls,
                 recoveredUrls = result.recoveredUrls,
+                changedUrls = result.changedUrls,
                 failedUrls = result.failedUrls,
                 stale = result.stale,
             )
@@ -262,6 +285,8 @@ object NetworkRecoveryCoordinator {
             HomeRepository.refresh(readyAddons, force = true, partial = readyManifestUrls != null)
             SearchRepository.refreshAfterRecovery(enabledAddons, readyManifestUrls)
             if (readyManifestUrls != null) return
+            HomeRepository.awaitCurrentRefresh()
+            SearchRepository.awaitCurrentRecoveryRefresh()
             OfflineLibraryRepository.refreshMissingAndStale()
             CatalogRepository.onRecoveryGeneration(generation)
             MetaDetailsRepository.onRecoveryGeneration(generation)
@@ -343,11 +368,13 @@ internal class NetworkRecoveryController(
 
     fun onNetworkState(state: NetworkStatusUiState) {
         var shouldRecover = false
+        var shouldCancelRecovery = false
         var forceAll = false
         var reconnected = false
         var trigger = NetworkRecoveryTrigger.Reconnect
         synchronized(transitionLock) {
             reconnected = transitionTracker.onCondition(state.condition)
+            shouldCancelRecovery = state.isOfflineLike && _uiState.value.isRecovering
             if (state.isOnline) {
                 val retryReady = retryProbeGeneration?.let { state.probeGeneration >= it } == true
                 shouldRecover = reconnected || retryReady
@@ -358,6 +385,15 @@ internal class NetworkRecoveryController(
                     forceAllPendingUntilOnline = false
                 }
             }
+        }
+
+        if (shouldCancelRecovery) {
+            val profileId = activeProfileId()
+            val generation = requestGate.invalidate()
+            _uiState.value = NetworkRecoveryUiState(
+                profileId = profileId,
+                generation = generation,
+            )
         }
 
         if (shouldRecover) {

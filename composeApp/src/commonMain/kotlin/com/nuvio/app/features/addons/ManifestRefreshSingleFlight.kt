@@ -18,6 +18,16 @@ internal enum class ManifestRefreshReason {
     Recovery,
 }
 
+internal enum class ManifestRefreshOutcome {
+    Changed,
+    Unchanged,
+    Failed,
+    ;
+
+    val succeeded: Boolean
+        get() = this != Failed
+}
+
 internal data class ManifestRefreshIdentity(
     val profileId: Int,
     val profileGeneration: Long,
@@ -47,7 +57,7 @@ internal fun shouldReplaceManifestRefresh(
 internal class ManifestRefreshSingleFlight {
     private data class ActiveRequest(
         val identity: ManifestRefreshIdentity,
-        val deferred: Deferred<Boolean>,
+        val deferred: Deferred<ManifestRefreshOutcome>,
     )
 
     private val lock = SynchronizedObject()
@@ -58,9 +68,9 @@ internal class ManifestRefreshSingleFlight {
         manifestUrl: String,
         identity: ManifestRefreshIdentity,
         onStarted: () -> Unit = {},
-        block: suspend () -> Boolean,
-    ): Deferred<Boolean> {
-        lateinit var request: Deferred<Boolean>
+        block: suspend () -> ManifestRefreshOutcome,
+    ): Deferred<ManifestRefreshOutcome> {
+        lateinit var request: Deferred<ManifestRefreshOutcome>
         request = scope.async(start = CoroutineStart.LAZY) {
             try {
                 block()
@@ -73,8 +83,8 @@ internal class ManifestRefreshSingleFlight {
             }
         }
 
-        var sharedRequest: Deferred<Boolean>? = null
-        var displacedRequest: Deferred<Boolean>? = null
+        var sharedRequest: Deferred<ManifestRefreshOutcome>? = null
+        var displacedRequest: Deferred<ManifestRefreshOutcome>? = null
         synchronized(lock) {
             val active = activeRequests[manifestUrl]
                 ?.takeUnless { it.deferred.isCompleted }
@@ -110,7 +120,7 @@ internal class ManifestRefreshSingleFlight {
 }
 
 internal suspend fun collectManifestRecoveryResults(
-    requests: Map<String, Deferred<Boolean>>,
+    requests: Map<String, Deferred<ManifestRefreshOutcome>>,
     isCurrent: () -> Boolean,
     onManifestRecovered: suspend (String) -> Unit,
 ): AddonManifestRecoveryResult = coroutineScope {
@@ -118,7 +128,7 @@ internal suspend fun collectManifestRecoveryResults(
         return@coroutineScope AddonManifestRecoveryResult(emptySet(), emptySet(), emptySet())
     }
 
-    val results = Channel<Pair<String, Boolean>>(capacity = requests.size)
+    val results = Channel<Pair<String, ManifestRefreshOutcome>>(capacity = requests.size)
     val waiters = requests.map { (manifestUrl, request) ->
         launch {
             results.send(manifestUrl to request.await())
@@ -129,6 +139,7 @@ internal suspend fun collectManifestRecoveryResults(
         results.close()
     }
     val recoveredUrls = linkedSetOf<String>()
+    val changedUrls = linkedSetOf<String>()
     val failedUrls = linkedSetOf<String>()
 
     try {
@@ -140,11 +151,15 @@ internal suspend fun collectManifestRecoveryResults(
                     recoveredUrls = emptySet(),
                     failedUrls = emptySet(),
                     stale = true,
+                    changedUrls = emptySet(),
                 )
             }
-            if (succeeded) {
+            if (succeeded.succeeded) {
                 recoveredUrls += manifestUrl
-                onManifestRecovered(manifestUrl)
+                if (succeeded == ManifestRefreshOutcome.Changed) {
+                    changedUrls += manifestUrl
+                    onManifestRecovered(manifestUrl)
+                }
             } else {
                 failedUrls += manifestUrl
             }
@@ -157,6 +172,7 @@ internal suspend fun collectManifestRecoveryResults(
     AddonManifestRecoveryResult(
         attemptedUrls = requests.keys,
         recoveredUrls = recoveredUrls,
+        changedUrls = changedUrls,
         failedUrls = failedUrls,
         stale = !isCurrent(),
     )
@@ -169,22 +185,32 @@ internal suspend fun recoverAddonManifestBatch(
     nowEpochMs: Long,
     forceAll: Boolean,
     isCurrent: () -> Boolean,
-    startRefresh: (String) -> Deferred<Boolean>,
+    startRefresh: (String) -> Deferred<ManifestRefreshOutcome>,
     onManifestRecovered: suspend (String) -> Unit,
 ): AddonManifestRecoveryResult {
     if (!isCurrent()) return AddonManifestRecoveryResult(emptySet(), emptySet(), emptySet(), stale = true)
     val attemptedUrls = selectAddonManifestRefreshUrls(addons, cache, nowEpochMs, forceAll)
+    // Every valid parsed manifest remains usable while background validation is
+    // pending. Missing manifests still wait for a successful transport result.
+    if (!forceAll && attemptedUrls.isNotEmpty()) {
+        addons.asSequence()
+            .filter { it.enabled && it.manifest != null }
+            .map(ManagedAddon::manifestUrl)
+            .distinct()
+            .forEach { if (isCurrent()) onManifestRecovered(it) }
+    }
+    if (!isCurrent()) {
+        return AddonManifestRecoveryResult(emptySet(), emptySet(), emptySet(), stale = true)
+    }
     if (attemptedUrls.isEmpty()) {
-        return AddonManifestRecoveryResult(attemptedUrls, emptySet(), emptySet(), stale = !isCurrent())
+        return AddonManifestRecoveryResult(
+            attemptedUrls = attemptedUrls,
+            recoveredUrls = emptySet(),
+            failedUrls = emptySet(),
+            stale = !isCurrent(),
+        )
     }
     val requests = attemptedUrls.associateWith(startRefresh)
-    // Selection intentionally omits fresh manifests. They are usable now, even
-    // while an unrelated missing/stale manifest is still in flight.
-    addons.asSequence()
-        .filter { it.enabled && it.manifest != null && !it.isRefreshing && it.manifestUrl !in attemptedUrls }
-        .map(ManagedAddon::manifestUrl)
-        .distinct()
-        .forEach { if (isCurrent()) onManifestRecovered(it) }
     return collectManifestRecoveryResults(
         requests = requests,
         isCurrent = isCurrent,

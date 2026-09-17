@@ -11,6 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -121,6 +122,7 @@ fun HomeScreen(
     modifier: Modifier = Modifier,
     animateCollectionGifs: Boolean = true,
     scrollToTopRequests: Flow<Unit> = emptyFlow(),
+    presentationResetGeneration: Long = 0L,
     onCatalogClick: ((HomeCatalogSection) -> Unit)? = null,
     onPosterClick: ((MetaPreview) -> Unit)? = null,
     onPosterLongClick: ((MetaPreview) -> Unit)? = null,
@@ -159,6 +161,9 @@ fun HomeScreen(
     val effectiveWatchProgressSource = watchProgressUiState.source
     val cloudLibraryUiState by CloudLibraryRepository.uiState.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    val homePresentation = remember(networkStatusUiState.condition) {
+        homePresentationFor(networkStatusUiState)
+    }
     val networkRecoveryUiState by NetworkRecoveryCoordinator.uiState.collectAsStateWithLifecycle()
     val downloadsUiState by remember {
         DownloadsRepository.ensureLoaded()
@@ -177,7 +182,6 @@ fun HomeScreen(
             homeListState.animateScrollToItem(0)
         }
     }
-
     val progressProviderOwnsCompletedHistory = remember(effectiveWatchProgressSource) {
         WatchProgressRepository.activeProviderOwnsCompletedHistoryProjection()
     }
@@ -295,6 +299,15 @@ fun HomeScreen(
     }
     val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
     val activeProfileId = profileState.activeProfile?.profileIndex ?: 1
+    var handledPresentationResetGeneration by rememberSaveable(activeProfileId) {
+        mutableStateOf(0L)
+    }
+    LaunchedEffect(activeProfileId, presentationResetGeneration) {
+        if (presentationResetGeneration > handledPresentationResetGeneration) {
+            handledPresentationResetGeneration = presentationResetGeneration
+            homeListState.scrollToItem(0)
+        }
+    }
     val recoveryInProgress = networkRecoveryUiState.profileId == activeProfileId &&
         networkRecoveryUiState.isRecovering
     val cwCacheGeneration by ContinueWatchingEnrichmentCache.generation.collectAsStateWithLifecycle()
@@ -476,7 +489,7 @@ fun HomeScreen(
         downloadsUiState.completedItems,
         offlineLibraryUiState.titles,
     ) {
-        if (!networkStatusUiState.isOfflineLike) {
+        if (homePresentation.mode == HomePresentationMode.Online) {
             allContinueWatchingItems
         } else {
             resolveHomeContinueWatchingForOffline(
@@ -831,8 +844,8 @@ fun HomeScreen(
     val downloadedTitles = remember(offlineLibraryUiState.titles) {
         offlineLibraryUiState.titles.filter { it.isPlayable }.map { it.toMetaPreview() }
     }
-    val offlineDownloadedTitles = remember(downloadedTitles, networkStatusUiState.isOfflineLike) {
-        if (networkStatusUiState.isOfflineLike) downloadedTitles else emptyList()
+    val offlineDownloadedTitles = remember(downloadedTitles, homePresentation.showDownloadedContent) {
+        if (homePresentation.showDownloadedContent) downloadedTitles else emptyList()
     }
     var firstCatalogReported by remember { mutableStateOf(false) }
 
@@ -881,7 +894,7 @@ fun HomeScreen(
     }
     val hasRenderableHomeRows = homeUiState.sections.isNotEmpty() || hasRenderableCollectionRows
     val isResolvingHeroSources = addonManifestsLoading || recoveryInProgress || homeUiState.isLoading
-    val showHeroSlot = !networkStatusUiState.isOfflineLike && shouldShowHomeHeroSlot(
+    val showHeroSlot = homePresentation.showRemoteContent && shouldShowHomeHeroSlot(
         heroEnabled = homeSettingsUiState.heroEnabled,
         hasHeroItems = homeUiState.heroItems.isNotEmpty(),
         isResolvingHeroSources = isResolvingHeroSources,
@@ -890,7 +903,7 @@ fun HomeScreen(
     val showHeroSkeleton = showHeroSlot &&
         homeUiState.heroItems.isEmpty() &&
         isResolvingHeroSources
-    val isInitialHomeContentLoading = !networkStatusUiState.isOfflineLike &&
+    val isInitialHomeContentLoading = homePresentation.showRemoteContent &&
         shouldShowInitialHomeLoading(
             hasRenderableHomeRows = hasRenderableHomeRows,
             addonManifestsLoading = addonManifestsLoading || recoveryInProgress,
@@ -973,7 +986,7 @@ fun HomeScreen(
 
             when {
                 shouldShowOfflineHomeConnectionCard(
-                    isOfflineLike = networkStatusUiState.isOfflineLike,
+                    isOfflineLike = homePresentation.mode == HomePresentationMode.Offline,
                     hasPlayableDownloads = offlineDownloadedTitles.isNotEmpty(),
                     hasContinueWatchingRows = hasContinueWatchingRows,
                 ) -> {
@@ -1025,7 +1038,7 @@ fun HomeScreen(
                     )
                     item {
                         when {
-                            networkStatusUiState.isOfflineLike && addonManifestErrorMessage != null -> {
+                            homePresentation.mode == HomePresentationMode.Offline && addonManifestErrorMessage != null -> {
                                 NuvioNetworkOfflineCard(
                                     condition = networkStatusUiState.condition,
                                     modifier = Modifier.padding(horizontal = 16.dp),
@@ -1058,7 +1071,7 @@ fun HomeScreen(
                     (!continueWatchingPreferences.isVisible || !hasContinueWatchingRows) &&
                     !hasRenderableCollectionRows && offlineDownloadedTitles.isEmpty() -> {
                     item {
-                        if (networkStatusUiState.isOfflineLike) {
+                        if (homePresentation.mode == HomePresentationMode.Offline) {
                             NuvioNetworkOfflineCard(
                                 condition = networkStatusUiState.condition,
                                 modifier = Modifier.padding(horizontal = 16.dp),
@@ -1095,7 +1108,7 @@ fun HomeScreen(
                         disintegrationRequest = continueWatchingDisintegrationRequest,
                     )
 
-                    if (networkStatusUiState.isOfflineLike) {
+                    if (homePresentation.showDownloadedContent) {
                         homeDownloadedSection(
                             items = offlineDownloadedTitles,
                             sectionPadding = homeSectionPadding,
@@ -1103,7 +1116,7 @@ fun HomeScreen(
                         )
                     }
 
-                    if (!networkStatusUiState.isOfflineLike) {
+                    if (homePresentation.showRemoteContent) {
                         keyedEnabledHomeItems.forEach { keyedSettingsItem ->
                             val settingsItem = keyedSettingsItem.value
                             if (settingsItem.isCollection) {

@@ -61,6 +61,11 @@ object HomeRepository {
         )
     }
 
+    internal suspend fun awaitCurrentRefresh() {
+        activeJob?.join()
+        collectionHeroJob?.join()
+    }
+
     internal fun refreshWithLoader(
         addons: List<ManagedAddon>,
         force: Boolean = false,

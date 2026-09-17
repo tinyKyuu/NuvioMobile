@@ -19,6 +19,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.rounded.PublicOff
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.PlainTooltip
@@ -37,6 +38,8 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -68,12 +71,15 @@ import com.nuvio.app.navigation.AppRoute
 import com.nuvio.app.navigation.NuvioNavigator
 import kotlinx.coroutines.flow.Flow
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.action_retry
 import nuvio.composeapp.generated.resources.app_brand_name
 import nuvio.composeapp.generated.resources.compose_nav_home
 import nuvio.composeapp.generated.resources.compose_nav_library
 import nuvio.composeapp.generated.resources.compose_nav_search
 import nuvio.composeapp.generated.resources.compose_settings_page_root
+import nuvio.composeapp.generated.resources.network_reconnect
+import nuvio.composeapp.generated.resources.network_reconnecting
+import nuvio.composeapp.generated.resources.network_restore_failed_reconnect
+import nuvio.composeapp.generated.resources.network_restoring_content
 import nuvio.composeapp.generated.resources.sidebar_library
 import nuvio.composeapp.generated.resources.sidebar_search
 import org.jetbrains.compose.resources.painterResource
@@ -101,6 +107,7 @@ internal fun rememberGuardedPopBackStack(
 internal data class AppTabState(
     val searchListState: LazyListState,
     val homeContentGeneration: Int = 0,
+    val homePresentationResetGeneration: Long = 0L,
     val searchFocusRequestCount: Int = 0,
     val rootActionsEnabled: Boolean = true,
     val animateHomeCollectionGifs: Boolean = true,
@@ -170,6 +177,7 @@ internal fun AppTabHost(
                             modifier = Modifier.fillMaxSize(),
                             animateCollectionGifs = state.animateHomeCollectionGifs,
                             scrollToTopRequests = requests.homeScrollToTopRequests,
+                            presentationResetGeneration = state.homePresentationResetGeneration,
                             onCatalogClick = actions.onCatalogClick,
                             onPosterClick = actions.onPosterClick,
                             onPosterLongClick = actions.onPosterLongClick,
@@ -360,14 +368,22 @@ internal fun TabletFloatingBottomDock(
 @Composable
 internal fun RootOfflineStatusPill(
     condition: NetworkCondition,
+    state: ReconnectControlState,
     showRetryLabel: Boolean,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
     val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
-    val tooltipText = condition.titleForEmptyState()
-    val retryText = stringResource(Res.string.action_retry)
+    val reconnectText = stringResource(Res.string.network_reconnect)
+    val tooltipText = when (state) {
+        ReconnectControlState.Probing -> stringResource(Res.string.network_reconnecting)
+        ReconnectControlState.Restoring -> stringResource(Res.string.network_restoring_content)
+        ReconnectControlState.Failed -> stringResource(Res.string.network_restore_failed_reconnect)
+        ReconnectControlState.Offline -> "${condition.titleForEmptyState()} · $reconnectText"
+        ReconnectControlState.Hidden -> condition.titleForEmptyState()
+    }
+    val actionEnabled = state == ReconnectControlState.Offline || state == ReconnectControlState.Failed
 
     Box(
         modifier = modifier
@@ -392,10 +408,13 @@ internal fun RootOfflineStatusPill(
                 shape = tokens.shapes.chip,
                 tonalElevation = tokens.elevation.playerControls,
                 shadowElevation = tokens.elevation.overlay,
-                modifier = Modifier.clickable(
-                    onClickLabel = retryText,
-                    onClick = onRetry,
-                ),
+                modifier = Modifier
+                    .semantics { contentDescription = tooltipText }
+                    .clickable(
+                        enabled = actionEnabled,
+                        onClickLabel = reconnectText,
+                        onClick = onRetry,
+                    ),
             ) {
                 Row(
                     modifier = Modifier.padding(
@@ -407,17 +426,25 @@ internal fun RootOfflineStatusPill(
                 ) {
                     if (showRetryLabel) {
                         Text(
-                            text = retryText,
+                            text = tooltipText,
                             style = MaterialTheme.typography.labelLarge,
                             color = tokens.colors.textMuted,
                         )
                     }
-                    Icon(
-                        imageVector = Icons.Rounded.PublicOff,
-                        contentDescription = tooltipText,
-                        modifier = Modifier.size(NuvioTokens.Space.s18),
-                        tint = tokens.colors.textMuted,
-                    )
+                    if (state == ReconnectControlState.Probing || state == ReconnectControlState.Restoring) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(NuvioTokens.Space.s18),
+                            color = tokens.colors.textMuted,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.PublicOff,
+                            contentDescription = tooltipText,
+                            modifier = Modifier.size(NuvioTokens.Space.s18),
+                            tint = tokens.colors.textMuted,
+                        )
+                    }
                 }
             }
         }

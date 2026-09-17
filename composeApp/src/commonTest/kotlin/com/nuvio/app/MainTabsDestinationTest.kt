@@ -2,6 +2,9 @@ package com.nuvio.app
 
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.network.NetworkCondition
+import com.nuvio.app.core.network.NetworkRecoveryPhase
+import com.nuvio.app.core.network.NetworkRecoveryUiState
+import com.nuvio.app.core.network.NetworkStatusUiState
 import com.nuvio.app.features.home.shouldShowOfflineHomeConnectionCard
 import com.nuvio.app.features.settings.NavBarStyle
 import kotlin.test.Test
@@ -59,15 +62,53 @@ class MainTabsDestinationTest {
 
     @Test
     fun `offline status appears on root routes for connection failures`() {
-        assertTrue(shouldShowRootOfflineStatus(true, NetworkCondition.NoInternet))
-        assertTrue(shouldShowRootOfflineStatus(true, NetworkCondition.ServersUnreachable))
+        assertTrue(shouldShowRootOfflineStatus(true, ReconnectControlState.Offline))
+        assertTrue(shouldShowRootOfflineStatus(true, ReconnectControlState.Failed))
     }
 
     @Test
     fun `offline status stays hidden outside root routes and while checking`() {
-        assertFalse(shouldShowRootOfflineStatus(false, NetworkCondition.NoInternet))
-        assertFalse(shouldShowRootOfflineStatus(true, NetworkCondition.Online))
-        assertFalse(shouldShowRootOfflineStatus(true, NetworkCondition.Checking))
+        assertFalse(shouldShowRootOfflineStatus(false, ReconnectControlState.Offline))
+        assertFalse(shouldShowRootOfflineStatus(true, ReconnectControlState.Hidden))
+    }
+
+    @Test
+    fun `reconnect control exposes probing restoring failure and completion states`() {
+        assertEquals(
+            ReconnectControlState.Probing,
+            reconnectControlState(
+                NetworkStatusUiState(NetworkCondition.NoInternet, isProbing = true),
+                NetworkRecoveryUiState(),
+            ),
+        )
+        assertEquals(
+            ReconnectControlState.Restoring,
+            reconnectControlState(
+                NetworkStatusUiState(NetworkCondition.Online),
+                NetworkRecoveryUiState(phase = NetworkRecoveryPhase.RefreshingCatalogs),
+            ),
+        )
+        assertEquals(
+            ReconnectControlState.Failed,
+            reconnectControlState(
+                NetworkStatusUiState(NetworkCondition.Online),
+                NetworkRecoveryUiState(phase = NetworkRecoveryPhase.Failed),
+            ),
+        )
+        assertEquals(
+            ReconnectControlState.Hidden,
+            reconnectControlState(
+                NetworkStatusUiState(NetworkCondition.Online),
+                NetworkRecoveryUiState(phase = NetworkRecoveryPhase.Completed),
+            ),
+        )
+        assertEquals(
+            ReconnectControlState.Probing,
+            reconnectControlState(
+                NetworkStatusUiState(NetworkCondition.Online, isProbing = true),
+                NetworkRecoveryUiState(phase = NetworkRecoveryPhase.Failed),
+            ),
+        )
     }
 
     @Test
@@ -83,7 +124,7 @@ class MainTabsDestinationTest {
             RootOfflineStatusPresentation.CompactIcon,
             rootOfflineStatusPresentation(
                 rootRouteActive = true,
-                condition = NetworkCondition.NoInternet,
+                state = ReconnectControlState.Offline,
                 isTabletLayout = false,
                 showRetryLabel = false,
             ),
@@ -96,7 +137,7 @@ class MainTabsDestinationTest {
             RootOfflineStatusPresentation.RetryPill,
             rootOfflineStatusPresentation(
                 rootRouteActive = true,
-                condition = NetworkCondition.ServersUnreachable,
+                state = ReconnectControlState.Restoring,
                 isTabletLayout = true,
                 showRetryLabel = true,
             ),

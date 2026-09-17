@@ -55,6 +55,7 @@ internal data class AddonManifestRecoveryResult(
     val recoveredUrls: Set<String>,
     val failedUrls: Set<String>,
     val stale: Boolean = false,
+    val changedUrls: Set<String> = emptySet(),
 )
 
 object AddonRepository {
@@ -440,7 +441,7 @@ object AddonRepository {
         surfaceCachedFailure: Boolean,
         reason: ManifestRefreshReason,
         recoveryGeneration: Long? = null,
-    ): Deferred<Boolean> {
+    ): Deferred<ManifestRefreshOutcome> {
         val operationOwner = manifestCacheStore.owner
         val operationProfileId = operationOwner.profileId
         val operationGeneration = operationOwner.generation
@@ -479,27 +480,38 @@ object AddonRepository {
             } else null
             manifestCacheStore.withOwner(operationOwner) {
                 if (success != null) {
-                    if (_uiState.value.addons.none { it.manifestUrl == manifestUrl }) return@withOwner false
+                    if (_uiState.value.addons.none { it.manifestUrl == manifestUrl }) {
+                        return@withOwner ManifestRefreshOutcome.Failed
+                    }
                     upsertManifestCache(operationOwner, manifestUrl, success.first)
                 }
+                val changed = success != null && _uiState.value.addons
+                    .firstOrNull { it.manifestUrl == manifestUrl }
+                    ?.manifest != success.second
                 _uiState.update { current ->
                     current.copy(
                         addons = current.addons.map { addon ->
                             if (addon.manifestUrl != manifestUrl) addon
-                            else addon.copy(
-                                manifest = success?.second ?: addon.manifest,
-                                isRefreshing = false,
-                                errorMessage = if (success != null || addon.manifest != null && !surfaceCachedFailure) {
-                                    null
-                                } else {
-                                    failureMessage
-                                },
-                            )
+                            else {
+                                addon.copy(
+                                    manifest = success?.second ?: addon.manifest,
+                                    isRefreshing = false,
+                                    errorMessage = if (success != null || addon.manifest != null && !surfaceCachedFailure) {
+                                        null
+                                    } else {
+                                        failureMessage
+                                    },
+                                )
+                            }
                         },
                     )
                 }
-                success != null
-            } ?: false
+                when {
+                    success == null -> ManifestRefreshOutcome.Failed
+                    changed -> ManifestRefreshOutcome.Changed
+                    else -> ManifestRefreshOutcome.Unchanged
+                }
+            } ?: ManifestRefreshOutcome.Failed
         }
     }
 

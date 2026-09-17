@@ -5,6 +5,7 @@ import com.nuvio.app.features.addons.AddonManifest
 import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.addons.CachedAddonManifest
 import com.nuvio.app.features.addons.collectManifestRecoveryResults
+import com.nuvio.app.features.addons.ManifestRefreshOutcome
 import com.nuvio.app.features.addons.selectAddonManifestRefreshUrls
 import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.home.HomeCatalogDefinition
@@ -41,8 +42,8 @@ class NetworkRecoveryHomeIntegrationTest {
                 isRefreshing = true,
             ),
         )
-        val healthyManifestRequest = CompletableDeferred(true)
-        val slowManifestRequest = CompletableDeferred<Boolean>()
+        val healthyManifestRequest = CompletableDeferred(ManifestRefreshOutcome.Changed)
+        val slowManifestRequest = CompletableDeferred<ManifestRefreshOutcome>()
         val slowCatalogStarted = CompletableDeferred<Unit>()
         val releaseSlowCatalog = CompletableDeferred<Unit>()
         val finalReconciliationStarted = CompletableDeferred<Unit>()
@@ -145,7 +146,7 @@ class NetworkRecoveryHomeIntegrationTest {
             assertFalse(slowCatalogStarted.isCompleted)
             assertFalse(recovery.isCompleted)
 
-            slowManifestRequest.complete(false)
+        slowManifestRequest.complete(ManifestRefreshOutcome.Failed)
             withTimeout(5_000L) {
                 finalReconciliationStarted.await()
                 slowCatalogStarted.await()
@@ -250,6 +251,13 @@ class NetworkRecoveryHomeIntegrationTest {
         fun assertWarmRow() = assertTrue(HomeRepository.uiState.value.sections.any { row ->
             row.items.any { it.id == "pending-warm" }
         })
+        fun assertWarmHeroMetadata() {
+            val item = HomeRepository.uiState.value.sections
+                .flatMap(HomeCatalogSection::items)
+                .single { it.id == "pending-warm" }
+            assertEquals("https://pending.example/banner.jpg", item.banner)
+            assertEquals("https://pending.example/poster.jpg", item.poster)
+        }
         HomeRepository.clear()
         try {
             HomeRepository.refreshWithLoader(
@@ -257,10 +265,22 @@ class NetworkRecoveryHomeIntegrationTest {
                 force = true,
                 buildDefinitions = { it.mapNotNull(::definition) },
             ) { definition, _ ->
-                section(definition, listOf(MetaPreview("${definition.addonName}-warm", "movie", "Warm item")))
+                section(
+                    definition,
+                    listOf(
+                        MetaPreview(
+                            id = "${definition.addonName}-warm",
+                            type = "movie",
+                            name = "Warm item",
+                            banner = "https://${definition.addonName}.example/banner.jpg",
+                            poster = "https://${definition.addonName}.example/poster.jpg",
+                        ),
+                    ),
+                )
             }
             withTimeout(5_000L) { HomeRepository.uiState.first { !it.isLoading && it.sections.size == 2 } }
             assertWarmRow()
+            assertWarmHeroMetadata()
 
             val pendingAddons = addons.map { if (it.manifest?.id == "pending") it.copy(isRefreshing = true) else it }
             HomeRepository.refreshWithLoader(
@@ -275,9 +295,11 @@ class NetworkRecoveryHomeIntegrationTest {
             }
             withTimeout(5_000L) { partialStarted.await() }
             assertWarmRow()
+            assertWarmHeroMetadata()
             releasePartial.complete(Unit)
             withTimeout(5_000L) { HomeRepository.uiState.first { !it.isLoading } }
             assertWarmRow()
+            assertWarmHeroMetadata()
 
             val failedAddons = pendingAddons.map {
                 if (it.isRefreshing) it.copy(isRefreshing = false, errorMessage = "manifest timeout") else it
@@ -296,10 +318,12 @@ class NetworkRecoveryHomeIntegrationTest {
             }
             withTimeout(5_000L) { finalStarted.await() }
             assertWarmRow()
+            assertWarmHeroMetadata()
             assertTrue(HomeRepository.uiState.value.isLoading)
             releaseFinal.complete(Unit)
             withTimeout(5_000L) { HomeRepository.uiState.first { !it.isLoading } }
             assertWarmRow()
+            assertWarmHeroMetadata()
         } finally {
             releasePartial.complete(Unit)
             releaseFinal.complete(Unit)

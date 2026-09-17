@@ -31,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -86,6 +87,39 @@ internal data class HomeHeroLayout(
     val bottomFadeHeight: Dp,
     val logoWidthFraction: Float,
 )
+
+internal fun homeHeroArtworkCandidates(item: MetaPreview): List<String> =
+    listOfNotNull(
+        item.banner?.takeIf(String::isNotBlank),
+        item.poster?.takeIf(String::isNotBlank),
+    ).distinct()
+
+@Composable
+private fun HomeHeroArtwork(
+    item: MetaPreview,
+    modifier: Modifier,
+    alignment: Alignment,
+) {
+    val candidates = remember(item.banner, item.poster) { homeHeroArtworkCandidates(item) }
+    var candidateIndex by remember(item.type, item.id, candidates) { mutableStateOf(0) }
+    val candidate = candidates.getOrNull(candidateIndex)
+    if (candidate == null) {
+        Box(
+            modifier = modifier.background(MaterialTheme.colorScheme.surfaceVariant),
+        )
+        return
+    }
+    AsyncImage(
+        model = candidate,
+        contentDescription = item.name,
+        modifier = modifier,
+        alignment = alignment,
+        contentScale = ContentScale.Crop,
+        onError = {
+            if (candidateIndex < candidates.size) candidateIndex += 1
+        },
+    )
+}
 
 @Composable
 fun HomeHeroSection(
@@ -195,21 +229,21 @@ fun HomeHeroSection(
                         .heroStretchZoom(stretchPx),
                 ) {
                     visiblePages.forEach { layer ->
-                        AsyncImage(
-                            model = items[layer.page].banner ?: items[layer.page].poster,
-                            contentDescription = items[layer.page].name,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer {
-                                    alpha = layer.visibility
-                                    translationX = -layer.offset * heroWidthPx * HERO_BACKGROUND_PARALLAX
-                                    translationY = heroScrollTranslationY
-                                    scaleX = HERO_BACKGROUND_SCALE * heroScrollScale
-                                    scaleY = HERO_BACKGROUND_SCALE * heroScrollScale
-                                },
-                            alignment = if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
-                            contentScale = ContentScale.Crop,
-                        )
+                        key(layer.page) {
+                            HomeHeroArtwork(
+                                item = items[layer.page],
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer {
+                                        alpha = layer.visibility
+                                        translationX = -layer.offset * heroWidthPx * HERO_BACKGROUND_PARALLAX
+                                        translationY = heroScrollTranslationY
+                                        scaleX = HERO_BACKGROUND_SCALE * heroScrollScale
+                                        scaleY = HERO_BACKGROUND_SCALE * heroScrollScale
+                                    },
+                                alignment = if (layout.isTablet) Alignment.TopCenter else Alignment.Center,
+                            )
+                        }
                     }
                 }
 

@@ -18,13 +18,154 @@ class NetworkRecoveryBoundaryTest {
     }
 
     @Test
-    fun `warm fresh provider publishes before stale manifest and keeps selected pending Discover`(): Unit = runBlocking {
+    fun `warm fresh provider publishes with selected stale manifest while revalidation is pending`(): Unit = runBlocking {
         mixedRecovery(warm = true, missing = false, selectReady = false)
     }
 
     @Test
     fun `warm fresh provider publishes before missing manifest and keeps selected ready Discover`(): Unit = runBlocking {
         mixedRecovery(warm = true, missing = true, selectReady = true)
+    }
+
+    @Test
+    fun `valid stale provider is ready while its revalidation is held`(): Unit = runBlocking {
+        val stale = addon("a")
+        val hold = CompletableDeferred<ManifestRefreshOutcome>()
+        val ready = CompletableDeferred<String>()
+        val recovery = async {
+            recoverAddonManifestBatch(
+                addons = listOf(stale),
+                cache = mapOf(url("a") to CachedAddonManifest("{}", NOW - ADDON_MANIFEST_FRESHNESS_MS)),
+                nowEpochMs = NOW,
+                forceAll = false,
+                isCurrent = { true },
+                startRefresh = { hold },
+                onManifestRecovered = ready::complete,
+            )
+        }
+
+        assertEquals(url("a"), withTimeout(1_000) { ready.await() })
+        assertFalse(recovery.isCompleted)
+        hold.complete(ManifestRefreshOutcome.Failed)
+        recovery.await()
+    }
+
+    @Test
+    fun `explicitly ready parsed manifest remains usable while revalidating`() {
+        val stale = addon("a").copy(isRefreshing = true)
+
+        assertEquals(
+            listOf(stale),
+            addonsForRecoveryPass(listOf(stale), readyManifestUrls = setOf(url("a"))),
+        )
+    }
+
+    @Test
+    fun `explicitly ready validating provider refreshes Search and selected Discover`() {
+        val fixture = Fixture("a")
+        try {
+            fixture.addons = listOf(
+                addon("a").copy(isRefreshing = true),
+                addon("b"),
+            )
+
+            fixture.search.search(
+                query = "query",
+                addons = fixture.addons,
+                forceRefresh = true,
+                readyManifestUrls = setOf(url("a")),
+            )
+            fixture.search.refreshDiscover(
+                addons = fixture.addons,
+                forceRefresh = true,
+                readyManifestUrls = setOf(url("a")),
+            )
+
+            assertEquals(listOf("a-warm"), fixture.search.uiState.value.sections.flatMap { it.items }.map { it.id })
+            assertEquals(listOf("a-warm"), fixture.search.discoverUiState.value.items.map { it.id })
+        } finally {
+            fixture.scope.cancel()
+        }
+    }
+
+    @Test
+    fun `catalog reconciliation awaiters hold until Home Search and Discover settle`(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val homeHold = CompletableDeferred<Unit>()
+        val searchHold = CompletableDeferred<Unit>()
+        val discoverHold = CompletableDeferred<Unit>()
+        val addons = listOf(addon("a"))
+        val search = SearchRepositoryController(
+            scope = scope,
+            loadSearchSection = { request, _ ->
+                searchHold.await()
+                request.sectionFromPage(page("a", "fresh"), "Fixture")
+            },
+            loadDiscoverPage = { _, _, _, _ ->
+                discoverHold.await()
+                page("a", "fresh")
+            },
+            loadPreferredCatalogKey = { "a:movie:catalog" },
+            savePreferredCatalogKey = {},
+        )
+        HomeRepository.clear()
+        try {
+            HomeRepository.refreshWithLoader(
+                addons = addons,
+                force = true,
+                buildDefinitions = { list ->
+                    list.map { addon ->
+                        val manifest = requireNotNull(addon.manifest)
+                        val catalog = manifest.catalogs.single()
+                        HomeCatalogDefinition(
+                            key = "${manifest.id}:movie:catalog",
+                            defaultTitle = "Fixture",
+                            catalogName = "Fixture",
+                            addonName = manifest.name,
+                            manifestUrl = addon.manifestUrl,
+                            type = "movie",
+                            catalogId = "catalog",
+                            supportsPagination = false,
+                            descriptorSignature = buildHomeCatalogDescriptorSignature(addon, manifest, catalog),
+                        )
+                    }
+                },
+            ) { definition, _ ->
+                homeHold.await()
+                HomeCatalogSection(
+                    key = definition.key,
+                    title = "Fixture",
+                    subtitle = "",
+                    addonName = "Fixture",
+                    target = CatalogTarget.Addon(definition.manifestUrl, "movie", "catalog"),
+                    items = page("a", "fresh").items,
+                )
+            }
+            search.search("query", addons, forceRefresh = true)
+            search.refreshDiscover(addons, forceRefresh = true)
+
+            val homeAwait = async { HomeRepository.awaitCurrentRefresh() }
+            val searchAwait = async { search.awaitCurrentRecoveryRefresh() }
+            yield()
+            assertFalse(homeAwait.isCompleted)
+            assertFalse(searchAwait.isCompleted)
+
+            homeHold.complete(Unit)
+            homeAwait.await()
+            assertFalse(HomeRepository.uiState.value.isLoading)
+            assertFalse(searchAwait.isCompleted)
+
+            searchHold.complete(Unit)
+            yield()
+            assertFalse(searchAwait.isCompleted)
+            discoverHold.complete(Unit)
+            searchAwait.await()
+            assertFalse(search.uiState.value.isLoading)
+            assertFalse(search.discoverUiState.value.isLoading)
+        } finally {
+            scope.cancel()
+            HomeRepository.clear()
+        }
     }
 
     private suspend fun mixedRecovery(warm: Boolean, missing: Boolean, selectReady: Boolean) {
@@ -40,7 +181,7 @@ class NetworkRecoveryBoundaryTest {
             }
             fixture.version = "fresh"
             fixture.addons = listOf(addon("a"), addon("b").let { it.copy(manifest = it.manifest.takeUnless { missing }) })
-            val hold = CompletableDeferred<Boolean>()
+            val hold = CompletableDeferred<ManifestRefreshOutcome>()
             val attempted = CompletableDeferred<Set<String>>()
             val recovery = fixture.scope.async {
                 runOrderedNetworkRecovery(1, 1, false, fixture.operations(
@@ -49,8 +190,6 @@ class NetworkRecoveryBoundaryTest {
                 ), isCurrent = { true }, onPhase = { _, _ -> })
             }
             assertEquals(setOf(url("b")), attempted.await())
-            // This assertion fails on the reviewed implementation: A was never
-            // admitted by the shared AddonRepository selection/collection operation.
             assertTrue(withTimeoutOrNull(1_000) {
                 HomeRepository.uiState.first { it.sections.any { row -> row.items.any { item -> item.id == "a-fresh" } } }
                 fixture.search.uiState.first { it.sections.any { row -> row.items.any { item -> item.id == "a-fresh" } } }
@@ -62,10 +201,10 @@ class NetworkRecoveryBoundaryTest {
                 assertEquals(listOf("a-fresh"), fixture.search.discoverUiState.value.items.map { it.id })
             } else {
                 assertEquals("b:movie:catalog", fixture.search.discoverUiState.value.selectedCatalogKey)
-                assertEquals(listOf("b-warm"), fixture.search.discoverUiState.value.items.map { it.id })
-                assertTrue(fixture.search.uiState.value.sections.any { it.items.single().id == "b-warm" })
+                assertEquals(listOf("b-fresh"), fixture.search.discoverUiState.value.items.map { it.id })
+                assertTrue(fixture.search.uiState.value.sections.any { it.items.single().id == "b-fresh" })
             }
-            hold.complete(false)
+            hold.complete(ManifestRefreshOutcome.Failed)
             assertEquals(NetworkRecoveryRunResult.Completed, recovery.await())
             assertEquals(null, fixture.passes.last())
         } finally {
@@ -92,8 +231,8 @@ class NetworkRecoveryBoundaryTest {
     @Test
     fun `manual refresh fetches even fresh manifests and publishes first success while second is held`(): Unit = runBlocking {
         val fixture = Fixture("a")
-        val first = CompletableDeferred<Boolean>()
-        val second = CompletableDeferred<Boolean>()
+        val first = CompletableDeferred<ManifestRefreshOutcome>()
+        val second = CompletableDeferred<ManifestRefreshOutcome>()
         HomeRepository.clear()
         try {
             val attempts = mutableListOf<String>()
@@ -105,11 +244,11 @@ class NetworkRecoveryBoundaryTest {
             }
             assertEquals(listOf(url("a"), url("b")), attempts)
             assertTrue(fixture.passes.isEmpty())
-            first.complete(true)
+            first.complete(ManifestRefreshOutcome.Changed)
             withTimeout(5_000) { HomeRepository.uiState.first { it.sections.isNotEmpty() } }
             assertFalse(run.isCompleted)
             assertEquals(setOf(url("a")), fixture.passes.first())
-            second.complete(false)
+            second.complete(ManifestRefreshOutcome.Failed)
             run.await()
             assertNull(fixture.passes.last())
         } finally { fixture.scope.cancel(); HomeRepository.clear() }
@@ -232,7 +371,7 @@ class NetworkRecoveryBoundaryTest {
 
         fun operations(
             cache: Map<String, CachedAddonManifest>,
-            transport: (String) -> Deferred<Boolean>,
+            transport: (String) -> Deferred<ManifestRefreshOutcome>,
         ) = object : NetworkRecoveryOperations {
             override suspend fun recoverManifests(profileId: Int, generation: Long, forceAll: Boolean, onManifestRecovered: suspend (String) -> Unit): ManifestRecoveryOutcome {
                 val result = recoverAddonManifestBatch(

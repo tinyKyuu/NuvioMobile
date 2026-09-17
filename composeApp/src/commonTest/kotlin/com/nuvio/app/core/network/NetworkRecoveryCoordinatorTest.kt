@@ -1,6 +1,7 @@
 package com.nuvio.app.core.network
 
 import com.nuvio.app.features.addons.collectManifestRecoveryResults
+import com.nuvio.app.features.addons.ManifestRefreshOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,6 +17,7 @@ import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class NetworkRecoveryCoordinatorTest {
@@ -180,9 +182,92 @@ class NetworkRecoveryCoordinatorTest {
     }
 
     @Test
+    fun `completion remains in catalog restoration until final reconciliation returns`(): Unit = runBlocking {
+        val finalCatalogs = CompletableDeferred<Unit>()
+        val phases = mutableListOf<NetworkRecoveryPhase>()
+        val recovery = async {
+            runOrderedNetworkRecovery(
+                profileId = 1,
+                generation = 2L,
+                forceAllManifests = false,
+                operations = object : NetworkRecoveryOperations {
+                    override suspend fun recoverManifests(
+                        profileId: Int,
+                        generation: Long,
+                        forceAll: Boolean,
+                        onManifestRecovered: suspend (String) -> Unit,
+                    ) = ManifestRecoveryOutcome()
+
+                    override suspend fun refreshCatalogs(
+                        profileId: Int,
+                        generation: Long,
+                        readyManifestUrls: Set<String>?,
+                    ) {
+                        assertNull(readyManifestUrls)
+                        finalCatalogs.await()
+                    }
+                },
+                isCurrent = { true },
+                onPhase = { phase, _ -> phases += phase },
+            )
+        }
+
+        yield()
+        assertEquals(NetworkRecoveryPhase.RefreshingCatalogs, phases.last())
+        assertFalse(recovery.isCompleted)
+        finalCatalogs.complete(Unit)
+        assertEquals(NetworkRecoveryRunResult.Completed, recovery.await())
+        assertEquals(NetworkRecoveryPhase.Completed, phases.last())
+    }
+
+    @Test
+    fun `confirmed outage cancels catalog restoration and rejects its late completion`(): Unit = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val finalCatalogs = CompletableDeferred<Unit>()
+        val controller = NetworkRecoveryController(
+            scope = scope,
+            activeProfileId = { 1 },
+            requestFreshProbe = { 4L },
+            operations = object : NetworkRecoveryOperations {
+                override suspend fun recoverManifests(
+                    profileId: Int,
+                    generation: Long,
+                    forceAll: Boolean,
+                    onManifestRecovered: suspend (String) -> Unit,
+                ) = ManifestRecoveryOutcome()
+
+                override suspend fun refreshCatalogs(
+                    profileId: Int,
+                    generation: Long,
+                    readyManifestUrls: Set<String>?,
+                ) {
+                    withContext(NonCancellable) { finalCatalogs.await() }
+                }
+            },
+        )
+        try {
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.NoInternet, 1L))
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.Online, 2L))
+            assertEquals(NetworkRecoveryPhase.RefreshingCatalogs, controller.uiState.value.phase)
+
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.NoInternet, 3L))
+            val cancelledGeneration = controller.uiState.value.generation
+            assertEquals(NetworkRecoveryPhase.Idle, controller.uiState.value.phase)
+
+            finalCatalogs.complete(Unit)
+            yield()
+            assertEquals(cancelledGeneration, controller.uiState.value.generation)
+            assertEquals(NetworkRecoveryPhase.Idle, controller.uiState.value.phase)
+        } finally {
+            finalCatalogs.complete(Unit)
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `healthy catalog refresh starts before slow manifest settles`() = runBlocking {
-        val healthy = CompletableDeferred(true)
-        val slow = CompletableDeferred<Boolean>()
+        val healthy = CompletableDeferred(ManifestRefreshOutcome.Changed)
+        val slow = CompletableDeferred<ManifestRefreshOutcome>()
         val firstCatalogRefresh = CompletableDeferred<Unit>()
         var catalogRefreshCount = 0
         val operations = object : NetworkRecoveryOperations {
@@ -232,7 +317,7 @@ class NetworkRecoveryCoordinatorTest {
         firstCatalogRefresh.await()
         assertFalse(recovery.isCompleted)
 
-        slow.complete(false)
+        slow.complete(ManifestRefreshOutcome.Failed)
         assertEquals(NetworkRecoveryRunResult.Completed, recovery.await())
         assertEquals(2, catalogRefreshCount)
     }

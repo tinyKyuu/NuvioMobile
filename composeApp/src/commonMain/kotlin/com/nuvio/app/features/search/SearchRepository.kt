@@ -70,6 +70,7 @@ object SearchRepository {
         controller.refreshDiscover(addons, forceRefresh)
     fun refreshAfterRecovery(addons: List<ManagedAddon>, readyManifestUrls: Set<String>? = null) =
         controller.refreshAfterRecovery(addons, readyManifestUrls)
+    internal suspend fun awaitCurrentRecoveryRefresh() = controller.awaitCurrentRecoveryRefresh()
     fun selectDiscoverType(type: String) = controller.selectDiscoverType(type)
     fun selectDiscoverCatalog(catalogKey: String) = controller.selectDiscoverCatalog(catalogKey)
     fun selectDiscoverGenre(genre: String?) = controller.selectDiscoverGenre(genre)
@@ -143,7 +144,7 @@ internal class SearchRepositoryController(
         cachedSearchSections = cachedSearchSections.filterKeys { it in validKeys || it.manifestUrl in unresolvedUrls }
         val requests = allRequests.filter { request ->
             readyManifestUrls == null ||
-                (request.addon.manifestUrl in readyManifestUrls && !request.addon.isRefreshing)
+                request.addon.manifestUrl in readyManifestUrls
         }
         val hasDeferredCatalogs = requests.size < allRequests.size
         fun retainedSections(): List<HomeCatalogSection> =
@@ -364,10 +365,7 @@ internal class SearchRepositoryController(
                 "genre=${selectedGenre ?: "<all>"} sources=${sources.size}"
         }
 
-        if (readyManifestUrls != null &&
-            (selectedCatalog.manifestUrl !in readyManifestUrls ||
-                enabledAddons.any { it.manifestUrl == selectedCatalog.manifestUrl && it.isRefreshing })
-        ) {
+        if (readyManifestUrls != null && selectedCatalog.manifestUrl !in readyManifestUrls) {
             activeDiscoverJob?.cancel()
             discoverGeneration += 1L
             _discoverUiState.value = _discoverUiState.value.copy(
@@ -397,6 +395,11 @@ internal class SearchRepositoryController(
                 readyManifestUrls = readyManifestUrls,
             )
         }
+    }
+
+    internal suspend fun awaitCurrentRecoveryRefresh() {
+        activeDiscoverJob?.join()
+        activeJob?.join()
     }
 
     fun selectDiscoverType(type: String) {

@@ -37,7 +37,7 @@ official Nuvio logo without permission.
 
 ## Current status
 
-Last reviewed on September 16, 2026.
+Last reviewed on September 17, 2026.
 
 | Item | Current state |
 | --- | --- |
@@ -92,9 +92,9 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Feature | Where | Platforms | Status |
 | --- | --- | --- | --- |
 | Offline Home keeps Continue Watching and Downloaded content available while remote catalog rows stay hidden | Home | Shared mobile source, iOS tested | Merged |
-| Compact connection status keeps Retry reachable without covering playable local content | Home | Shared mobile source, iOS tested | Merged |
+| Compact connection status keeps Reconnect reachable without covering playable local content | Home | Shared mobile source, iOS tested | Merged |
 | Continue Watching can reuse verified local artwork for downloaded titles | Home | Shared mobile source, iOS tested | Merged |
-| Reconnect recovery refreshes catalogs from fresh cached providers while others recover, retains valid warm content and Discover selection, retries interrupted Details once, and replaces old Search results on successful empty responses | Home, Search, Discover, and Details | Shared mobile source; repository/controller regressions and controlled Android recovery tested | [In review](./F07-REVIEW.md) |
+| Foreground network restoration automatically confirms connectivity and restores add-on and catalog content. Confirmed offline Home stays local-only, with an accessible manual Reconnect control and a one-shot return to the top when remote content comes back. | Home, Search, Discover, and Details | iOS, iPadOS, and Android shared source; Android emulator and cross-platform builds tested | [In review](./F07-REVIEW.md) |
 
 ### Navigation and appearance
 

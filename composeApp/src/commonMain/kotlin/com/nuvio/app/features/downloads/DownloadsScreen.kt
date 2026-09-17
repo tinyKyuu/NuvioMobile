@@ -94,6 +94,7 @@ fun DownloadsScreen(
     var selectedShowId by rememberSaveable(initialShowId) { mutableStateOf(initialShowId) }
     var downloadPendingDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
     var downloadsPendingBulkDeletion by remember { mutableStateOf<Set<String>?>(null) }
+    var activityRemovalFeedback by remember { mutableStateOf<DownloadActivityRemovalFeedback?>(null) }
     var selectionMode by rememberSaveable { mutableStateOf(false) }
     var selectedDownloadIds by remember { mutableStateOf(emptySet<String>()) }
     var showManagement by rememberSaveable { mutableStateOf(false) }
@@ -373,9 +374,20 @@ fun DownloadsScreen(
                 confirmText = stringResource(Res.string.action_delete),
                 dismissText = stringResource(Res.string.action_cancel),
                 onConfirm = {
-                    DownloadsRepository.cancelDownloads(pendingSummary.selectedIds)
+                    val result = DownloadsRepository.cancelDownloads(pendingSummary.selectedIds)
                     downloadsPendingBulkDeletion = null
-                    leaveSelection()
+                    if (mode == DownloadsScreenMode.Activity) {
+                        val outcome = applyDownloadActivityRemovalResult(
+                            selectedIds = pendingSummary.selectedIds,
+                            visibleCurrentTransferIds = visibleSelectionIds,
+                            result = result,
+                        )
+                        selectedDownloadIds = outcome.selection.selectedIds
+                        selectionMode = outcome.selection.isSelecting
+                        activityRemovalFeedback = outcome.feedback
+                    } else {
+                        leaveSelection()
+                    }
                 },
                 onDismiss = { downloadsPendingBulkDeletion = null },
             )
@@ -383,6 +395,15 @@ fun DownloadsScreen(
             LaunchedEffect(pendingBulkDeletion) {
                 downloadsPendingBulkDeletion = null
             }
+        }
+    }
+
+    val feedback = activityRemovalFeedback
+    if (feedback != null) {
+        val message = downloadActivityRemovalFeedbackMessage(feedback)
+        LaunchedEffect(feedback) {
+            NuvioToastController.show(message)
+            activityRemovalFeedback = null
         }
     }
 }
@@ -1038,6 +1059,33 @@ private fun bulkDeleteConfirmationMessage(summary: DownloadSelectionSummary): St
         Res.string.downloads_bulk_delete_message_current,
         summary.currentTransferCount,
     )
+}
+
+@Composable
+private fun downloadActivityRemovalFeedbackMessage(
+    feedback: DownloadActivityRemovalFeedback,
+): String {
+    val resultMessage = when (feedback.kind) {
+        DownloadActivityRemovalFeedbackKind.CompleteSuccess -> stringResource(
+            Res.string.downloads_activity_remove_succeeded,
+            feedback.removedCount,
+            formatDownloadBytes(feedback.bytesReclaimed),
+        )
+        DownloadActivityRemovalFeedbackKind.PartialFailure -> stringResource(
+            Res.string.downloads_activity_remove_partial_failed,
+            feedback.removedCount,
+            feedback.failedCount,
+        )
+        DownloadActivityRemovalFeedbackKind.TotalFailure -> stringResource(
+            Res.string.downloads_activity_remove_failed,
+            feedback.failedCount,
+        )
+    }
+    if (feedback.cleanupWarningCount == 0) return resultMessage
+    return "$resultMessage ${stringResource(
+        Res.string.downloads_activity_remove_cleanup_warning,
+        feedback.cleanupWarningCount,
+    )}"
 }
 
 @Composable

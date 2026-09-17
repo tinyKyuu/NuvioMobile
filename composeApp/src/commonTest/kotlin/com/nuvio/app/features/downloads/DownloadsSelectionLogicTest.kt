@@ -114,6 +114,109 @@ class DownloadsSelectionLogicTest {
             buildCompletedDownloadLibrary(items).allIds,
         )
     }
+
+    @Test
+    fun `mixed activity removal retains only failed current transfers`() {
+        val outcome = applyDownloadActivityRemovalResult(
+            selectedIds = setOf("removed", "failed", "completed"),
+            visibleCurrentTransferIds = setOf("removed", "failed"),
+            result = DownloadBatchRemovalResult(
+                successfulIds = setOf("removed"),
+                failures = listOf(
+                    DownloadRemovalFailure(
+                        downloadId = "failed",
+                        reasons = setOf(DownloadRemovalFailureReason.ActiveHandleCancellation),
+                    ),
+                ),
+                bytesReclaimed = 20L,
+            ),
+        )
+
+        assertEquals(setOf("failed"), outcome.selection.selectedIds)
+        assertTrue(outcome.selection.isSelecting)
+        assertEquals(DownloadActivityRemovalFeedbackKind.PartialFailure, outcome.feedback.kind)
+        assertEquals(1, outcome.feedback.removedCount)
+        assertEquals(1, outcome.feedback.failedCount)
+    }
+
+    @Test
+    fun `all-success activity removal clears selection and exits selection mode`() {
+        val outcome = applyDownloadActivityRemovalResult(
+            selectedIds = setOf("first", "second"),
+            visibleCurrentTransferIds = setOf("first", "second"),
+            result = DownloadBatchRemovalResult(
+                successfulIds = setOf("first", "second"),
+                cleanupWarnings = listOf(
+                    DownloadRemovalFailure(
+                        downloadId = "first",
+                        reasons = setOf(DownloadRemovalFailureReason.RequestCleanup),
+                    ),
+                ),
+                bytesReclaimed = 40L,
+            ),
+        )
+
+        assertEquals(emptySet(), outcome.selection.selectedIds)
+        assertFalse(outcome.selection.isSelecting)
+        assertEquals(DownloadActivityRemovalFeedbackKind.CompleteSuccess, outcome.feedback.kind)
+        assertEquals(2, outcome.feedback.removedCount)
+        assertEquals(0, outcome.feedback.failedCount)
+        assertEquals(1, outcome.feedback.cleanupWarningCount)
+    }
+
+    @Test
+    fun `all-failure activity removal keeps failed transfers selected`() {
+        val failures = setOf("first", "second")
+        val outcome = applyDownloadActivityRemovalResult(
+            selectedIds = failures,
+            visibleCurrentTransferIds = failures,
+            result = DownloadBatchRemovalResult(
+                failures = failures.map { downloadId ->
+                    DownloadRemovalFailure(
+                        downloadId = downloadId,
+                        reasons = setOf(DownloadRemovalFailureReason.PlatformTaskCancellation),
+                    )
+                },
+            ),
+        )
+
+        assertEquals(failures, outcome.selection.selectedIds)
+        assertTrue(outcome.selection.isSelecting)
+        assertEquals(DownloadActivityRemovalFeedbackKind.TotalFailure, outcome.feedback.kind)
+        assertEquals(0, outcome.feedback.removedCount)
+        assertEquals(2, outcome.feedback.failedCount)
+    }
+
+    @Test
+    fun `activity feedback counts cleanup warnings only for removed transfers`() {
+        val outcome = applyDownloadActivityRemovalResult(
+            selectedIds = setOf("removed", "failed"),
+            visibleCurrentTransferIds = setOf("removed", "failed"),
+            result = DownloadBatchRemovalResult(
+                successfulIds = setOf("removed"),
+                failures = listOf(
+                    DownloadRemovalFailure(
+                        downloadId = "failed",
+                        reasons = setOf(DownloadRemovalFailureReason.ActiveHandleCancellation),
+                    ),
+                ),
+                cleanupWarnings = listOf(
+                    DownloadRemovalFailure(
+                        downloadId = "removed",
+                        reasons = setOf(DownloadRemovalFailureReason.PartialFileCleanup),
+                    ),
+                    DownloadRemovalFailure(
+                        downloadId = "failed",
+                        reasons = setOf(DownloadRemovalFailureReason.RequestCleanup),
+                    ),
+                ),
+            ),
+        )
+
+        assertEquals(DownloadActivityRemovalFeedbackKind.PartialFailure, outcome.feedback.kind)
+        assertEquals(1, outcome.feedback.cleanupWarningCount)
+        assertEquals(setOf("failed"), outcome.selection.selectedIds)
+    }
 }
 
 private fun selectionEpisode(

@@ -5,7 +5,7 @@ Status: ready for review on `codex/f08a-library-downloads`, based on approved co
 ## Scope and result
 
 - Completed media management now lives in Library > Downloads.
-- Download activity contains only current, queued, paused, and failed transfers, with bulk selection and confirmed removal for those visible transfers.
+- Download activity contains only current, queued, paused, and failed transfers, with bulk selection and confirmed removal for those visible transfers. Successful removals leave selection, while failed current transfers remain visible and selected for retry.
 - Settings > Downloads contains network and storage policy, with a `Manage downloads` handoff to Library.
 - One download-ID selection model drives posters, the collapsed manager, root groups, seasons, and episodes.
 - The phone manager is a modal sheet; the tablet manager is a bounded centered dialog.
@@ -28,7 +28,7 @@ Removal is cleanup-first and per-ID:
 7. Report exact successful IDs, retained failed IDs, cleanup warnings, and bytes reclaimed from files that were actually removed.
 8. Publish the settled state once and pump the scheduler once after the batch.
 
-The tests cover callback order, the retained-media invariant, active-cancel failure, request and partial cleanup failure, completed-file failure, mixed batches, exact reclaimed-byte accounting, single state application, one final publication, and one scheduler pump.
+The tests cover callback order, the retained-media invariant, active-cancel failure, request and partial cleanup failure, completed-file failure, mixed batches, exact reclaimed-byte accounting, single state application, one final publication, one scheduler pump, Activity selection outcomes, Activity and Policy scoping, the existing Library reducer, and cleanup-warning classification.
 
 ## Automated verification
 
@@ -36,12 +36,12 @@ Final source state on September 17, 2026:
 
 | Check | Result |
 | --- | --- |
-| Focused Android F08A suites: `DownloadsBatchRemovalTest`, `DownloadsSelectionLogicTest`, `DownloadLibraryManagementTest`, `DownloadNavigationDecisionTest` | Passed, 26 tests; 0 failed, errored, or skipped |
-| Android host suite: `:composeApp:testAndroidHostTest` | Passed, 1,093 tests; 0 failed, errored, or skipped |
-| Focused iOS-native F08A suites: the same four suites | Passed, 26 tests; 0 failed, errored, or skipped |
+| Focused Android F08A suites: `DownloadsBatchRemovalTest`, `DownloadsSelectionLogicTest`, `DownloadLibraryManagementTest`, `DownloadNavigationDecisionTest` | Passed, 30 tests; 0 failed, errored, or skipped |
+| Android host suite: `:composeApp:testAndroidHostTest` | Passed, 1,097 tests; 0 failed, errored, or skipped |
+| Focused iOS-native F08A suites: the same four suites | Passed, 30 tests; 0 failed, errored, or skipped |
 | Kotlin/Native iOS simulator compilation | Passed through `compileKotlinIosSimulatorArm64`, `compileTestKotlinIosSimulatorArm64`, and the focused native test link/run |
-| Full-policy Android: `:androidApp:assembleFullDebug` | Passed; `androidApp-full-debug.apk`, 158,642,208 bytes |
-| Play Store-policy Android: `:androidApp:assemblePlayStoreDebug` | Passed; `androidApp-playstore-debug.apk`, 156,229,775 bytes |
+| Full-policy Android: `:androidApp:assembleFullDebug` | Passed |
+| Play Store-policy Android: `:androidApp:assemblePlayStoreDebug` | Passed |
 | App Store-policy unsigned iOS simulator Xcode build | `** BUILD SUCCEEDED **` for version `0.4.12` build `122` |
 | Patch hygiene | `git diff --check` passed |
 
@@ -74,6 +74,7 @@ The simulator accessibility bridge cannot synthesize Compose's press-and-hold ge
 - Download activity contained only active-state categories, and system Back returned to Library.
 - Settings > Downloads showed Manage downloads plus Wi-Fi, cellular, expensive-network, Low Data Mode, and storage-policy controls; it did not show completed media. Activating Manage downloads returned directly to Library > Downloads.
 - The emulator's existing local development server was unavailable, so network-backed Home content was not part of this offline F08A pass.
+- The final Activity partial-failure correction was not exercised destructively at runtime because the connected emulator had no disposable current-transfer fixture. Its success, partial-failure, total-failure, scope, and cleanup-warning states are covered by deterministic common tests on Android and iOS-native.
 
 ### Private iPad
 
@@ -89,12 +90,13 @@ The first iOS phone pass exposed that Download activity reused `DownloadsSetting
 
 - Completed cleanup now deletes playable media last and stops before that step after cancellation, request, or partial cleanup failure. Failed completed targets remain playable and cataloged. Once a current transfer is canceled, its record is removed even if ancillary request or partial cleanup reports a warning, so Activity cannot retain a detached Downloading or queued record.
 - Download activity again supports Select, long-press entry, row toggles, select all, clear, Done, Back-to-exit-selection, confirmation, and bulk removal. Its candidate IDs come only from the displayed current-transfer list. Hidden completed records cannot enter Activity selection; Settings policy exposes no selection behavior; Library remains the completed-download manager.
+- Activity bulk removal now consumes the structured batch result. Successful IDs leave selection; failed or otherwise unremoved visible IDs stay selected and keep selection mode active. All-success exits selection. Success, partial failure, and total failure receive distinct feedback, while cleanup warnings attached to successfully canceled transfers remain warnings and do not retain those transfers.
 
 ## Deferred review
 
 - Broad light/dark/AMOLED, poster-style, animation, Dynamic Type, and assistive-technology hardening remains F08B. F08A uses the existing theme and depth tokens, and its dark phone/tablet runtime surfaces were inspected, but this review does not claim an exhaustive theme/accessibility matrix.
 - Reacher Continue Watching artwork repair remains F08C and requires separate runtime reproduction.
-- Destructive runtime cleanup was intentionally not invoked against simulator fixtures or private-device data. The structured cleanup and partial-failure contract is covered by deterministic tests.
+- Destructive runtime cleanup was intentionally not invoked against simulator fixtures, the emulator's existing profile, or private-device data. The structured cleanup and partial-failure contract is covered by deterministic tests.
 
 ## Rollback
 

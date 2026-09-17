@@ -668,6 +668,10 @@
     <string name="downloads_status_waiting_for_network">Waiting for an allowed network • %1$s</string>
     <string name="downloads_activity_title">Download activity</string>
     <string name="downloads_activity_empty">No current, queued, paused, or failed transfers</string>
+    <string name="downloads_activity_remove_succeeded">Removed %1$d current transfer(s) and reclaimed %2$s</string>
+    <string name="downloads_activity_remove_partial_failed">Removed %1$d current transfer(s), but %2$d could not be canceled and remain selected</string>
+    <string name="downloads_activity_remove_failed">Could not cancel %1$d current transfer(s). They remain selected</string>
+    <string name="downloads_activity_remove_cleanup_warning">Request or partial-file cleanup reported a warning for %1$d removed transfer(s).</string>
     <string name="downloads_choose_episodes">Choose episodes</string>
     <string name="downloads_episode_metadata">%1$s • %2$s</string>
     <string name="downloads_manager_all">All downloads</string>

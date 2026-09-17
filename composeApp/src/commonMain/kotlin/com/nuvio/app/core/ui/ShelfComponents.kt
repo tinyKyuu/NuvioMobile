@@ -2,7 +2,6 @@ package com.nuvio.app.core.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,9 +23,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,11 +35,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -156,6 +156,7 @@ fun NuvioPosterCard(
         shape = shape,
     )
     val shouldShowTitleBelow = showTitleBelow && !posterCardStyle.hideLabelsEnabled
+    val focused = remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier.width(cardWidth),
@@ -165,18 +166,22 @@ fun NuvioPosterCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(shape.aspectRatio)
-                .then(
-                    if (selectionState != NuvioPosterSelectionState.None) {
-                        Modifier.border(tokens.borders.medium, tokens.colors.borderSelected, cardShape)
-                    } else {
-                        Modifier
-                    },
+                .nuvioPosterStateOutline(
+                    selectionState = selectionState,
+                    focused = focused.value,
+                    cornerRadius = posterCardStyle.cornerRadiusDp.dp,
                 )
                 .clip(cardShape)
                 .background(tokens.colors.surface)
                 .nuvioCardDepth(
                     shape = cardShape,
                     surface = NuvioCardDepthSurface.Posters,
+                )
+                .onFocusChanged { focused.value = it.isFocused }
+                .then(
+                    selectionContentDescription?.let { description ->
+                        Modifier.semantics { stateDescription = description }
+                    } ?: Modifier,
                 )
                 .posterCardClickable(
                     onClick = onClick,
@@ -252,29 +257,7 @@ fun NuvioPosterCard(
                 }
             }
 
-            if (selectionState != NuvioPosterSelectionState.None) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(NuvioTokens.Space.s6)
-                        .size(NuvioTokens.Icon.md)
-                        .clip(tokens.shapes.avatar)
-                        .background(ThemeColors.getColorPalette(MaterialTheme.appTheme).accentBrush())
-                        .border(tokens.borders.thin, tokens.colors.borderStrong, tokens.shapes.avatar),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = if (selectionState == NuvioPosterSelectionState.Full) {
-                            Icons.Default.Check
-                        } else {
-                            Icons.Default.Remove
-                        },
-                        contentDescription = selectionContentDescription,
-                        tint = tokens.colors.onAccent,
-                        modifier = Modifier.size(NuvioTokens.Icon.xs),
-                    )
-                }
-            }
+            NuvioPosterSelectionOverlay(state = selectionState)
         }
         if (shouldShowTitleBelow) {
             Text(

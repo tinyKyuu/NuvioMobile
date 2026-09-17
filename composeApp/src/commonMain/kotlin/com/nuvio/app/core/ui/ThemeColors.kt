@@ -142,6 +142,8 @@ object ThemeColors {
         secondary = Color(0xFFFB8C00),
         secondaryVariant = Color(0xFFEF6C00),
         nativeAccentHex = "#FB8C00",
+        onSecondary = Color(0xFF111111),
+        onSecondaryVariant = Color(0xFF111111),
         focusRing = Color(0xFFFFA726),
         focusBackground = Color(0xFF3D2D1A),
         background = Color(0xFF0F0D0D),

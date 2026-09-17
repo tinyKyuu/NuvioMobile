@@ -95,13 +95,17 @@ import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadLibraryManagementEvent
 import com.nuvio.app.features.downloads.DownloadLibraryManagementHost
 import com.nuvio.app.features.downloads.DownloadLibraryManagementState
+import com.nuvio.app.features.downloads.DownloadLibraryManagementStateSaver
 import com.nuvio.app.features.downloads.DownloadLibraryMenuTarget
+import com.nuvio.app.features.downloads.DownloadManagerToolbarSlotWidth
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.buildCompletedDownloadLibrary
 import com.nuvio.app.features.downloads.canonicalOfflineMetaType
 import com.nuvio.app.features.downloads.downloadGroupSelectionState
+import com.nuvio.app.features.downloads.downloadManagerGridBottomClearance
 import com.nuvio.app.features.downloads.formatDownloadBytes
 import com.nuvio.app.features.downloads.reduceDownloadLibraryManagement
+import com.nuvio.app.features.downloads.resolveDownloadManagerContainer
 import com.nuvio.app.features.downloads.toLibraryArtworkFallback
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.components.HomePosterCard
@@ -175,7 +179,9 @@ fun LibraryScreen(
     var selectedCloudItemKey by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedLibrarySectionKey by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedLibraryType by rememberSaveable { mutableStateOf<String?>(null) }
-    var downloadManagementState by remember { mutableStateOf(DownloadLibraryManagementState()) }
+    var downloadManagementState by rememberSaveable(
+        stateSaver = DownloadLibraryManagementStateSaver,
+    ) { mutableStateOf(DownloadLibraryManagementState()) }
     var downloadMenuTarget by remember { mutableStateOf<DownloadLibraryMenuTarget?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -282,6 +288,7 @@ fun LibraryScreen(
     val downloadMenuDescription = stringResource(Res.string.downloads_menu_generic)
     val downloadSelectedDescription = stringResource(Res.string.downloads_selected)
     val downloadPartiallySelectedDescription = stringResource(Res.string.downloads_partial_selected)
+    val downloadNotSelectedDescription = stringResource(Res.string.downloads_not_selected)
     val retryLibraryLoad: () -> Unit = {
         NetworkStatusRepository.requestRefresh(force = true)
         coroutineScope.launch {
@@ -382,6 +389,10 @@ fun LibraryScreen(
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val gridColumns = remember(maxWidth) { posterGridColumnCountForWidth(maxWidth) }
+        val managerContainer = remember(maxWidth, maxHeight) {
+            resolveDownloadManagerContainer(maxWidth, maxHeight)
+        }
+        val managerClearance = downloadManagerGridBottomClearance()
 
         NuvioScreen(
             modifier = Modifier.fillMaxSize(),
@@ -427,9 +438,11 @@ fun LibraryScreen(
                                     }
                                 }
                                 if (sourceMode == LibraryViewMode.Downloaded) {
-                                    Box(modifier = Modifier.width(80.dp)) {
+                                    Box(modifier = Modifier.width(DownloadManagerToolbarSlotWidth)) {
                                         TextButton(
+                                            modifier = Modifier.fillMaxWidth(),
                                             enabled = downloadedItems.isNotEmpty() || downloadManagementState.isManaging,
+                                            contentPadding = PaddingValues(horizontal = 4.dp),
                                             onClick = {
                                                 downloadManagementState = reduceDownloadLibraryManagement(
                                                     downloadManagementState,
@@ -534,10 +547,14 @@ fun LibraryScreen(
                                 item.posterSelectionState(completedDownloadLibrary, downloadManagementState.selectedIds)
                             },
                             selectionContentDescription = { item ->
-                                when (item.posterSelectionState(completedDownloadLibrary, downloadManagementState.selectedIds)) {
-                                    NuvioPosterSelectionState.Full -> downloadSelectedDescription
-                                    NuvioPosterSelectionState.Partial -> downloadPartiallySelectedDescription
-                                    NuvioPosterSelectionState.None -> null
+                                if (!downloadManagementState.isManaging) {
+                                    null
+                                } else {
+                                    when (item.posterSelectionState(completedDownloadLibrary, downloadManagementState.selectedIds)) {
+                                        NuvioPosterSelectionState.Full -> downloadSelectedDescription
+                                        NuvioPosterSelectionState.Partial -> downloadPartiallySelectedDescription
+                                        NuvioPosterSelectionState.None -> downloadNotSelectedDescription
+                                    }
                                 }
                             },
                             menuContentDescription = { downloadMenuDescription },
@@ -568,10 +585,14 @@ fun LibraryScreen(
                                 item.posterSelectionState(completedDownloadLibrary, downloadManagementState.selectedIds)
                             },
                             selectionContentDescription = { item ->
-                                when (item.posterSelectionState(completedDownloadLibrary, downloadManagementState.selectedIds)) {
-                                    NuvioPosterSelectionState.Full -> downloadSelectedDescription
-                                    NuvioPosterSelectionState.Partial -> downloadPartiallySelectedDescription
-                                    NuvioPosterSelectionState.None -> null
+                                if (!downloadManagementState.isManaging) {
+                                    null
+                                } else {
+                                    when (item.posterSelectionState(completedDownloadLibrary, downloadManagementState.selectedIds)) {
+                                        NuvioPosterSelectionState.Full -> downloadSelectedDescription
+                                        NuvioPosterSelectionState.Partial -> downloadPartiallySelectedDescription
+                                        NuvioPosterSelectionState.None -> downloadNotSelectedDescription
+                                    }
                                 }
                             },
                             menuContentDescription = { downloadMenuDescription },
@@ -582,7 +603,7 @@ fun LibraryScreen(
                     }
                 }
                 item(key = "downloads-manager-clearance") {
-                    Spacer(modifier = Modifier.height(104.dp))
+                    Spacer(modifier = Modifier.height(managerClearance))
                 }
             } else if (sourceMode == LibraryViewMode.Cloud) {
                 cloudLibraryContent(
@@ -729,7 +750,7 @@ fun LibraryScreen(
             DownloadLibraryManagementHost(
                 items = downloadsUiState.completedItems,
                 state = downloadManagementState,
-                isTablet = maxWidth >= 768.dp,
+                container = managerContainer,
                 menuTarget = downloadMenuTarget,
                 onMenuDismiss = { downloadMenuTarget = null },
                 onStateChange = { downloadManagementState = it },

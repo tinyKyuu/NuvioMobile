@@ -1,5 +1,7 @@
 package com.nuvio.app.features.downloads
 
+import androidx.compose.runtime.saveable.listSaver
+
 internal enum class DownloadGroupSelectionState {
     None,
     Partial,
@@ -18,6 +20,70 @@ internal data class DownloadLibraryManagementState(
     val isExpanded: Boolean = false,
     val route: DownloadManagerRoute = DownloadManagerRoute.Root,
 )
+
+internal val DownloadLibraryManagementStateSaver = listSaver<DownloadLibraryManagementState, Any?>(
+    save = { state -> state.toSavePayload() },
+    restore = ::restoreDownloadLibraryManagementState,
+)
+
+internal fun DownloadLibraryManagementState.toSavePayload(): List<Any?> {
+    val routeKind: String
+    val showId: String?
+    val seasonNumber: Int?
+    when (val currentRoute = route) {
+        DownloadManagerRoute.Root -> {
+            routeKind = "root"
+            showId = null
+            seasonNumber = null
+        }
+        is DownloadManagerRoute.Show -> {
+            routeKind = "show"
+            showId = currentRoute.showId
+            seasonNumber = null
+        }
+        is DownloadManagerRoute.Season -> {
+            routeKind = "season"
+            showId = currentRoute.showId
+            seasonNumber = currentRoute.seasonNumber
+        }
+    }
+    return listOf(
+        isManaging,
+        selectedIds.sorted(),
+        isExpanded,
+        routeKind,
+        showId,
+        seasonNumber,
+    )
+}
+
+internal fun restoreDownloadLibraryManagementState(payload: List<Any?>): DownloadLibraryManagementState? {
+    val isManaging = payload.getOrNull(0) as? Boolean ?: return null
+    val selectedIds = (payload.getOrNull(1) as? List<*>)
+        ?.filterIsInstance<String>()
+        ?.toCollection(linkedSetOf())
+        ?: return null
+    val isExpanded = payload.getOrNull(2) as? Boolean ?: return null
+    val routeKind = payload.getOrNull(3) as? String ?: return null
+    val showId = payload.getOrNull(4) as? String
+    val seasonNumber = payload.getOrNull(5) as? Int
+    val route = when (routeKind) {
+        "root" -> DownloadManagerRoute.Root
+        "show" -> showId?.let(DownloadManagerRoute::Show) ?: return null
+        "season" -> if (showId != null && seasonNumber != null) {
+            DownloadManagerRoute.Season(showId, seasonNumber)
+        } else {
+            return null
+        }
+        else -> return null
+    }
+    return DownloadLibraryManagementState(
+        isManaging = isManaging,
+        selectedIds = selectedIds,
+        isExpanded = isExpanded,
+        route = route,
+    )
+}
 
 internal sealed interface DownloadLibraryManagementEvent {
     data object EnterManage : DownloadLibraryManagementEvent

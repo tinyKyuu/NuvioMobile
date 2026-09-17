@@ -34,6 +34,8 @@ body:
           required: true
         - label: This is not a source/stream-specific error (the issue happens regardless of which source is used).
           required: true
+        - label: I removed credentials, tokens, account email addresses, private source URLs, viewing history, and device or simulator identifiers from everything I am posting.
+          required: true
 
   - type: markdown
     attributes:
@@ -216,6 +218,7 @@ body:
       description: |
         Required if the app crashes or force closes. Crash reports without logs will be closed.
         For other bug reports, logs are optional but still helpful.
+        Redact credentials, authorization headers, account details, private URLs, viewing history, and device or simulator identifiers before posting.
 
         **Android:** `adb logcat -d | tail -n 300`
         **iOS:** Crash log from Xcode Organizer or Console.app

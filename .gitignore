@@ -9,6 +9,7 @@ xcuserdata
 local.properties
 iosApp/Configuration/Signing.local.xcconfig
 .idea
+.cursor/
 .DS_Store
 captures
 .externalNativeBuild
@@ -25,16 +26,33 @@ logs/
 analysis/
 Docs/*
 !Docs/feature-status.md
+!Docs/distribution/
+!Docs/distribution/ios-internal-testflight.md
 SUPPORTER_COSMETICS.md
 supabase/migrations/
 keystore/
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+.env
+.env.*
+!.env.example
 scripts/build-distribution.sh
 asset
 scripts/scrape_android_compose_animation_docs.py
 tools
-AGENTS.md
 PERFORMANCE_FINDINGS.md
 .worktreeinclude
+
+# Private planning, handoff, and review artifacts. Public conclusions belong in
+# the PR description, README, or Docs/feature-status.md instead.
+/*-HANDOFF.md
+/*-REVIEW.md
+/FEATURE_REQUEST_REVIEW.md
+/UPSTREAM_REVIEW.md
+/UPSTREAM_REVIEW_DATA.json
+/review-assets/
 
 # Local MPVKit iOS build environment (sparse APFS image, see MPVKit docs)
 .mpvkit-build.sparseimage

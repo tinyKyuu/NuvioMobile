@@ -116,6 +116,9 @@ To keep issues fixable, bug reports should include:
 Do not leave the title as just `[Bug]:` or another generic placeholder.
 
 Logs are optional for most issues, but they are **required** for crash / force-close reports.
+Before posting logs or screenshots, remove credentials, authorization headers,
+account email addresses, private source URLs, viewing history, and device or
+simulator identifiers. Do not publish a security issue as a normal bug report.
 
 ### How to capture logs (optional)
 
@@ -161,6 +164,38 @@ Update the README only for current user-facing fork distinctions or major
 scope changes, not for every internal fix. If official upstream later provides
 equivalent behavior, keep the history in the ledger and remove the README
 differentiator.
+
+The pull request template requires an explicit decision for both documents.
+If a document is not affected, explain why in the PR description. When a
+feature or fix merges, its public status and remaining validation limits should
+be correct in the same PR; do not leave the public ledger dependent on an
+internal review file.
+
+## Public repository and privacy
+
+This repository, its pull requests, comments, workflow logs, and uploaded
+artifacts are public. Review the complete changed-file list and diff before
+pushing.
+
+Do not commit or paste:
+
+- credentials, access tokens, private keys, signing material, or private
+  service configuration
+- account identifiers or personal email addresses
+- absolute user paths, simulator or device identifiers, or private logs
+- internal handoff documents, review dossiers, or review screenshots
+- local signing or machine configuration such as `local.properties` or
+  `iosApp/Configuration/Signing.local.xcconfig`
+
+Put concise test and review evidence in the PR description. Put durable public
+feature status, provenance, and limits in `Docs/feature-status.md`. Root-level
+`*-HANDOFF.md` and `*-REVIEW.md` files and `review-assets/` are intentionally
+ignored.
+
+If a secret may have been committed, do not open a public issue or quote the
+secret in a PR. Revoke or rotate it immediately, preserve the commit and path
+without copying the value, and contact a maintainer through a private channel.
+Deleting the value in a later commit does not remove it from Git history.
 
 ## Before opening a PR
 

@@ -60,6 +60,8 @@ jobs:
               "Policy check",
               "Scope boundaries",
               "Testing",
+              "Public documentation",
+              "Privacy check",
               "Screenshots / Video",
               "Breaking changes",
               "Linked issues",
@@ -111,6 +113,40 @@ jobs:
             }
             if (policyUnchecked.length) {
               failedRules.push("Every Policy check box must be checked.");
+            }
+
+            const documentationContent = sectionContent("Public documentation") || "";
+            const documentationChecked = checkedLines(documentationContent);
+            const checkedLedger = documentationChecked.filter((line) => /Updated `?Docs\/feature-status\.md`?|Ledger not affected/i.test(line));
+            const checkedReadme = documentationChecked.filter((line) => /Updated `?README\.md`?|README not affected/i.test(line));
+            if (sectionContent("Public documentation") !== null && checkedLedger.length !== 1) {
+              failedRules.push("Check exactly one Ledger option in Public documentation.");
+            }
+            if (sectionContent("Public documentation") !== null && checkedReadme.length !== 1) {
+              failedRules.push("Check exactly one README option in Public documentation.");
+            }
+
+            const ledgerNotAffected = documentationChecked.some((line) => /Ledger not affected/i.test(line));
+            const readmeNotAffected = documentationChecked.some((line) => /README not affected/i.test(line));
+            const ledgerRationale = documentationContent.match(/Ledger rationale:\s*([\s\S]*?)(?=\n\s*README:)/i)?.[1]
+              ?.replace(/<!--[\s\S]*?-->/g, "").trim() || "";
+            const readmeRationale = documentationContent.match(/README rationale:\s*([\s\S]*)/i)?.[1]
+              ?.replace(/<!--[\s\S]*?-->/g, "").trim() || "";
+            if (ledgerNotAffected && ledgerRationale.length < 4) {
+              failedRules.push("Explain why the feature ledger is not affected.");
+            }
+            if (readmeNotAffected && readmeRationale.length < 4) {
+              failedRules.push("Explain why the README is not affected.");
+            }
+
+            const privacyContent = sectionContent("Privacy check") || "";
+            const privacyChecked = checkedLines(privacyContent);
+            const privacyUnchecked = uncheckedLines(privacyContent);
+            if (sectionContent("Privacy check") !== null && privacyChecked.length !== 5) {
+              failedRules.push("Every Privacy check box must be checked.");
+            }
+            if (privacyUnchecked.length) {
+              failedRules.push("Every Privacy check box must be checked.");
             }
 
             const checkedTypeText = prTypeChecked.join(" ");

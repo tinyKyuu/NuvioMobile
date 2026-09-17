@@ -4,7 +4,7 @@ Status: final correction complete on `codex/f07-network-recovery`; [PR #26](http
 
 - Stable base: `a5d37a02ccd5ff37f5511e2e90ffe40117f4d5ce`
 - Reviewed head superseded by this correction: `563e1950a0d69d3504f0f8653cecf5c5fd64e795`
-- Tested implementation: `e6b584774b6290a9c5a72c22a11478e101fa0279`
+- Tested implementation: `a0e3eaf9d09983e056a5a9e267ed2e39ea77caee`
 - Version/build: `0.4.12` / `122` (unchanged)
 - Review date: September 17, 2026
 - Pull request: [#26](https://github.com/tinyKyuu/NuvioMobile/pull/26)
@@ -21,6 +21,25 @@ The six correction tests were written against production seams before their impl
 | Manual force-all partial publication | The manifest collector notified the coordinator only for `Changed`, so a successful `Unchanged` provider could not publish until the whole force-all batch settled. | `manual force all publishes an unchanged provider before another provider settles`. | Every successful force-all result, Changed or Unchanged, emits a provider-specific partial event as it settles. All enabled URLs are attempted and the final full reconciliation still runs after the batch. |
 | Changed-provider scope | `onManifestRecovered(String)` did not describe why a URL was ready. The coordinator accumulated every callback URL, so a later changed A reused the initial cumulative `{A, B}` set. | `changed stale provider reconciles without refetching an unrelated ready provider`. | `ManifestRecoveryEvent` distinguishes cached admission, missing recovery, stale change, and manual force result. Only cached admission builds the initial cumulative set; changed, newly recovered, and force-all results reconcile their one provider. |
 | Home reset lifetime | The app-shell producer used `remember`, while Home persisted its acknowledged generation with `rememberSaveable`. After saved-state restoration the consumer could be ahead of the new producer and reject the next real transition. | `saved state restoration cannot suppress the next real presentation transition`; retained `hidden Home consumes a pending presentation reset once without replay`. | One profile-scoped app-shell `HomePresentationResetState` owns both production and consumption. Activity recreation resets both sides together; hidden Home consumes a pending token once and returning later cannot replay it. |
+
+### Organizer follow-up: failed force-all probe
+
+The organizer sequence exposed one lifecycle gap after the six corrections. A force-all retry stores both `retryProbeGeneration` and `forceAllPendingUntilOnline`. When the matching probe settled offline, the controller cleared only the generation. A later automatic reconnect correctly ran normal recovery, but the stale force flag survived and converted a still later ordinary Reconnect into `forceAll = true`.
+
+The checked-in regression `failed manual refresh does not turn a later ordinary Reconnect into force-all` records this trace:
+
+```text
+offline generation 1
+retry(forceAllManifests = true) -> fresh probe generation 2
+generation 2 -> NoInternet -> clear retry generation and force-all intent together
+automatic Online generation 3 -> recover(forceAll = false, trigger = Reconnect)
+offline generation 4
+ordinary retry -> fresh probe generation 5
+generation 5 -> Online -> recover(forceAll = false, trigger = Retry)
+recorded forceAll attempts -> [false, false]
+```
+
+Before the fix, the final assertion failed with `expected: <[false, false]> but was: <[false, true]>`. The controller now clears both fields inside the same `transitionLock` branch. The existing successful-manual-refresh regression still proves that a matching Online result consumes force-all exactly once.
 
 ## Traced event sequences
 
@@ -109,6 +128,14 @@ The failures were the six primary regressions named in the diagnosis table. Afte
 NetworkConnectivityRecoveryTest > android default path loss is unavailable even while active capabilities are stale
 ```
 
+The organizer follow-up regression then failed before its production change:
+
+```text
+1 test, 1 failure, 0 errors, 0 skipped
+NetworkRecoveryCoordinatorTest > failed manual refresh does not turn a later ordinary Reconnect into force-all
+expected: <[false, false]> but was: <[false, true]>
+```
+
 ### Focused F07 suite
 
 The final focused command covered connectivity, coordinator, boundary, Home/Search/Details integration, manifest recovery, tabs, Home/hero, and Settings-card behavior:
@@ -130,22 +157,22 @@ The final focused command covered connectivity, coordinator, boundary, Home/Sear
   --tests 'com.nuvio.app.features.addons.AddonsScreenTest' \
   --rerun-tasks --console=plain
 
-BUILD SUCCESSFUL in 53s
-124 tests, 0 failures, 0 errors, 0 skipped
+BUILD SUCCESSFUL in 51s
+125 tests, 0 failures, 0 errors, 0 skipped
 ```
 
 ### Complete matrix
 
 | Check | Exact final result |
 | --- | --- |
-| Complete Android-host suite + Full debug APK | `BUILD SUCCESSFUL in 1m 34s`; 1,071 tests, 0 failures, 0 errors, 0 skipped; 69 tasks executed |
-| Full debug artifact | `androidApp/build/outputs/apk/full/debug/androidApp-full-debug.apk`; 158,020,576 bytes |
-| Play Store debug APK | `BUILD SUCCESSFUL in 1m 16s`; 63 tasks executed |
-| Play Store debug artifact | `androidApp/build/outputs/apk/playstore/debug/androidApp-playstore-debug.apk`; 155,611,599 bytes |
+| Complete Android-host suite + Full debug APK | `BUILD SUCCESSFUL in 1m 36s`; 1,072 tests, 0 failures, 0 errors, 0 skipped; 69 tasks executed |
+| Full debug artifact | `androidApp/build/outputs/apk/full/debug/androidApp-full-debug.apk`; 158,020,632 bytes |
+| Play Store debug APK | `BUILD SUCCESSFUL in 56s`; 63 tasks executed |
+| Play Store debug artifact | `androidApp/build/outputs/apk/playstore/debug/androidApp-playstore-debug.apk`; 155,611,651 bytes |
 | Kotlin/Native iOS simulator test target | `:composeApp:compileTestKotlinIosSimulatorArm64`; `BUILD SUCCESSFUL in 46s`; 24 tasks executed |
 | Unsigned Full iOS simulator app | `xcodebuild ... CODE_SIGNING_ALLOWED=NO`; `** BUILD SUCCEEDED **` |
 
-The Android and Kotlin commands used the Android Studio JBR, Android SDK at `/Users/muharrem/Library/Android/sdk`, and the configured Nuvio engine at `/Users/muharrem/Documents/ChatGPT/Nuvio iOS/build/nuvio-engine`. The Xcode product is `/private/tmp/nuvio-f07-consolidated-final-derived/Build/Products/Debug-iphonesimulator/Nuvio.app`.
+The Android and Kotlin commands used the Android Studio JBR, Android SDK at `/Users/muharrem/Library/Android/sdk`, and the configured Nuvio engine at `/Users/muharrem/Documents/ChatGPT/Nuvio iOS/build/nuvio-engine`. The Xcode product is `/private/tmp/nuvio-f07-organizer-followup-derived/Build/Products/Debug-iphonesimulator/Nuvio.app`.
 
 ## Controlled Android foreground runtime
 

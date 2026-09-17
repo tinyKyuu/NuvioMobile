@@ -5,7 +5,7 @@ Status: ready for review on `codex/f08a-library-downloads`, based on approved co
 ## Scope and result
 
 - Completed media management now lives in Library > Downloads.
-- Download activity contains only current, queued, paused, and failed transfers.
+- Download activity contains only current, queued, paused, and failed transfers, with bulk selection and confirmed removal for those visible transfers.
 - Settings > Downloads contains network and storage policy, with a `Manage downloads` handoff to Library.
 - One download-ID selection model drives posters, the collapsed manager, root groups, seasons, and episodes.
 - The phone manager is a modal sheet; the tablet manager is a bounded centered dialog.
@@ -19,15 +19,16 @@ No app version, build number, schema, or migration changed.
 
 Removal is cleanup-first and per-ID:
 
-1. Resolve the requested catalog records without mutating repository state.
-2. Stop platform work and clean the media file, temporary file, and request payload for each target.
-3. Commit only successful IDs to the catalog after cleanup settles.
-4. Reconcile offline metadata and unreferenced artwork from the successfully committed catalog state.
-5. Keep failed targets cataloged and selected so the user can retry.
-6. Report successful IDs, per-ID failure reasons, and bytes reclaimed from successful records only.
-7. Publish reconciled state once and pump the scheduler once after the batch.
+1. Resolve the requested catalog records and active handles without mutating or detaching repository state.
+2. Cancel the active handle or platform task first. A cancellation failure stops cleanup and leaves the original record and handle in place.
+3. For completed media, clean the request and partial file before deleting the playable file. Any earlier failure stops the target before playable-media deletion.
+4. Treat completed-media deletion as the final irreversible step. A successful deletion is committed as removed; a deletion failure keeps the record and file.
+5. For current transfers, cancellation is the irreversible step. The record is removed after cancellation succeeds, while request or partial-file failures are reported as ancillary cleanup warnings instead of retaining a canceled transfer.
+6. Commit successful IDs once, then reconcile offline metadata and unreferenced artwork from the committed catalog state.
+7. Report exact successful IDs, retained failed IDs, cleanup warnings, and bytes reclaimed from files that were actually removed.
+8. Publish the settled state once and pump the scheduler once after the batch.
 
-The tests cover scope filtering, no early catalog mutation, single commit, request-storage failure, mixed success/failure, failed-ID retention, and exact reclaimed-byte accounting.
+The tests cover callback order, the retained-media invariant, active-cancel failure, request and partial cleanup failure, completed-file failure, mixed batches, exact reclaimed-byte accounting, single state application, one final publication, and one scheduler pump.
 
 ## Automated verification
 
@@ -35,12 +36,13 @@ Final source state on September 17, 2026:
 
 | Check | Result |
 | --- | --- |
-| Android host suite: `:composeApp:testAndroidHostTest` | Passed, 1,086 tests; 0 failed, errored, or skipped |
-| Focused iOS-native suites: `DownloadsBatchRemovalTest`, `DownloadLibraryManagementTest`, `DownloadNavigationDecisionTest` | Passed, 16 tests; 0 failed, errored, or skipped |
-| Full-policy Android: `:androidApp:assembleFullDebug` | Passed; `androidApp-full-debug.apk`, 161,691,755 bytes |
-| Play Store-policy Android: `:androidApp:assemblePlayStoreDebug` | Passed; `androidApp-playStore-debug.apk`, 156,925,153 bytes |
-| App Store-policy iOS simulator Xcode build | Passed for iPhone/iPad simulator, including the final accessibility-label change |
-| App Store-policy signed iPad Xcode build | Passed for `iPad8,1`, version `0.4.12` build `122` |
+| Focused Android F08A suites: `DownloadsBatchRemovalTest`, `DownloadsSelectionLogicTest`, `DownloadLibraryManagementTest`, `DownloadNavigationDecisionTest` | Passed, 26 tests; 0 failed, errored, or skipped |
+| Android host suite: `:composeApp:testAndroidHostTest` | Passed, 1,093 tests; 0 failed, errored, or skipped |
+| Focused iOS-native F08A suites: the same four suites | Passed, 26 tests; 0 failed, errored, or skipped |
+| Kotlin/Native iOS simulator compilation | Passed through `compileKotlinIosSimulatorArm64`, `compileTestKotlinIosSimulatorArm64`, and the focused native test link/run |
+| Full-policy Android: `:androidApp:assembleFullDebug` | Passed; `androidApp-full-debug.apk`, 158,642,208 bytes |
+| Play Store-policy Android: `:androidApp:assemblePlayStoreDebug` | Passed; `androidApp-playstore-debug.apk`, 156,229,775 bytes |
+| App Store-policy unsigned iOS simulator Xcode build | `** BUILD SUCCEEDED **` for version `0.4.12` build `122` |
 | Patch hygiene | `git diff --check` passed |
 
 The build logs contain existing Kotlin/deprecation and minimum-deployment warnings; none failed a task or were introduced as an F08A functional regression.
@@ -67,7 +69,7 @@ The simulator accessibility bridge cannot synthesize Compose's press-and-hold ge
 
 ### Android emulator
 
-- The final Full-policy APK installed in place on a Pixel 8 API 36 emulator and preserved the existing profile.
+- The Full-policy APK installed in place on a Pixel 8 API 36 emulator and preserved the existing profile.
 - Library Downloads showed the empty state and disabled Manage.
 - Download activity contained only active-state categories, and system Back returned to Library.
 - Settings > Downloads showed Manage downloads plus Wi-Fi, cellular, expensive-network, Low Data Mode, and storage-policy controls; it did not show completed media. Activating Manage downloads returned directly to Library > Downloads.
@@ -75,14 +77,18 @@ The simulator accessibility bridge cannot synthesize Compose's press-and-hold ge
 
 ### Private iPad
 
-- The App Store-policy build used the existing bundle identifier `com.tinykyuu.nuvio.internal`, team, version `0.4.12`, and build `122`.
-- The final source state installed in place on `iPad8,1`; no uninstall, reset, container copy, trust-setting change, or destructive download action occurred.
-- Install output retained data-container UUID `A5B7E827-0BD7-463F-AB8E-B571C794A12F`, and the final application launch succeeded.
-- This is an install/launch and data-preservation smoke test, not a claim that every F08A visual interaction was manually exercised on the private device.
+- The earlier F08A head used the existing bundle identifier `com.tinykyuu.nuvio.internal`, team, version `0.4.12`, and build `122` for an in-place install and launch on `iPad8,1`.
+- That install retained the existing data container. The organizer-review fixes were verified with native tests and an unsigned simulator build only.
+- This review-fix pass did not build for, install on, uninstall from, reset, copy a container to, or alter downloads on the private iPad.
 
 ## Runtime regression found and fixed
 
 The first iOS phone pass exposed that Download activity reused `DownloadsSettingsRoute`, whose settings-destination marker made Back return to Settings even when Library opened it. F08A now has a separate non-settings `DownloadActivityRoute`; policy remains on `DownloadsSettingsRoute`. A regression test asserts their different preferred-tab behavior, and both iOS simulator and Android emulator Back navigation returned to Library afterward.
+
+## Organizer review blockers fixed
+
+- Completed cleanup now deletes playable media last and stops before that step after cancellation, request, or partial cleanup failure. Failed completed targets remain playable and cataloged. Once a current transfer is canceled, its record is removed even if ancillary request or partial cleanup reports a warning, so Activity cannot retain a detached Downloading or queued record.
+- Download activity again supports Select, long-press entry, row toggles, select all, clear, Done, Back-to-exit-selection, confirmation, and bulk removal. Its candidate IDs come only from the displayed current-transfer list. Hidden completed records cannot enter Activity selection; Settings policy exposes no selection behavior; Library remains the completed-download manager.
 
 ## Deferred review
 

@@ -84,7 +84,7 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Durable direct-file downloads that continue while the app is in the background | Downloads | iOS and iPadOS | Merged |
 | Persisted queue state, two active transfer slots, pause and resume, and Wi-Fi-only network policy | Downloads | iOS and iPadOS | Merged |
 | Download the exact direct-file source currently playing without leaving the player | Player | Shared mobile source, iOS tested | Merged |
-| Select and remove several active or completed downloads in one operation | Downloads | Shared mobile source, iOS tested | Merged |
+| Select and remove several current transfers from Download activity, or completed files from Library > Downloads, without mixing the two sets | Download activity and Library > Downloads | iOS, iPadOS, and Android shared source | [In review](./F08-REVIEW.md) |
 | Play completed files offline and export them through the native share sheet | Downloads and Details | iOS and iPadOS | Merged |
 | Browse and manage completed movies, shows, seasons, and episodes from Library > Downloads; keep transfer activity separate from download policy | Library, Download activity, and Settings | iOS, iPadOS, and Android shared source | [In review](./F08-REVIEW.md) |
 

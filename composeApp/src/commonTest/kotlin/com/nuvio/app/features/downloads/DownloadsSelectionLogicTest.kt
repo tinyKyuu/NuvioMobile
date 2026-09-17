@@ -2,6 +2,8 @@ package com.nuvio.app.features.downloads
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class DownloadsSelectionLogicTest {
     @Test
@@ -55,6 +57,61 @@ class DownloadsSelectionLogicTest {
                 selectedIds = setOf("missing", "episode", "movie"),
                 items = items,
             ),
+        )
+    }
+
+    @Test
+    fun `activity selects several current transfers but never hidden completed records`() {
+        val items = listOf(
+            selectionItem("active", DownloadStatus.Downloading),
+            selectionItem("queued", DownloadStatus.Queued),
+            selectionItem("paused", DownloadStatus.Paused),
+            selectionItem("failed", DownloadStatus.Failed),
+            selectionItem("completed", DownloadStatus.Completed),
+        )
+
+        val visibleIds = visibleDownloadSelectionIds(
+            mode = DownloadsScreenMode.Activity,
+            items = items,
+        )
+        val selected = toggleDownloadSelection(
+            selectedIds = emptySet(),
+            targetIds = visibleIds,
+            items = items.filter { it.id in visibleIds },
+        )
+        val summary = summarizeDownloadSelection(selected, items.filter { it.id in visibleIds })
+
+        assertEquals(setOf("active", "queued", "paused", "failed"), visibleIds)
+        assertEquals(visibleIds, selected)
+        assertEquals(4, summary.currentTransferCount)
+        assertEquals(0, summary.completedFileCount)
+        assertFalse("completed" in selected)
+    }
+
+    @Test
+    fun `policy has no selection while legacy and Library keep completed bulk behavior`() {
+        val items = listOf(
+            selectionItem("active", DownloadStatus.Downloading),
+            selectionItem("completed", DownloadStatus.Completed),
+        )
+
+        assertFalse(DownloadsScreenMode.Policy.supportsBulkSelection())
+        assertEquals(
+            emptySet(),
+            visibleDownloadSelectionIds(DownloadsScreenMode.Policy, items),
+        )
+        assertTrue(DownloadsScreenMode.Activity.supportsBulkSelection())
+        assertEquals(
+            setOf("active"),
+            visibleDownloadSelectionIds(DownloadsScreenMode.Activity, items),
+        )
+        assertEquals(
+            setOf("active", "completed"),
+            visibleDownloadSelectionIds(DownloadsScreenMode.Legacy, items),
+        )
+        assertEquals(
+            setOf("completed"),
+            buildCompletedDownloadLibrary(items).allIds,
         )
     }
 }

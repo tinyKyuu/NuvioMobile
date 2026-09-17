@@ -64,6 +64,7 @@ import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import nuvio.composeapp.generated.resources.*
@@ -104,10 +105,6 @@ fun DownloadsScreen(
     val networkPolicy by DownloadsNetworkPolicyRepository.policy.collectAsStateWithLifecycle()
     val exportFailedText = stringResource(Res.string.downloads_export_failed)
 
-    LaunchedEffect(uiState.items) {
-        selectedDownloadIds = retainExistingDownloadSelection(selectedDownloadIds, uiState.items)
-    }
-
     val completedEpisodes = remember(uiState.items) {
         uiState.completedItems
             .filter { it.isEpisode }
@@ -122,43 +119,60 @@ fun DownloadsScreen(
     val selectedShowDownloadIds = remember(selectedShowId, completedEpisodes) {
         selectedShowId?.let { downloadIdsForShow(completedEpisodes, it) }.orEmpty()
     }
-    val selectionSummary = remember(selectedDownloadIds, uiState.items) {
-        summarizeDownloadSelection(selectedDownloadIds, uiState.items)
+    val selectionSupported = mode.supportsBulkSelection()
+    val visibleSelectionIds = remember(mode, selectedShowId, selectedShowDownloadIds, uiState.items) {
+        visibleDownloadSelectionIds(
+            mode = mode,
+            items = uiState.items,
+            selectedShowDownloadIds = selectedShowDownloadIds,
+            isShowingCompletedSeries = selectedShowId != null,
+        )
     }
-    val visibleSelectionIds = remember(selectedShowId, selectedShowDownloadIds, uiState.items) {
-        if (selectedShowId == null) {
-            uiState.items.mapTo(linkedSetOf(), DownloadItem::id)
-        } else {
-            selectedShowDownloadIds
+    val selectableItems = remember(uiState.items, visibleSelectionIds) {
+        uiState.items.filter { item -> item.id in visibleSelectionIds }
+    }
+    LaunchedEffect(selectableItems) {
+        selectedDownloadIds = retainExistingDownloadSelection(selectedDownloadIds, selectableItems)
+        if (selectedDownloadIds.isEmpty() && visibleSelectionIds.isEmpty()) {
+            selectionMode = false
         }
+    }
+    val selectionSummary = remember(selectedDownloadIds, selectableItems) {
+        summarizeDownloadSelection(selectedDownloadIds, selectableItems)
     }
     val allVisibleDownloadsSelected = visibleSelectionIds.isNotEmpty() &&
         visibleSelectionIds.all(selectionSummary.selectedIds::contains)
-    val selectionBarVisible = mode == DownloadsScreenMode.Legacy && selectionMode && selectionSummary.fileCount > 0
+    val selectionBarVisible = selectionSupported && selectionMode && selectionSummary.fileCount > 0
     val bottomInset = nuvioSafeBottomPadding()
     val density = LocalDensity.current
     var selectionBarHeightPx by remember { mutableStateOf(0) }
     val selectionBarClearance = with(density) { selectionBarHeightPx.toDp() }
 
     fun enterSelection(targetIds: Collection<String>) {
+        if (!selectionSupported) return
         selectionMode = true
         selectedDownloadIds = retainExistingDownloadSelection(
             selectedIds = selectedDownloadIds + targetIds,
-            items = uiState.items,
+            items = selectableItems,
         )
     }
 
     fun toggleSelection(targetIds: Collection<String>) {
+        if (!selectionSupported) return
         selectedDownloadIds = toggleDownloadSelection(
             selectedIds = selectedDownloadIds,
             targetIds = targetIds,
-            items = uiState.items,
+            items = selectableItems,
         )
     }
 
     fun leaveSelection() {
         selectionMode = false
         selectedDownloadIds = emptySet()
+    }
+
+    PlatformBackHandler(enabled = selectionSupported && selectionMode) {
+        leaveSelection()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -173,34 +187,43 @@ fun DownloadsScreen(
                         selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
                     },
                     onBack = {
-                        if (mode != DownloadsScreenMode.Legacy) {
-                            onBack()
-                        } else if (selectionMode) {
-                            leaveSelection()
-                        } else if (selectedShowId != null) {
-                            onBackFromShow?.invoke() ?: run { selectedShowId = null }
-                        } else {
-                            onBack()
+                        when (
+                            resolveDownloadsBackAction(
+                                mode = mode,
+                                selectionMode = selectionMode,
+                                isShowingCompletedSeries = selectedShowId != null,
+                            )
+                        ) {
+                            DownloadsBackAction.ExitSelection -> leaveSelection()
+                            DownloadsBackAction.CloseShow -> {
+                                onBackFromShow?.invoke() ?: run { selectedShowId = null }
+                            }
+                            DownloadsBackAction.NavigateBack -> onBack()
                         }
                     },
                     actions = {
-                        if (mode == DownloadsScreenMode.Legacy) {
+                        if (selectionSupported) {
                             if (selectionMode) {
                                 TextButton(onClick = ::leaveSelection) {
                                     Text(stringResource(Res.string.action_done))
                                 }
                             } else if (selectedShowId == null) {
-                                TextButton(onClick = { selectionMode = true }) {
+                                TextButton(
+                                    enabled = visibleSelectionIds.isNotEmpty(),
+                                    onClick = { selectionMode = true },
+                                ) {
                                     Text(stringResource(Res.string.downloads_select))
                                 }
-                                IconButton(onClick = { showManagement = !showManagement }) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Storage,
-                                        contentDescription = stringResource(Res.string.downloads_manage_storage),
-                                        tint = MaterialTheme.nuvio.colors.textPrimary,
-                                    )
+                                if (mode == DownloadsScreenMode.Legacy) {
+                                    IconButton(onClick = { showManagement = !showManagement }) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Storage,
+                                            contentDescription = stringResource(Res.string.downloads_manage_storage),
+                                            tint = MaterialTheme.nuvio.colors.textPrimary,
+                                        )
+                                    }
                                 }
-                            } else {
+                            } else if (mode == DownloadsScreenMode.Legacy) {
                                 IconButton(
                                     enabled = selectedShowDownloadIds.isNotEmpty(),
                                     onClick = { downloadsPendingBulkDeletion = selectedShowDownloadIds },
@@ -230,14 +253,14 @@ fun DownloadsScreen(
                         onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
                     },
                     onDeleteDownload = { downloadPendingDeletionId = it },
-                    selectionMode = mode == DownloadsScreenMode.Legacy && selectionMode,
+                    selectionMode = selectionSupported && selectionMode,
                     selectedDownloadIds = selectionSummary.selectedIds,
-                    onEnterSelection = if (mode == DownloadsScreenMode.Legacy) {
+                    onEnterSelection = if (selectionSupported) {
                         ::enterSelection
                     } else {
                         { _ -> Unit }
                     },
-                    onToggleSelection = if (mode == DownloadsScreenMode.Legacy) {
+                    onToggleSelection = if (selectionSupported) {
                         ::toggleSelection
                     } else {
                         { _ -> Unit }
@@ -341,7 +364,7 @@ fun DownloadsScreen(
 
     val pendingBulkDeletion = downloadsPendingBulkDeletion
     if (pendingBulkDeletion != null) {
-        val pendingSummary = summarizeDownloadSelection(pendingBulkDeletion, uiState.items)
+        val pendingSummary = summarizeDownloadSelection(pendingBulkDeletion, selectableItems)
         if (pendingSummary.fileCount > 0) {
             NuvioStatusModal(
                 title = stringResource(Res.string.downloads_bulk_delete_title),

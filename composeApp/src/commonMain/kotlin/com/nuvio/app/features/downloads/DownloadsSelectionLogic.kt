@@ -8,6 +8,38 @@ internal data class DownloadSelectionSummary(
     val knownStorageBytes: Long,
 )
 
+internal enum class DownloadsBackAction {
+    ExitSelection,
+    CloseShow,
+    NavigateBack,
+}
+
+internal fun DownloadsScreenMode.supportsBulkSelection(): Boolean =
+    this != DownloadsScreenMode.Policy
+
+internal fun visibleDownloadSelectionIds(
+    mode: DownloadsScreenMode,
+    items: Collection<DownloadItem>,
+    selectedShowDownloadIds: Collection<String> = emptySet(),
+    isShowingCompletedSeries: Boolean = false,
+): Set<String> = when {
+    mode == DownloadsScreenMode.Policy -> emptySet()
+    mode == DownloadsScreenMode.Activity -> currentDownloadsForDisplay(items.toList())
+        .mapTo(linkedSetOf(), DownloadItem::id)
+    isShowingCompletedSeries -> selectedShowDownloadIds.toCollection(linkedSetOf())
+    else -> items.mapTo(linkedSetOf(), DownloadItem::id)
+}
+
+internal fun resolveDownloadsBackAction(
+    mode: DownloadsScreenMode,
+    selectionMode: Boolean,
+    isShowingCompletedSeries: Boolean,
+): DownloadsBackAction = when {
+    mode.supportsBulkSelection() && selectionMode -> DownloadsBackAction.ExitSelection
+    mode == DownloadsScreenMode.Legacy && isShowingCompletedSeries -> DownloadsBackAction.CloseShow
+    else -> DownloadsBackAction.NavigateBack
+}
+
 internal fun downloadIdsForShow(
     items: Collection<DownloadItem>,
     showId: String,

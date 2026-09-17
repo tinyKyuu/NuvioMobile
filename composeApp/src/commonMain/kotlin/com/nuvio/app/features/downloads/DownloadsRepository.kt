@@ -366,7 +366,7 @@ object DownloadsRepository {
             selectedRecords.map { record ->
                 DownloadBatchRemovalTarget(
                     record = record,
-                    activeHandle = activeHandles.remove(record.downloadId),
+                    activeHandle = activeHandles[record.downloadId],
                 )
             }
         }
@@ -390,49 +390,60 @@ object DownloadsRepository {
                 )
             },
         )
-        val successfulRecords = cleanup.successfulTargets.map(DownloadBatchRemovalTarget::record)
-        val successfulIds = successfulRecords.mapTo(linkedSetOf(), DownloadRecord::downloadId)
-        synchronized(stateLock) {
-            if (successfulIds.isNotEmpty()) {
-                commitSuccessfulBatchRemoval(store, successfulRecords)
-                successfulIds.forEach { downloadId ->
-                    runtimeRecordsById.remove(downloadId)
-                    progressPersistencePolicy.remove(downloadId)
+        val result = settleDownloadBatchRemoval(
+            cleanup = cleanup,
+            completedMediaIdsWithResolvedFiles = resolvedCompletedFileUris
+                .filterValues { resolvedUri -> resolvedUri != null }
+                .keys,
+            applyState = { successfulTargets, failedTargets ->
+                val successfulRecords = successfulTargets.map(DownloadBatchRemovalTarget::record)
+                synchronized(stateLock) {
+                    val successfulIds = commitSuccessfulBatchRemoval(store, successfulRecords)
+                    successfulIds.forEach { downloadId ->
+                        activeHandles.remove(downloadId)
+                        runtimeRecordsById.remove(downloadId)
+                        progressPersistencePolicy.remove(downloadId)
+                    }
+                    if (successfulIds.isNotEmpty()) {
+                        currentProfileRecords = currentProfileRecords.filterNot { it.downloadId in successfulIds }
+                    }
+                    failedTargets.forEach { failure ->
+                        val record = failure.target.record
+                        if (failure.transferCancelled) {
+                            activeHandles.remove(record.downloadId)
+                        }
+                        runtimeRecordsById[record.downloadId] = record
+                    }
+                    successfulIds
                 }
-                currentProfileRecords = currentProfileRecords.filterNot { it.downloadId in successfulIds }
-            }
-            cleanup.failures.forEach { failure ->
-                val record = targets.firstOrNull { it.record.downloadId == failure.downloadId }?.record
-                if (record != null) {
-                    runtimeRecordsById[record.downloadId] = record
+            },
+            publishFinalState = {
+                synchronized(stateLock) {
+                    publishCurrentProfileLocked()
+                }
+                notifyLiveStatusPlatform()
+            },
+            pumpScheduler = { pumpScheduler() },
+        )
+        targets
+            .map(DownloadBatchRemovalTarget::record)
+            .filter { it.downloadId in result.successfulIds }
+            .forEach { record ->
+                log.i {
+                    "event=record_deleted_batch download_id=${record.downloadId} owner_profile=${record.ownerProfileKey} prior_state=${record.internalState} downloaded_bytes=${record.downloadedBytes} total_bytes=${record.expectedBytes ?: "unknown"}"
                 }
             }
-        }
-        successfulRecords.forEach { record ->
-            log.i {
-                "event=record_deleted_batch download_id=${record.downloadId} owner_profile=${record.ownerProfileKey} prior_state=${record.internalState} downloaded_bytes=${record.downloadedBytes} total_bytes=${record.expectedBytes ?: "unknown"}"
-            }
-        }
-        cleanup.failures.forEach { failure ->
+        result.failures.forEach { failure ->
             log.w {
                 "event=record_delete_failed_batch download_id=${failure.downloadId} reasons=${failure.reasons.joinToString(",")}"
             }
         }
-        pumpScheduler(forcePublishCurrentProfile = true)
-        return DownloadBatchRemovalResult(
-            successfulIds = successfulIds,
-            failures = cleanup.failures,
-            bytesReclaimed = successfulRecords.sumOf { record ->
-                if (
-                    record.internalState == DownloadInternalState.Completed &&
-                    resolvedCompletedFileUris[record.downloadId] == null
-                ) {
-                    0L
-                } else {
-                    record.reclaimableBytes()
-                }
-            },
-        )
+        result.cleanupWarnings.forEach { warning ->
+            log.w {
+                "event=record_delete_cleanup_warning download_id=${warning.downloadId} reasons=${warning.reasons.joinToString(",")}"
+            }
+        }
+        return result
     }
 
     internal fun deleteProfileDownloads(profileId: Int): Int {
@@ -466,7 +477,7 @@ object DownloadsRepository {
             removalTargets to isLoadedProfile
         }
 
-        performDownloadBatchCleanup(
+        performPostCommitDownloadBatchCleanup(
             targets = targets,
             cancelPlatformTask = DownloadsPlatformDownloader::cancel,
             removeRequest = DownloadsRequestStorage::remove,

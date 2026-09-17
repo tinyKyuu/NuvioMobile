@@ -65,4 +65,37 @@ class DownloadNavigationDecisionTest {
             ),
         )
     }
+
+    @Test
+    fun `activity Back exits selection before returning to its calling Library tab`() {
+        assertEquals(
+            DownloadsBackAction.ExitSelection,
+            resolveDownloadsBackAction(
+                mode = DownloadsScreenMode.Activity,
+                selectionMode = true,
+                isShowingCompletedSeries = false,
+            ),
+        )
+        assertEquals(
+            DownloadsBackAction.NavigateBack,
+            resolveDownloadsBackAction(
+                mode = DownloadsScreenMode.Activity,
+                selectionMode = false,
+                isShowingCompletedSeries = false,
+            ),
+        )
+        assertNull(DownloadActivityRoute().preferredTabName)
+    }
+
+    @Test
+    fun `policy Back never exposes a selection state`() {
+        assertEquals(
+            DownloadsBackAction.NavigateBack,
+            resolveDownloadsBackAction(
+                mode = DownloadsScreenMode.Policy,
+                selectionMode = true,
+                isShowingCompletedSeries = false,
+            ),
+        )
+    }
 }

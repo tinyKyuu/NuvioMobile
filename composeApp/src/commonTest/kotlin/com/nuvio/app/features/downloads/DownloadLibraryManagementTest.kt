@@ -1,9 +1,11 @@
 package com.nuvio.app.features.downloads
 
+import androidx.compose.ui.unit.dp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class DownloadLibraryManagementTest {
@@ -58,6 +60,72 @@ class DownloadLibraryManagementTest {
 
         state = reduceDownloadLibraryManagement(state, DownloadLibraryManagementEvent.LeaveDownloads)
         assertEquals(DownloadLibraryManagementState(), state)
+    }
+
+    @Test
+    fun `management state restores expanded chooser and selection after recreation`() {
+        val state = DownloadLibraryManagementState(
+            isManaging = true,
+            selectedIds = linkedSetOf("movie", "s1e2"),
+            isExpanded = true,
+            route = DownloadManagerRoute.Season(showId = "show", seasonNumber = 1),
+        )
+
+        val restored = restoreDownloadLibraryManagementState(state.toSavePayload())
+
+        assertEquals(state, restored)
+        assertNull(restoreDownloadLibraryManagementState(listOf(true, emptyList<String>(), true, "season")))
+    }
+
+    @Test
+    fun `adaptive manager uses panels only when both dimensions can preserve context`() {
+        assertEquals(
+            DownloadManagerContainer.BottomSheet,
+            resolveDownloadManagerContainer(390.dp, 844.dp),
+        )
+        assertEquals(
+            DownloadManagerContainer.BottomSheet,
+            resolveDownloadManagerContainer(520.dp, 900.dp),
+        )
+        assertEquals(
+            DownloadManagerContainer.BottomSheet,
+            resolveDownloadManagerContainer(900.dp, 420.dp),
+        )
+        assertEquals(
+            DownloadManagerContainer.AdaptivePanel,
+            resolveDownloadManagerContainer(600.dp, 720.dp),
+        )
+        assertEquals(
+            DownloadManagerContainer.AdaptivePanel,
+            resolveDownloadManagerContainer(1024.dp, 768.dp),
+        )
+    }
+
+    @Test
+    fun `narrow and large text controls stack and reserve more grid clearance`() {
+        assertTrue(useStackedDownloadManagerControls(390.dp, fontScale = 1f))
+        assertTrue(useStackedDownloadManagerControls(700.dp, fontScale = 1.6f))
+        assertFalse(useStackedDownloadManagerControls(700.dp, fontScale = 1f))
+        assertTrue(downloadManagerGridBottomClearance(1.6f) > downloadManagerGridBottomClearance(1f))
+    }
+
+    @Test
+    fun `large completed shows retain every episode and exact aggregate size`() {
+        val episodes = (1..55).map { number ->
+            episode(
+                id = "s${(number - 1) / 10 + 1}e$number",
+                season = (number - 1) / 10 + 1,
+                episode = number,
+                bytes = number.toLong(),
+            )
+        }
+
+        val show = buildCompletedDownloadLibrary(episodes).shows.single()
+
+        assertEquals(55, show.episodes.size)
+        assertEquals(6, show.seasons.size)
+        assertEquals((1L..55L).sum(), show.bytes)
+        assertEquals(55, show.downloadIds.size)
     }
 
     @Test

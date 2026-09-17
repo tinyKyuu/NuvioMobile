@@ -25,11 +25,25 @@ import nuvio.composeapp.generated.resources.jetbrains_sans_semibold
 import org.jetbrains.compose.resources.Font
 
 val LocalAppTheme = staticCompositionLocalOf { AppTheme.WHITE }
+internal val LocalNuvioSystemFontScale = staticCompositionLocalOf { 1f }
 
 val MaterialTheme.appTheme: AppTheme
     @Composable
     @ReadOnlyComposable
     get() = LocalAppTheme.current
+
+@Composable
+internal fun NuvioSystemFontScale(
+    enabled: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    val density = LocalDensity.current
+    val fontScale = if (enabled) LocalNuvioSystemFontScale.current else density.fontScale
+    CompositionLocalProvider(
+        LocalDensity provides Density(density = density.density, fontScale = fontScale),
+        content = content,
+    )
+}
 
 private fun contentColorFor(background: Color): Color =
     if (background.luminance() > 0.5f) Color(0xFF111111) else Color(0xFFF5F7F8)
@@ -198,6 +212,7 @@ fun NuvioTheme(
 
     val density = LocalDensity.current
     CompositionLocalProvider(
+        LocalNuvioSystemFontScale provides density.fontScale,
         LocalDensity provides Density(
             density = density.density,
             fontScale = 1f,

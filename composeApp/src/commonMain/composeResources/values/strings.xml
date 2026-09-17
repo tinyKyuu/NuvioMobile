@@ -682,6 +682,7 @@
     <string name="downloads_menu">Download options for %1$s</string>
     <string name="downloads_menu_generic">Download options</string>
     <string name="downloads_partial_selected">Partially selected</string>
+    <string name="downloads_not_selected">Not selected</string>
     <string name="downloads_play_file">Play downloaded file</string>
     <string name="downloads_remove_all">Remove all %1$d downloads</string>
     <string name="downloads_remove_confirm_message">Remove %1$d downloaded file(s)? This will free %2$s. Your saved titles and watch history will stay unchanged.</string>

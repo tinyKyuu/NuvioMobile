@@ -62,7 +62,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -79,7 +78,6 @@ import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioPosterSelectionState
-import com.nuvio.app.core.ui.NuvioSystemFontScale
 import com.nuvio.app.core.ui.NuvioViewAllPillSize
 import com.nuvio.app.core.ui.NuvioShelfSection
 import com.nuvio.app.core.ui.ScopedDisintegrationTracker
@@ -389,13 +387,12 @@ fun LibraryScreen(
         emptyList()
     }
 
-    NuvioSystemFontScale(enabled = sourceMode == LibraryViewMode.Downloaded) {
-        BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-            val gridColumns = remember(maxWidth) { posterGridColumnCountForWidth(maxWidth) }
-            val managerContainer = remember(maxWidth, maxHeight) {
-                resolveDownloadManagerContainer(maxWidth, maxHeight)
-            }
-            val managerClearance = downloadManagerGridBottomClearance(LocalDensity.current.fontScale)
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val gridColumns = remember(maxWidth) { posterGridColumnCountForWidth(maxWidth) }
+        val managerContainer = remember(maxWidth, maxHeight) {
+            resolveDownloadManagerContainer(maxWidth, maxHeight)
+        }
+        val managerClearance = downloadManagerGridBottomClearance()
 
         NuvioScreen(
             modifier = Modifier.fillMaxSize(),
@@ -760,7 +757,6 @@ fun LibraryScreen(
                 onPlay = { item -> onPlayDownloaded?.invoke(item) },
             )
         }
-    }
     }
 }
 

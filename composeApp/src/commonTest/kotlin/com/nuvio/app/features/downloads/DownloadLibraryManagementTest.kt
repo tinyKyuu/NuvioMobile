@@ -102,11 +102,10 @@ class DownloadLibraryManagementTest {
     }
 
     @Test
-    fun `narrow and large text controls stack and reserve more grid clearance`() {
-        assertTrue(useStackedDownloadManagerControls(390.dp, fontScale = 1f))
-        assertTrue(useStackedDownloadManagerControls(700.dp, fontScale = 1.6f))
-        assertFalse(useStackedDownloadManagerControls(700.dp, fontScale = 1f))
-        assertTrue(downloadManagerGridBottomClearance(1.6f) > downloadManagerGridBottomClearance(1f))
+    fun `narrow controls stack and reserve fixed grid clearance`() {
+        assertTrue(useStackedDownloadManagerControls(390.dp))
+        assertFalse(useStackedDownloadManagerControls(700.dp))
+        assertEquals(112.dp, downloadManagerGridBottomClearance())
     }
 
     @Test

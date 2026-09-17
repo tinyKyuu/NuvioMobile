@@ -59,7 +59,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.font.FontWeight
@@ -99,11 +98,9 @@ internal fun resolveDownloadManagerContainer(
 
 internal fun useStackedDownloadManagerControls(
     availableWidth: Dp,
-    fontScale: Float,
-): Boolean = availableWidth < 480.dp || fontScale >= 1.3f
+): Boolean = availableWidth < 480.dp
 
-internal fun downloadManagerGridBottomClearance(fontScale: Float): Dp =
-    if (fontScale >= 1.3f) 168.dp else 112.dp
+internal fun downloadManagerGridBottomClearance(): Dp = 112.dp
 
 internal sealed interface DownloadLibraryMenuTarget {
     val title: String
@@ -276,7 +273,6 @@ private fun DownloadManagerCollapsedBar(
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
-    val fontScale = LocalDensity.current.fontScale
     Surface(
         modifier = modifier
             .padding(
@@ -299,7 +295,7 @@ private fun DownloadManagerCollapsedBar(
         tonalElevation = tokens.elevation.modal,
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val stacked = useStackedDownloadManagerControls(maxWidth, fontScale)
+            val stacked = useStackedDownloadManagerControls(maxWidth)
             if (stacked) {
                 Column(modifier = Modifier.fillMaxWidth()) {
                     DownloadManagerExpandSummary(
@@ -642,9 +638,8 @@ private fun DownloadManagerPanelFooter(
     bottomPadding: Dp,
     onRemove: () -> Unit,
 ) {
-    val fontScale = LocalDensity.current.fontScale
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val stacked = useStackedDownloadManagerControls(maxWidth, fontScale)
+        val stacked = useStackedDownloadManagerControls(maxWidth)
         val contentModifier = Modifier
             .fillMaxWidth()
             .padding(

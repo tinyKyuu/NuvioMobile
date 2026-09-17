@@ -37,7 +37,7 @@ Final source state on September 17, 2026:
 | Check | Result |
 | --- | --- |
 | Focused Android F08A suites: `DownloadsBatchRemovalTest`, `DownloadsSelectionLogicTest`, `DownloadLibraryManagementTest`, `DownloadNavigationDecisionTest` | Passed, 30 tests; 0 failed, errored, or skipped |
-| Android host suite: `:composeApp:testAndroidHostTest` | Passed, 1,097 tests; 0 failed, errored, or skipped |
+| Android host suite: `:composeApp:testAndroidHostTest` | Passed, 1,096 tests; 0 failed, errored, or skipped |
 | Focused iOS-native F08A suites: the same four suites | Passed, 30 tests; 0 failed, errored, or skipped |
 | Kotlin/Native iOS simulator compilation | Passed through `compileKotlinIosSimulatorArm64`, `compileTestKotlinIosSimulatorArm64`, and the focused native test link/run |
 | Full-policy Android: `:androidApp:assembleFullDebug` | Passed |

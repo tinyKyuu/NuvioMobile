@@ -54,7 +54,32 @@
 
 <!-- What you tested and how. Include devices/emulators, commands, and manual flows. Do not write only "not tested" unless this is docs/translation-only. -->
 
-## Screenshots / Video (UI changes only)
+## Public documentation
+
+<!-- Check exactly one Ledger option and exactly one README option. Explain each "not affected" choice. -->
+
+Ledger:
+- [ ] Updated `Docs/feature-status.md` for status, evidence, provenance, or limits.
+- [ ] Ledger not affected.
+
+Ledger rationale:
+
+README:
+- [ ] Updated `README.md` because the fork's current public distinctions, scope, availability, or build instructions changed.
+- [ ] README not affected.
+
+README rationale:
+
+## Privacy check
+
+<!-- This repository and its pull requests are public. ALL boxes must be checked. -->
+- [ ] I reviewed every changed file and the PR description as public material.
+- [ ] This PR contains no credentials, tokens, private keys, signing material, or private service configuration.
+- [ ] This PR contains no personal email addresses, absolute user paths, device or simulator identifiers, private logs, or internal review screenshots.
+- [ ] Local configuration remains in ignored files such as `local.properties` and `iosApp/Configuration/Signing.local.xcconfig`.
+- [ ] I understand that deleting a secret in a later commit is not sufficient; any discovered exposure must be stopped and handled through a private security channel.
+
+## Screenshots / Video
 
 <!-- Required for any UI change. Write "Not a UI change" only if no UI changed. -->
 

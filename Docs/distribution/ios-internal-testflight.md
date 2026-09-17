@@ -1,4 +1,4 @@
-+# Internal TestFlight notes
+# Internal TestFlight distribution notes
 
 This fork keeps the App Store Connect product name separate from the installed
 app name. The product can be named **Nuvio Internal** in App Store Connect while

@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.NuvioPosterCard
+import com.nuvio.app.core.ui.NuvioPosterSelectionState
 import com.nuvio.app.core.ui.NuvioPosterShape
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.features.home.MetaPreview
@@ -15,6 +16,10 @@ fun HomePosterCard(
     modifier: Modifier = Modifier,
     useLandscapeBackdropMode: Boolean = false,
     isWatched: Boolean = false,
+    selectionState: NuvioPosterSelectionState = NuvioPosterSelectionState.None,
+    selectionContentDescription: String? = null,
+    menuContentDescription: String? = null,
+    onMenuClick: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -31,6 +36,10 @@ fun HomePosterCard(
         bottomLeftLogoUrl = if (isLandscapeMode) item.logo else null,
         bottomLeftText = if (isLandscapeMode && item.logo.isNullOrBlank() && !posterCardStyle.hideLabelsEnabled) item.name else null,
         isWatched = isWatched,
+        selectionState = selectionState,
+        selectionContentDescription = selectionContentDescription,
+        menuContentDescription = menuContentDescription,
+        onMenuClick = onMenuClick,
         onClick = onClick,
         onLongClick = onLongClick,
     )

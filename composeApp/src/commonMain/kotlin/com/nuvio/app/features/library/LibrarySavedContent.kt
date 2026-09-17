@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.i18n.localizedMediaTypeLabel
 import com.nuvio.app.core.ui.NuvioDropdownChip
 import com.nuvio.app.core.ui.NuvioDropdownOption
+import com.nuvio.app.core.ui.NuvioPosterSelectionState
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.components.PosterGridRow
 import com.nuvio.app.features.home.components.PosterGridSkeletonRow
@@ -108,6 +109,10 @@ internal fun LazyListScope.libraryVerticalContent(
     fullyWatchedSeriesKeys: Set<String>,
     onPosterClick: ((LibraryItem) -> Unit)?,
     onPosterLongClick: ((LibraryItem, LibrarySection) -> Unit)?,
+    posterSelectionState: (LibraryItem) -> NuvioPosterSelectionState = { NuvioPosterSelectionState.None },
+    selectionContentDescription: ((LibraryItem) -> String?)? = null,
+    menuContentDescription: ((LibraryItem) -> String?)? = null,
+    onPosterMenuClick: ((LibraryItem) -> Unit)? = null,
 ) {
     items(
         items = projection.entries.chunked(columns),
@@ -130,6 +135,21 @@ internal fun LazyListScope.libraryVerticalContent(
                 { preview ->
                     rowEntries.findEntry(preview)?.let { entry -> callback(entry.item, entry.section) }
                 }
+            },
+            selectionState = { preview ->
+                rowEntries.findEntry(preview)
+                    ?.item
+                    ?.let(posterSelectionState)
+                    ?: NuvioPosterSelectionState.None
+            },
+            selectionContentDescription = selectionContentDescription?.let { description ->
+                { preview -> rowEntries.findEntry(preview)?.item?.let(description) }
+            },
+            menuContentDescription = menuContentDescription?.let { description ->
+                { preview -> rowEntries.findEntry(preview)?.item?.let(description) }
+            },
+            onPosterMenuClick = onPosterMenuClick?.let { callback ->
+                { preview -> rowEntries.findEntry(preview)?.item?.let(callback) }
             },
         )
     }

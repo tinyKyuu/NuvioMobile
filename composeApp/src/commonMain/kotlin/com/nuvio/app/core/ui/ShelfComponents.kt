@@ -2,6 +2,7 @@ package com.nuvio.app.core.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +24,11 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -57,6 +62,12 @@ enum class NuvioPosterShape {
 enum class NuvioViewAllPillSize {
     Default,
     Compact,
+}
+
+enum class NuvioPosterSelectionState {
+    None,
+    Partial,
+    Full,
 }
 
 @Composable
@@ -129,6 +140,10 @@ fun NuvioPosterCard(
     bottomLeftLogoUrl: String? = null,
     bottomLeftText: String? = null,
     isWatched: Boolean = false,
+    selectionState: NuvioPosterSelectionState = NuvioPosterSelectionState.None,
+    selectionContentDescription: String? = null,
+    menuContentDescription: String? = null,
+    onMenuClick: (() -> Unit)? = null,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
 ) {
@@ -150,6 +165,13 @@ fun NuvioPosterCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(shape.aspectRatio)
+                .then(
+                    if (selectionState != NuvioPosterSelectionState.None) {
+                        Modifier.border(tokens.borders.medium, tokens.colors.borderSelected, cardShape)
+                    } else {
+                        Modifier
+                    },
+                )
                 .clip(cardShape)
                 .background(tokens.colors.surface)
                 .nuvioCardDepth(
@@ -212,6 +234,47 @@ fun NuvioPosterCard(
             }
 
             NuvioPosterWatchedOverlay(isWatched = isWatched)
+
+            if (onMenuClick != null) {
+                IconButton(
+                    onClick = onMenuClick,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(NuvioTokens.Space.s2)
+                        .clip(tokens.shapes.avatar)
+                        .background(tokens.colors.overlayScrim),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = menuContentDescription,
+                        tint = tokens.colors.textPrimary,
+                    )
+                }
+            }
+
+            if (selectionState != NuvioPosterSelectionState.None) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(NuvioTokens.Space.s6)
+                        .size(NuvioTokens.Icon.md)
+                        .clip(tokens.shapes.avatar)
+                        .background(ThemeColors.getColorPalette(MaterialTheme.appTheme).accentBrush())
+                        .border(tokens.borders.thin, tokens.colors.borderStrong, tokens.shapes.avatar),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = if (selectionState == NuvioPosterSelectionState.Full) {
+                            Icons.Default.Check
+                        } else {
+                            Icons.Default.Remove
+                        },
+                        contentDescription = selectionContentDescription,
+                        tint = tokens.colors.onAccent,
+                        modifier = Modifier.size(NuvioTokens.Icon.xs),
+                    )
+                }
+            }
         }
         if (shouldShowTitleBelow) {
             Text(
@@ -353,6 +416,7 @@ private fun NuvioPosterShape.cardWidth(basePosterWidthDp: Int): Dp =
 internal fun Modifier.posterCardClickable(
     onClick: (() -> Unit)?,
     onLongClick: (() -> Unit)?,
+    onLongClickLabel: String? = null,
     zoomImageUrl: String? = null,
     zoomCornerRadius: Dp = NuvioTokens.Radius.poster,
 ): Modifier {
@@ -362,6 +426,7 @@ internal fun Modifier.posterCardClickable(
         .onGloballyPositioned { coordinates -> bounds.value = coordinates.unclippedBoundsInRoot() }
         .combinedClickable(
             onClick = { onClick?.invoke() },
+            onLongClickLabel = onLongClickLabel,
             onLongClick = onLongClick?.let { longClick ->
                 {
                     bounds.value?.let { cardBounds ->

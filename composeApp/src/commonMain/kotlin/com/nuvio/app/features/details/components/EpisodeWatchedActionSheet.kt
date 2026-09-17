@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,6 +46,7 @@ fun EpisodeWatchedActionSheet(
     onToggleSeasonWatched: () -> Unit,
     showPlayManually: Boolean = false,
     onPlayManually: (() -> Unit)? = null,
+    onRemoveDownload: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
@@ -120,6 +122,20 @@ fun EpisodeWatchedActionSheet(
                     title = stringResource(Res.string.play_manually),
                     onClick = {
                         onPlayManually()
+                        coroutineScope.launch {
+                            dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
+                        }
+                    },
+                )
+            }
+            if (onRemoveDownload != null) {
+                NuvioBottomSheetDivider()
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Default.DeleteOutline,
+                    title = stringResource(Res.string.downloads_remove_download),
+                    destructive = true,
+                    onClick = {
+                        onRemoveDownload()
                         coroutineScope.launch {
                             dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss)
                         }

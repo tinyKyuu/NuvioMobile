@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -46,9 +47,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -74,6 +77,7 @@ import com.nuvio.app.core.ui.NuvioDropdownOption
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.NuvioScreenHeader
+import com.nuvio.app.core.ui.NuvioPosterSelectionState
 import com.nuvio.app.core.ui.NuvioViewAllPillSize
 import com.nuvio.app.core.ui.NuvioShelfSection
 import com.nuvio.app.core.ui.ScopedDisintegrationTracker
@@ -85,7 +89,19 @@ import com.nuvio.app.features.cloud.CloudLibraryRepository
 import com.nuvio.app.features.cloud.CloudLibraryUiState
 import com.nuvio.app.features.debrid.DebridSettingsRepository
 import com.nuvio.app.features.downloads.OfflineLibraryRepository
+import com.nuvio.app.features.downloads.CompletedDownloadLibrary
+import com.nuvio.app.features.downloads.DownloadGroupSelectionState
+import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadLibraryManagementEvent
+import com.nuvio.app.features.downloads.DownloadLibraryManagementHost
+import com.nuvio.app.features.downloads.DownloadLibraryManagementState
+import com.nuvio.app.features.downloads.DownloadLibraryMenuTarget
+import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.buildCompletedDownloadLibrary
 import com.nuvio.app.features.downloads.canonicalOfflineMetaType
+import com.nuvio.app.features.downloads.downloadGroupSelectionState
+import com.nuvio.app.features.downloads.formatDownloadBytes
+import com.nuvio.app.features.downloads.reduceDownloadLibraryManagement
 import com.nuvio.app.features.downloads.toLibraryArtworkFallback
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.components.HomePosterCard
@@ -112,6 +128,8 @@ fun LibraryScreen(
     onCloudFilePlay: ((CloudLibraryItem, CloudLibraryFile) -> Unit)? = null,
     onConnectCloudClick: (() -> Unit)? = null,
     onDownloadsClick: (() -> Unit)? = null,
+    onPlayDownloaded: ((DownloadItem) -> Unit)? = null,
+    openDownloadsRequest: Int = 0,
     disintegrationRequest: DisintegrationRequest<String>? = null,
 ) {
     val uiState by remember {
@@ -137,8 +155,14 @@ fun LibraryScreen(
         OfflineLibraryRepository.ensureLoaded()
         OfflineLibraryRepository.uiState
     }.collectAsStateWithLifecycle()
+    val downloadsUiState by remember {
+        DownloadsRepository.ensureLoaded()
+        DownloadsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
     var observedOfflineState by remember { mutableStateOf(false) }
     var sourceModeName by rememberSaveable { mutableStateOf(LibraryViewMode.Saved.name) }
+    var lastHandledOpenDownloadsRequest by rememberSaveable { mutableIntStateOf(0) }
     val sourceMode = remember(sourceModeName) {
         runCatching { LibraryViewMode.valueOf(sourceModeName) }.getOrDefault(LibraryViewMode.Saved)
     }
@@ -151,6 +175,8 @@ fun LibraryScreen(
     var selectedCloudItemKey by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedLibrarySectionKey by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedLibraryType by rememberSaveable { mutableStateOf<String?>(null) }
+    var downloadManagementState by remember { mutableStateOf(DownloadLibraryManagementState()) }
+    var downloadMenuTarget by remember { mutableStateOf<DownloadLibraryMenuTarget?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val isRemoteSource = uiState.sourceMode != LibrarySourceMode.LOCAL
@@ -190,11 +216,17 @@ fun LibraryScreen(
             sortOption = displaySettings.sortOption,
         )
     }
-    val downloadedItems = remember(offlineLibraryUiState.titles) {
-        offlineLibraryUiState.titles
-            .filter { title -> title.isPlayable }
-            .map { title -> title.toLibraryItem() }
+    val completedDownloadLibrary = remember(downloadsUiState.completedItems) {
+        buildCompletedDownloadLibrary(downloadsUiState.completedItems)
     }
+    val downloadedItems = offlineLibraryUiState.titles
+        .filter { title -> title.isPlayable }
+        .map { title ->
+            val item = title.toLibraryItem()
+            item.copy(
+                releaseInfo = downloadMetadataLine(item, completedDownloadLibrary),
+            )
+        }
     val downloadedMovieTitle = stringResource(Res.string.media_movies)
     val downloadedSeriesTitle = stringResource(Res.string.media_series)
     val downloadedSections = remember(downloadedItems, downloadedMovieTitle, downloadedSeriesTitle) {
@@ -247,6 +279,9 @@ fun LibraryScreen(
             )
         }
     }
+    val downloadMenuDescription = stringResource(Res.string.downloads_menu_generic)
+    val downloadSelectedDescription = stringResource(Res.string.downloads_selected)
+    val downloadPartiallySelectedDescription = stringResource(Res.string.downloads_partial_selected)
     val retryLibraryLoad: () -> Unit = {
         NetworkStatusRepository.requestRefresh(force = true)
         coroutineScope.launch {
@@ -293,6 +328,38 @@ fun LibraryScreen(
             CloudLibraryRepository.ensureLoaded()
             selectedCloudItemKey = null
         }
+    }
+
+    LaunchedEffect(openDownloadsRequest) {
+        if (openDownloadsRequest > lastHandledOpenDownloadsRequest) {
+            sourceModeName = LibraryViewMode.Downloaded.name
+            lastHandledOpenDownloadsRequest = openDownloadsRequest
+        }
+    }
+
+    LaunchedEffect(sourceMode) {
+        if (sourceMode != LibraryViewMode.Downloaded) {
+            downloadManagementState = reduceDownloadLibraryManagement(
+                downloadManagementState,
+                DownloadLibraryManagementEvent.LeaveDownloads,
+            )
+            downloadMenuTarget = null
+        }
+    }
+
+    LaunchedEffect(profileState.activeProfile?.profileIndex) {
+        downloadManagementState = reduceDownloadLibraryManagement(
+            downloadManagementState,
+            DownloadLibraryManagementEvent.ProfileChanged,
+        )
+        downloadMenuTarget = null
+    }
+
+    LaunchedEffect(downloadsUiState.completedItems) {
+        downloadManagementState = reduceDownloadLibraryManagement(
+            downloadManagementState,
+            DownloadLibraryManagementEvent.ItemsChanged(downloadsUiState.completedItems),
+        )
     }
 
     val disintegration = remember { LibraryDisintegrationHolder() }
@@ -353,10 +420,36 @@ fun LibraryScreen(
                                         Icon(
                                             imageVector = Icons.Rounded.Download,
                                             contentDescription = stringResource(
-                                                Res.string.compose_settings_root_downloads_title,
+                                                Res.string.downloads_activity_title,
                                             ),
                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
+                                    }
+                                }
+                                if (sourceMode == LibraryViewMode.Downloaded) {
+                                    Box(modifier = Modifier.width(80.dp)) {
+                                        TextButton(
+                                            enabled = downloadedItems.isNotEmpty() || downloadManagementState.isManaging,
+                                            onClick = {
+                                                downloadManagementState = reduceDownloadLibraryManagement(
+                                                    downloadManagementState,
+                                                    if (downloadManagementState.isManaging) {
+                                                        DownloadLibraryManagementEvent.Done
+                                                    } else {
+                                                        DownloadLibraryManagementEvent.EnterManage
+                                                    },
+                                                )
+                                            },
+                                        ) {
+                                            Text(
+                                                if (downloadManagementState.isManaging) {
+                                                    stringResource(Res.string.action_done)
+                                                } else {
+                                                    stringResource(Res.string.downloads_manage)
+                                                },
+                                                maxLines = 1,
+                                            )
+                                        }
                                     }
                                 }
                                 if (sourceMode != LibraryViewMode.Cloud) {
@@ -421,20 +514,75 @@ fun LibraryScreen(
                             watchedKeys = watchedUiState.watchedKeys,
                             fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                             sortOption = downloadedSortOption,
-                            onPosterClick = onPosterClick,
+                            onPosterClick = { item ->
+                                val target = item.downloadMenuTarget(completedDownloadLibrary)
+                                if (downloadManagementState.isManaging && target != null) {
+                                    downloadManagementState = reduceDownloadLibraryManagement(
+                                        downloadManagementState,
+                                        DownloadLibraryManagementEvent.Toggle(target.downloadIds()),
+                                    )
+                                } else {
+                                    onPosterClick?.invoke(item)
+                                }
+                            },
                             onSectionViewAllClick = null,
-                            onPosterLongClick = null,
+                            onPosterLongClick = { item, _ ->
+                                downloadMenuTarget = item.downloadMenuTarget(completedDownloadLibrary)
+                            },
                             onDisintegrated = {},
+                            posterSelectionState = { item ->
+                                item.posterSelectionState(completedDownloadLibrary, downloadManagementState.selectedIds)
+                            },
+                            selectionContentDescription = { item ->
+                                when (item.posterSelectionState(completedDownloadLibrary, downloadManagementState.selectedIds)) {
+                                    NuvioPosterSelectionState.Full -> downloadSelectedDescription
+                                    NuvioPosterSelectionState.Partial -> downloadPartiallySelectedDescription
+                                    NuvioPosterSelectionState.None -> null
+                                }
+                            },
+                            menuContentDescription = { downloadMenuDescription },
+                            onPosterMenuClick = { item ->
+                                downloadMenuTarget = item.downloadMenuTarget(completedDownloadLibrary)
+                            },
                         )
                         LibraryLayoutMode.VERTICAL -> libraryVerticalContent(
                             projection = downloadedVerticalProjection,
                             columns = gridColumns,
                             watchedKeys = watchedUiState.watchedKeys,
                             fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
-                            onPosterClick = onPosterClick,
-                            onPosterLongClick = null,
+                            onPosterClick = { item ->
+                                val target = item.downloadMenuTarget(completedDownloadLibrary)
+                                if (downloadManagementState.isManaging && target != null) {
+                                    downloadManagementState = reduceDownloadLibraryManagement(
+                                        downloadManagementState,
+                                        DownloadLibraryManagementEvent.Toggle(target.downloadIds()),
+                                    )
+                                } else {
+                                    onPosterClick?.invoke(item)
+                                }
+                            },
+                            onPosterLongClick = { item, _ ->
+                                downloadMenuTarget = item.downloadMenuTarget(completedDownloadLibrary)
+                            },
+                            posterSelectionState = { item ->
+                                item.posterSelectionState(completedDownloadLibrary, downloadManagementState.selectedIds)
+                            },
+                            selectionContentDescription = { item ->
+                                when (item.posterSelectionState(completedDownloadLibrary, downloadManagementState.selectedIds)) {
+                                    NuvioPosterSelectionState.Full -> downloadSelectedDescription
+                                    NuvioPosterSelectionState.Partial -> downloadPartiallySelectedDescription
+                                    NuvioPosterSelectionState.None -> null
+                                }
+                            },
+                            menuContentDescription = { downloadMenuDescription },
+                            onPosterMenuClick = { item ->
+                                downloadMenuTarget = item.downloadMenuTarget(completedDownloadLibrary)
+                            },
                         )
                     }
+                }
+                item(key = "downloads-manager-clearance") {
+                    Spacer(modifier = Modifier.height(104.dp))
                 }
             } else if (sourceMode == LibraryViewMode.Cloud) {
                 cloudLibraryContent(
@@ -575,6 +723,18 @@ fun LibraryScreen(
                     }
                 }
             }
+        }
+
+        if (sourceMode == LibraryViewMode.Downloaded) {
+            DownloadLibraryManagementHost(
+                items = downloadsUiState.completedItems,
+                state = downloadManagementState,
+                isTablet = maxWidth >= 768.dp,
+                menuTarget = downloadMenuTarget,
+                onMenuDismiss = { downloadMenuTarget = null },
+                onStateChange = { downloadManagementState = it },
+                onPlay = { item -> onPlayDownloaded?.invoke(item) },
+            )
         }
     }
 }
@@ -1312,6 +1472,55 @@ private enum class LibraryViewMode {
     Cloud,
 }
 
+@Composable
+private fun downloadMetadataLine(
+    item: LibraryItem,
+    library: CompletedDownloadLibrary,
+): String? = when (canonicalOfflineMetaType(item.type)) {
+    "movie" -> library.movies
+        .firstOrNull { it.item.parentMetaId == item.id }
+        ?.let { formatDownloadBytes(it.bytes) }
+    else -> library.shows
+        .firstOrNull { it.showId == item.id }
+        ?.let { show ->
+            stringResource(
+                Res.string.downloads_show_summary,
+                show.episodes.size,
+                formatDownloadBytes(show.bytes),
+            )
+        }
+}
+
+private fun LibraryItem.downloadMenuTarget(
+    library: CompletedDownloadLibrary,
+): DownloadLibraryMenuTarget? = if (canonicalOfflineMetaType(type) == "movie") {
+    library.movies
+        .firstOrNull { it.item.parentMetaId == id }
+        ?.let(DownloadLibraryMenuTarget::Movie)
+} else {
+    library.shows
+        .firstOrNull { it.showId == id }
+        ?.let(DownloadLibraryMenuTarget::Show)
+}
+
+private fun DownloadLibraryMenuTarget.downloadIds(): Set<String> = when (this) {
+    is DownloadLibraryMenuTarget.Movie -> setOf(movie.item.id)
+    is DownloadLibraryMenuTarget.Show -> show.downloadIds
+    is DownloadLibraryMenuTarget.Episode -> setOf(episode.id)
+}
+
+private fun LibraryItem.posterSelectionState(
+    library: CompletedDownloadLibrary,
+    selectedIds: Set<String>,
+): NuvioPosterSelectionState {
+    val target = downloadMenuTarget(library) ?: return NuvioPosterSelectionState.None
+    return when (downloadGroupSelectionState(selectedIds, target.downloadIds())) {
+        DownloadGroupSelectionState.None -> NuvioPosterSelectionState.None
+        DownloadGroupSelectionState.Partial -> NuvioPosterSelectionState.Partial
+        DownloadGroupSelectionState.Full -> NuvioPosterSelectionState.Full
+    }
+}
+
 private fun LazyListScope.librarySections(
     displaySections: List<LibraryDisplaySection>,
     watchedKeys: Set<String>,
@@ -1321,6 +1530,10 @@ private fun LazyListScope.librarySections(
     onSectionViewAllClick: ((LibrarySection, LibrarySortOption) -> Unit)?,
     onPosterLongClick: ((LibraryItem, LibrarySection) -> Unit)?,
     onDisintegrated: (String) -> Unit,
+    posterSelectionState: (LibraryItem) -> NuvioPosterSelectionState = { NuvioPosterSelectionState.None },
+    selectionContentDescription: ((LibraryItem) -> String?)? = null,
+    menuContentDescription: ((LibraryItem) -> String?)? = null,
+    onPosterMenuClick: ((LibraryItem) -> Unit)? = null,
 ) {
     items(
         items = displaySections,
@@ -1359,6 +1572,10 @@ private fun LazyListScope.librarySections(
                     } else {
                         onPosterLongClick?.let { { it(item, entrySource) } }
                     },
+                    selectionState = posterSelectionState(item),
+                    selectionContentDescription = selectionContentDescription?.invoke(item),
+                    menuContentDescription = menuContentDescription?.invoke(item),
+                    onMenuClick = if (entry.exiting) null else onPosterMenuClick?.let { { it(item) } },
                 )
             }
         }

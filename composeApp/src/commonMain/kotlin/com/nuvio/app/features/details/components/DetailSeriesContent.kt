@@ -744,6 +744,7 @@ private fun EpisodeHorizontalCard(
     val progressBarHeight = 4.dp
     val progressBarContentSpacing = 6.dp
     val progressBarBottomSpacing = 8.dp
+    val actionsLabel = stringResource(Res.string.details_actions_menu_label)
     val contentBottomPadding = if (visibleProgressEntry != null) {
         progressBarContentSpacing + progressBarHeight + progressBarBottomSpacing
     } else {
@@ -763,6 +764,7 @@ private fun EpisodeHorizontalCard(
             .posterCardClickable(
                 onClick = onClick,
                 onLongClick = onLongPress,
+                onLongClickLabel = actionsLabel,
                 zoomImageUrl = imageUrl,
                 zoomCornerRadius = metrics.cornerRadius,
             ),
@@ -1143,6 +1145,7 @@ private fun EpisodeListCard(
     onLongPress: (() -> Unit)? = null,
 ) {
     val cardShape = RoundedCornerShape(sizing.cardRadius)
+    val actionsLabel = stringResource(Res.string.details_actions_menu_label)
     val ratingLabel = remember(imdbRating) { imdbRating?.takeIf { it > 0.0 }?.let(::formatEpisodeRating) }
     val formattedDate = remember(video.released) { video.released?.let { formatReleaseDateForDisplay(it) } }
     Box(
@@ -1159,6 +1162,7 @@ private fun EpisodeListCard(
             .combinedClickable(
                 enabled = onClick != null || onLongPress != null,
                 onClick = { onClick?.invoke() },
+                onLongClickLabel = actionsLabel,
                 onLongClick = onLongPress,
             ),
     ) {

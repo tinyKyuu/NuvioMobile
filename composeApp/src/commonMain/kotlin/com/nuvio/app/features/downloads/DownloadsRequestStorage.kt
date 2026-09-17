@@ -47,5 +47,5 @@ internal expect object DownloadsRequestStorage {
 
     fun savePayload(downloadId: String, payload: String): Boolean
 
-    fun remove(downloadId: String)
+    fun remove(downloadId: String): Boolean
 }

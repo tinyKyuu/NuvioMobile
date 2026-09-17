@@ -80,7 +80,15 @@ data class MetaScreenSettingsRoute(override val title: String = "") : SettingsDe
 data class ContinueWatchingSettingsRoute(override val title: String = "") : SettingsDestinationRoute
 
 @Serializable
-data class DownloadsSettingsRoute(override val title: String = "") : SettingsDestinationRoute
+data class DownloadsSettingsRoute(
+    override val title: String = "",
+    val destination: String = "policy",
+) : SettingsDestinationRoute
+
+@Serializable
+data class DownloadActivityRoute(
+    override val title: String = "",
+) : AppRoute
 
 @Serializable
 data class DownloadShowRoute(

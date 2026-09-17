@@ -148,6 +148,63 @@ class NetworkRecoveryCoordinatorTest {
     }
 
     @Test
+    fun `failed manual refresh does not turn a later ordinary Reconnect into force-all`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val requestedProbeGenerations = listOf(2L, 5L)
+        var probeRequestIndex = 0
+        val forceAllAttempts = mutableListOf<Boolean>()
+        val controller = NetworkRecoveryController(
+            scope = scope,
+            activeProfileId = { 1 },
+            requestFreshProbe = { requestedProbeGenerations[probeRequestIndex++] },
+            operations = object : NetworkRecoveryOperations {
+                override suspend fun recoverManifests(
+                    profileId: Int,
+                    generation: Long,
+                    forceAll: Boolean,
+                    onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
+                ): ManifestRecoveryOutcome {
+                    forceAllAttempts += forceAll
+                    return ManifestRecoveryOutcome()
+                }
+
+                override suspend fun refreshCatalogs(
+                    profileId: Int,
+                    generation: Long,
+                    readyManifestUrls: Set<String>?,
+                ) = Unit
+            },
+        )
+
+        try {
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.NoInternet, 1L))
+            controller.retry(forceAllManifests = true)
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.NoInternet, 2L))
+
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.Online, 3L))
+            val automaticGeneration = withTimeout(5_000L) {
+                controller.uiState.first { it.phase == NetworkRecoveryPhase.Completed }
+            }.generation
+            assertEquals(listOf(false), forceAllAttempts)
+            assertEquals(NetworkRecoveryTrigger.Reconnect, controller.uiState.value.trigger)
+
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.NoInternet, 4L))
+            controller.retry()
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.Online, 5L))
+            withTimeout(5_000L) {
+                controller.uiState.first {
+                    it.phase == NetworkRecoveryPhase.Completed && it.generation > automaticGeneration
+                }
+            }
+
+            assertEquals(listOf(false, false), forceAllAttempts)
+            assertEquals(NetworkRecoveryTrigger.Retry, controller.uiState.value.trigger)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `only a confirmed offline-like to online transition starts recovery`() {
         val tracker = NetworkRecoveryTransitionTracker()
 

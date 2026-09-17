@@ -392,6 +392,7 @@ internal class NetworkRecoveryController(
                 retryProbeGeneration?.let { state.probeGeneration >= it } == true
             ) {
                 retryProbeGeneration = null
+                forceAllPendingUntilOnline = false
             }
             if (state.isOnline) {
                 val retryReady = retryProbeGeneration?.let { state.probeGeneration >= it } == true

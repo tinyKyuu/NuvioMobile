@@ -1,7 +1,11 @@
 package com.nuvio.app.core.network
 
+import co.touchlab.kermit.Logger
 import androidx.compose.runtime.Composable
+import com.nuvio.app.core.sync.AppVisibility
 import com.nuvio.app.features.addons.httpRequestRaw
+import kotlinx.atomicfu.locks.SynchronizedObject
+import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,6 +35,8 @@ enum class NetworkCondition {
 
 data class NetworkStatusUiState(
     val condition: NetworkCondition = NetworkCondition.Unknown,
+    val probeGeneration: Long = 0L,
+    val isProbing: Boolean = false,
 ) {
     val isOnline: Boolean
         get() = condition == NetworkCondition.Online
@@ -56,79 +62,32 @@ fun NetworkCondition.messageForEmptyState(): String =
     }
 
 object NetworkStatusRepository {
+    private val log = Logger.withTag("NetworkStatus")
     private const val REQUEST_TIMEOUT_MS = 4_500L
     private const val FOREGROUND_REFRESH_DELAY_MS = 6_000L
     private const val FOREGROUND_FAILURE_CONFIRM_DELAY_MS = 2_000L
     private const val PUBLIC_PROBE_PRIMARY = "https://www.gstatic.com/generate_204"
     private const val PUBLIC_PROBE_FALLBACK = "https://cloudflare.com/cdn-cgi/trace"
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    private val _uiState = MutableStateFlow(NetworkStatusUiState())
-    val uiState: StateFlow<NetworkStatusUiState> = _uiState.asStateFlow()
+    private val controller = NetworkStatusController(
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+        probeCondition = ::probeCondition,
+        onProbeResult = { generation, condition ->
+            log.d { "Probe generation=$generation condition=$condition" }
+        },
+        foregroundRefreshDelayMs = FOREGROUND_REFRESH_DELAY_MS,
+        failureConfirmDelayMs = FOREGROUND_FAILURE_CONFIRM_DELAY_MS,
+    )
+    val uiState: StateFlow<NetworkStatusUiState> = controller.uiState
 
-    private var started = false
-    private var probeInFlight = false
-    private var pendingProbeAfterCurrent = false
-    private var pendingProbeConfirmFailures = false
-    private var foregroundRefreshJob: Job? = null
+    fun ensureStarted() = controller.ensureStarted()
 
-    fun ensureStarted() {
-        if (started) return
-        started = true
-        requestRefresh(force = true)
-    }
+    internal fun onAppVisibility(visibility: AppVisibility) = controller.onAppVisibility(visibility)
 
-    fun requestForegroundRefresh() {
-        ensureStarted()
-        foregroundRefreshJob?.cancel()
-        foregroundRefreshJob = scope.launch {
-            delay(FOREGROUND_REFRESH_DELAY_MS)
-            requestRefresh(force = true, confirmFailures = true)
-        }
-    }
+    internal fun onNetworkPathEvent(event: NetworkPathEvent) = controller.onNetworkPathEvent(event)
 
-    fun requestRefresh(force: Boolean = false, confirmFailures: Boolean = false) {
-        if (!started) started = true
-        if (probeInFlight) {
-            if (force) {
-                pendingProbeAfterCurrent = true
-                pendingProbeConfirmFailures = pendingProbeConfirmFailures || confirmFailures
-            }
-            return
-        }
-
-        scope.launch {
-            var nextConfirmFailures = confirmFailures
-            do {
-                val runConfirmFailures = nextConfirmFailures || pendingProbeConfirmFailures
-                nextConfirmFailures = false
-                pendingProbeAfterCurrent = false
-                pendingProbeConfirmFailures = false
-                probeInFlight = true
-                runProbe(confirmFailures = runConfirmFailures)
-                probeInFlight = false
-            } while (pendingProbeAfterCurrent)
-        }
-    }
-
-    private suspend fun runProbe(confirmFailures: Boolean) {
-        if (_uiState.value.condition == NetworkCondition.Unknown) {
-            _uiState.value = NetworkStatusUiState(condition = NetworkCondition.Checking)
-        }
-
-        val previousCondition = _uiState.value.condition
-        var nextCondition = probeCondition()
-        if (
-            confirmFailures &&
-            previousCondition == NetworkCondition.Online &&
-            nextCondition.isOfflineLike()
-        ) {
-            delay(FOREGROUND_FAILURE_CONFIRM_DELAY_MS)
-            nextCondition = probeCondition()
-        }
-
-        _uiState.value = NetworkStatusUiState(condition = nextCondition)
-    }
+    fun requestRefresh(force: Boolean = false, confirmFailures: Boolean = false): Long =
+        controller.requestRefresh(force = force, confirmFailures = confirmFailures)
 
     private suspend fun probeCondition(): NetworkCondition {
         val internetReachable = probePublicInternet()
@@ -168,6 +127,198 @@ object NetworkStatusRepository {
         } ?: return false
 
         return response.status in 100..599
+    }
+
+}
+
+internal class NetworkStatusController(
+    private val scope: CoroutineScope,
+    private val probeCondition: suspend () -> NetworkCondition,
+    private val onProbeResult: (Long, NetworkCondition) -> Unit = { _, _ -> },
+    private val delayFor: suspend (Long) -> Unit = { delay(it) },
+    private val foregroundRefreshDelayMs: Long = 6_000L,
+    private val failureConfirmDelayMs: Long = 2_000L,
+    private val pathLossDebounceMs: Long = 1_000L,
+    private val serverRetryDelaysMs: List<Long> = listOf(5_000L, 15_000L, 30_000L),
+) {
+    private data class ProbeRequest(
+        val generation: Long,
+        val confirmFailures: Boolean,
+    )
+
+    private val lock = SynchronizedObject()
+    private val _uiState = MutableStateFlow(NetworkStatusUiState())
+    val uiState: StateFlow<NetworkStatusUiState> = _uiState.asStateFlow()
+
+    private var started = false
+    private var foreground = true
+    private var lastNetworkPathEvent: NetworkPathEvent? = null
+    private var latestProbeGeneration = 0L
+    private var activeProbeGeneration: Long? = null
+    private var pendingProbeRequest: ProbeRequest? = null
+    private var foregroundRefreshJob: Job? = null
+    private var pathLossJob: Job? = null
+    private var serverRetryJob: Job? = null
+    private var serverRetryIndex = 0
+
+    fun ensureStarted() {
+        val shouldStart = synchronized(lock) {
+            if (started) false else true.also { started = true }
+        }
+        if (shouldStart) requestRefresh(force = true)
+    }
+
+    fun onAppVisibility(visibility: AppVisibility) {
+        val isForeground = visibility == AppVisibility.Foreground
+        synchronized(lock) { foreground = isForeground }
+        foregroundRefreshJob?.cancel()
+        pathLossJob?.cancel()
+        if (!isForeground) {
+            serverRetryJob?.cancel()
+            return
+        }
+        ensureStarted()
+        foregroundRefreshJob = scope.launch {
+            delayFor(foregroundRefreshDelayMs)
+            requestRefresh(force = true, confirmFailures = true)
+        }
+        if (_uiState.value.condition == NetworkCondition.ServersUnreachable) {
+            scheduleServerRetry()
+        }
+    }
+
+    fun onNetworkPathEvent(event: NetworkPathEvent) {
+        if (!synchronized(lock) { foreground }) return
+        val isNewPathState = synchronized(lock) {
+            (lastNetworkPathEvent != event).also { changed ->
+                if (changed) lastNetworkPathEvent = event
+            }
+        }
+        if (!isNewPathState) return
+        when (event) {
+            NetworkPathEvent.Available -> {
+                pathLossJob?.cancel()
+                if (_uiState.value.isOfflineLike) requestRefresh(force = true)
+            }
+            NetworkPathEvent.Unavailable -> {
+                if (_uiState.value.condition != NetworkCondition.Online) return
+                pathLossJob?.cancel()
+                pathLossJob = scope.launch {
+                    delayFor(pathLossDebounceMs)
+                    if (synchronized(lock) { foreground }) {
+                        requestRefresh(force = true, confirmFailures = true)
+                    }
+                }
+            }
+        }
+    }
+
+    fun requestRefresh(force: Boolean = false, confirmFailures: Boolean = false): Long {
+        ensureMarkedStarted()
+        var shouldLaunch = false
+        val request = synchronized(lock) {
+            activeProbeGeneration?.let { activeGeneration ->
+                if (!force) return activeGeneration
+                pendingProbeRequest?.let { pending ->
+                    if (confirmFailures && !pending.confirmFailures) {
+                        pendingProbeRequest = pending.copy(confirmFailures = true)
+                    }
+                    return pending.generation
+                }
+                latestProbeGeneration += 1L
+                return@synchronized ProbeRequest(
+                    generation = latestProbeGeneration,
+                    confirmFailures = confirmFailures,
+                ).also { pendingProbeRequest = it }
+            }
+            latestProbeGeneration += 1L
+            ProbeRequest(
+                generation = latestProbeGeneration,
+                confirmFailures = confirmFailures,
+            ).also {
+                activeProbeGeneration = it.generation
+                shouldLaunch = true
+            }
+        }
+        if (shouldLaunch) launchProbe(request)
+        return request.generation
+    }
+
+    private fun launchProbe(request: ProbeRequest) {
+        val generation = request.generation
+        serverRetryJob?.cancel()
+        _uiState.value = _uiState.value.copy(
+            condition = if (_uiState.value.condition == NetworkCondition.Unknown) {
+                NetworkCondition.Checking
+            } else {
+                _uiState.value.condition
+            },
+            isProbing = true,
+        )
+        scope.launch {
+            var result: NetworkCondition? = null
+            try {
+                val previous = _uiState.value.condition
+                var next = probeCondition()
+                if (request.confirmFailures && previous == NetworkCondition.Online && next.isOfflineLike()) {
+                    delayFor(failureConfirmDelayMs)
+                    next = probeCondition()
+                }
+                result = next
+                _uiState.value = NetworkStatusUiState(
+                    condition = next,
+                    probeGeneration = generation,
+                    isProbing = false,
+                )
+                onProbeResult(generation, next)
+            } finally {
+                val nextRequest = synchronized(lock) {
+                    if (activeProbeGeneration != generation) {
+                        null
+                    } else {
+                        pendingProbeRequest.also { pending ->
+                            pendingProbeRequest = null
+                            activeProbeGeneration = pending?.generation
+                        }
+                    }
+                }
+                if (_uiState.value.probeGeneration != generation) {
+                    _uiState.value = _uiState.value.copy(isProbing = false)
+                }
+                if (nextRequest != null) {
+                    launchProbe(nextRequest)
+                } else {
+                    when (result) {
+                        NetworkCondition.ServersUnreachable -> scheduleServerRetry()
+                        NetworkCondition.Online,
+                        NetworkCondition.NoInternet,
+                        -> {
+                            serverRetryIndex = 0
+                            serverRetryJob?.cancel()
+                        }
+                        else -> Unit
+                    }
+                }
+            }
+        }
+    }
+
+    private fun ensureMarkedStarted() {
+        synchronized(lock) { started = true }
+    }
+
+    private fun scheduleServerRetry() {
+        if (!synchronized(lock) { foreground }) return
+        val delayMs = serverRetryDelaysMs.getOrNull(serverRetryIndex) ?: return
+        serverRetryIndex += 1
+        serverRetryJob?.cancel()
+        serverRetryJob = scope.launch {
+            delayFor(delayMs)
+            if (synchronized(lock) { foreground } && _uiState.value.condition == NetworkCondition.ServersUnreachable) {
+                serverRetryJob = null
+                requestRefresh(force = true)
+            }
+        }
     }
 
     private fun NetworkCondition.isOfflineLike(): Boolean =

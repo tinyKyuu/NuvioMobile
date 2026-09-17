@@ -30,7 +30,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -45,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.network.NetworkCondition
+import com.nuvio.app.core.network.NetworkRecoveryCoordinator
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import coil3.compose.AsyncImage
@@ -60,8 +60,10 @@ import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.PosterShape
+import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.stableKey
 import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watching.application.WatchingState
 import com.nuvio.app.navigation.LocalUseNativeNavigation
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -84,6 +86,7 @@ fun CatalogScreen(
     val homeCatalogSettingsUiState by HomeCatalogSettingsRepository.uiState.collectAsStateWithLifecycle()
     val posterCardStyle = rememberPosterCardStyleUiState()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    val networkRecoveryUiState by NetworkRecoveryCoordinator.uiState.collectAsStateWithLifecycle()
     val watchedUiState by remember {
         WatchedRepository.ensureLoaded()
         WatchedRepository.uiState
@@ -102,7 +105,8 @@ fun CatalogScreen(
         initialFirstVisibleItemScrollOffset = initialScrollPosition.firstVisibleItemScrollOffset,
     )
     var headerHeightPx by remember { mutableIntStateOf(0) }
-    var observedOfflineState by remember { mutableStateOf(false) }
+    val recoveryInProgress = networkRecoveryUiState.profileId == ProfileRepository.activeProfileId &&
+        networkRecoveryUiState.isRecovering
 
     LaunchedEffect(target, homeCatalogSettingsUiState.hideUnreleasedContent) {
         CatalogRepository.load(
@@ -135,29 +139,6 @@ fun CatalogScreen(
             }
     }
 
-    LaunchedEffect(networkStatusUiState.condition, target) {
-        when (networkStatusUiState.condition) {
-            NetworkCondition.NoInternet,
-            NetworkCondition.ServersUnreachable,
-            -> {
-                observedOfflineState = true
-            }
-
-            NetworkCondition.Online -> {
-                if (!observedOfflineState) return@LaunchedEffect
-                observedOfflineState = false
-                CatalogRepository.load(
-                    target = target,
-                    force = true,
-                )
-            }
-
-            NetworkCondition.Unknown,
-            NetworkCondition.Checking,
-            -> Unit
-        }
-    }
-
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
@@ -179,7 +160,7 @@ fun CatalogScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                if (uiState.items.isEmpty() && uiState.isLoading) {
+                if (uiState.items.isEmpty() && (uiState.isLoading || recoveryInProgress)) {
                     items(columns * 3) {
                         CatalogSkeletonTile(cornerRadiusDp = posterCardStyle.cornerRadiusDp)
                     }
@@ -189,11 +170,7 @@ fun CatalogScreen(
                             errorMessage = uiState.errorMessage,
                             networkCondition = networkStatusUiState.condition,
                             onRetry = {
-                                NetworkStatusRepository.requestRefresh(force = true)
-                                CatalogRepository.load(
-                                    target = target,
-                                    force = true,
-                                )
+                                NetworkRecoveryCoordinator.retry()
                             },
                         )
                     }
@@ -376,24 +353,15 @@ private fun CatalogEmptyState(
         return
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 48.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Text(
-            text = stringResource(Res.string.catalog_empty_title),
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onBackground,
-        )
-        Text(
-            text = errorMessage ?: stringResource(Res.string.catalog_empty_message),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
+    val loadFailed = !errorMessage.isNullOrBlank()
+    HomeEmptyStateCard(
+        title = stringResource(
+            if (loadFailed) Res.string.catalog_load_failed_title else Res.string.catalog_empty_title,
+        ),
+        message = errorMessage ?: stringResource(Res.string.catalog_empty_message),
+        actionLabel = if (loadFailed) stringResource(Res.string.action_retry) else null,
+        onActionClick = if (loadFailed) onRetry else null,
+    )
 }
 
 @Composable

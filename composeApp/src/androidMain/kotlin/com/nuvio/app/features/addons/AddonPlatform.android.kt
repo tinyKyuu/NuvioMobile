@@ -68,6 +68,23 @@ actual object AddonStorage {
             ?.putString("${addonEnabledStatesKey}_$profileId", payload)
             ?.apply()
     }
+
+    actual fun loadManifestCache(profileId: Int): String? =
+        preferences?.getString(addonManifestCacheStorageKey(profileId), null)
+
+    actual fun saveManifestCache(profileId: Int, payload: String) {
+        preferences
+            ?.edit()
+            ?.putString(addonManifestCacheStorageKey(profileId), payload)
+            ?.apply()
+    }
+
+    actual fun deleteManifestCache(profileId: Int) {
+        preferences
+            ?.edit()
+            ?.remove(addonManifestCacheStorageKey(profileId))
+            ?.apply()
+    }
 }
 
 private fun parseEnabledStateLine(line: String): Pair<String, Boolean>? {

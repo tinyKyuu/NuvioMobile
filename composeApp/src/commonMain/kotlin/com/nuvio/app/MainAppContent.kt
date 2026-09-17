@@ -54,7 +54,11 @@ import com.nuvio.app.core.deeplink.AppDeepLink
 import com.nuvio.app.core.deeplink.AppDeepLinkRepository
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.network.NetworkCondition
+import com.nuvio.app.core.network.NetworkPathMonitor
+import com.nuvio.app.core.network.NetworkPathObservation
+import com.nuvio.app.core.network.BackOnlineToastTracker
 import com.nuvio.app.core.network.NetworkStatusRepository
+import com.nuvio.app.core.network.NetworkRecoveryCoordinator
 import com.nuvio.app.core.sync.AppForegroundMonitor
 import com.nuvio.app.core.sync.AppVisibility
 import com.nuvio.app.core.sync.ProfileSettingsSync
@@ -95,6 +99,8 @@ import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.home.HomeCatalogSection
+import com.nuvio.app.features.home.HomePresentationResetState
+import com.nuvio.app.features.home.homePresentationFor
 import com.nuvio.app.features.home.components.shouldBlurContinueWatchingArtwork
 import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.library.LibraryRepository
@@ -288,6 +294,9 @@ internal fun MainAppContent(
     val networkStatusUiState by remember {
         NetworkStatusRepository.uiState
     }.collectAsStateWithLifecycle()
+    val networkRecoveryUiState by remember {
+        NetworkRecoveryCoordinator.uiState
+    }.collectAsStateWithLifecycle()
     val downloadedProviderLabel = stringResource(Res.string.provider_downloaded)
     val externalPlayerNotConfiguredText = stringResource(Res.string.external_player_not_configured)
     val externalPlayerUnavailableText = stringResource(Res.string.external_player_unavailable)
@@ -329,6 +338,22 @@ internal fun MainAppContent(
     var networkToastBaselineReady by rememberSaveable { mutableStateOf(false) }
     var lastNetworkToastCondition by rememberSaveable { mutableStateOf(NetworkCondition.Unknown.name) }
     var watchSourceReconnectPending by remember { mutableStateOf(false) }
+    val backOnlineToastTracker = remember(profileState.activeProfile?.profileIndex) {
+        BackOnlineToastTracker(networkRecoveryUiState.generation)
+    }
+    val homePresentationResetState = remember(profileState.activeProfile?.profileIndex) {
+        HomePresentationResetState()
+    }
+    var homePresentationResetGeneration by remember(profileState.activeProfile?.profileIndex) {
+        mutableStateOf(0L)
+    }
+    val networkPathObservation = remember(coroutineScope) {
+        NetworkPathObservation(
+            scope = coroutineScope,
+            events = NetworkPathMonitor::events,
+            onEvent = NetworkStatusRepository::onNetworkPathEvent,
+        )
+    }
 
     fun activateTab(tab: AppScreenTab) {
         if (useNativeNavigation && onActivate != null) {
@@ -459,14 +484,16 @@ internal fun MainAppContent(
     LaunchedEffect(appContentGeneration) {
         if (!ownsAppRuntime) return@LaunchedEffect
         NetworkStatusRepository.ensureStarted()
+        NetworkRecoveryCoordinator.ensureStarted()
         EpisodeReleaseNotificationsRepository.refreshAsync()
         kotlinx.coroutines.delay(5_000)
         initialHomeReady = true
     }
 
-    LaunchedEffect(networkStatusUiState.condition) {
+    LaunchedEffect(networkStatusUiState.condition, backOnlineToastTracker) {
         if (!ownsAppRuntime) return@LaunchedEffect
         val condition = networkStatusUiState.condition
+        backOnlineToastTracker.onNetworkCondition(condition)
         if (!networkToastBaselineReady) {
             networkToastBaselineReady = true
             lastNetworkToastCondition = condition.name
@@ -485,15 +512,7 @@ internal fun MainAppContent(
                 NuvioToastController.show(getString(Res.string.network_cannot_reach_servers))
             }
 
-            NetworkCondition.Online -> {
-                if (
-                    previousConditionName == NetworkCondition.NoInternet.name ||
-                    previousConditionName == NetworkCondition.ServersUnreachable.name
-                ) {
-                    MemberAccessRepository.refresh()
-                    NuvioToastController.show(getString(Res.string.network_back_online))
-                }
-            }
+            NetworkCondition.Online -> Unit
 
             NetworkCondition.Unknown,
             NetworkCondition.Checking,
@@ -501,6 +520,20 @@ internal fun MainAppContent(
         }
 
         lastNetworkToastCondition = condition.name
+    }
+
+    LaunchedEffect(networkStatusUiState.condition, homePresentationResetState) {
+        homePresentationResetGeneration = homePresentationResetState.onMode(
+            homePresentationFor(networkStatusUiState).mode,
+        )
+    }
+
+    LaunchedEffect(networkRecoveryUiState.phase, networkRecoveryUiState.generation) {
+        if (!ownsAppRuntime) return@LaunchedEffect
+        if (backOnlineToastTracker.onRecoveryState(networkRecoveryUiState, networkStatusUiState.isOnline)) {
+            MemberAccessRepository.refresh()
+            NuvioToastController.show(getString(Res.string.network_back_online))
+        }
     }
 
     LaunchedEffect(
@@ -587,7 +620,7 @@ internal fun MainAppContent(
             AppForegroundMonitor.events().collect { visibility ->
                 when (visibility) {
                     AppVisibility.Foreground -> {
-                        NetworkStatusRepository.requestForegroundRefresh()
+                        NetworkStatusRepository.onAppVisibility(AppVisibility.Foreground)
                         DeviceSessionRegistration.registerIfAuthenticated()
                         MemberAccessRepository.refreshIfStale()
                         if (syncProfileId != null) {
@@ -597,12 +630,19 @@ internal fun MainAppContent(
                             SyncManager.stopPeriodicNuvioSyncPull()
                         }
                     }
-                    AppVisibility.Background -> SyncManager.stopPeriodicNuvioSyncPull()
+                    AppVisibility.Background -> {
+                        NetworkStatusRepository.onAppVisibility(AppVisibility.Background)
+                        SyncManager.stopPeriodicNuvioSyncPull()
+                    }
                 }
             }
         } finally {
             SyncManager.stopPeriodicNuvioSyncPull()
         }
+    }
+    DisposableEffect(ownsAppRuntime, networkPathObservation) {
+        if (ownsAppRuntime) networkPathObservation.start()
+        onDispose { networkPathObservation.stop() }
     }
     var resumePromptItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
     var lastExternalPlayerLaunch by remember { mutableStateOf<PlayerLaunch?>(null) }
@@ -1248,7 +1288,8 @@ internal fun MainAppContent(
                         useNativeTabBar = useNativeTabBar,
                         liquidGlassNativeTabBarSupported = liquidGlassNativeTabBarSupported,
                         liquidGlassNativeTabBarEnabled = liquidGlassNativeTabBarEnabled,
-                        networkCondition = networkStatusUiState.condition,
+                        networkStatus = networkStatusUiState,
+                        networkRecovery = networkRecoveryUiState,
                         requests = AppTabRequests(
                             homeScrollToTopRequests = homeScrollToTopRequests,
                             searchScrollToTopRequests = searchScrollToTopRequests,
@@ -1258,6 +1299,7 @@ internal fun MainAppContent(
                         state = AppTabState(
                             searchListState = searchListState,
                             homeContentGeneration = appContentGeneration,
+                            homePresentationResetGeneration = homePresentationResetGeneration,
                             searchFocusRequestCount = searchFocusRequestCount,
                             rootActionsEnabled = currentRoute is TabsRoute,
                             animateHomeCollectionGifs = currentRoute is TabsRoute,
@@ -1267,6 +1309,7 @@ internal fun MainAppContent(
                         ),
                         actions = { isTabletLayout ->
                             AppTabActions(
+                                onHomePresentationResetConsumed = homePresentationResetState::consume,
                                 onCatalogClick = onCatalogClick,
                                 onPosterClick = { meta ->
                                     navController.navigate(
@@ -1411,7 +1454,7 @@ internal fun MainAppContent(
                         },
                         onAddProfileRequested = onSwitchProfile,
                         onNetworkRetry = {
-                            NetworkStatusRepository.requestRefresh(force = true)
+                            NetworkRecoveryCoordinator.retry()
                         },
                     )
                 }

@@ -1,7 +1,57 @@
 package com.nuvio.app.features.home
 
+import com.nuvio.app.core.network.NetworkStatusUiState
 import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.catalog.CatalogTarget
+
+internal enum class HomePresentationMode {
+    Online,
+    Offline,
+}
+
+internal data class HomePresentation(
+    val mode: HomePresentationMode,
+    val showRemoteContent: Boolean,
+    val showDownloadedContent: Boolean,
+)
+
+internal fun homePresentationFor(networkStatus: NetworkStatusUiState): HomePresentation =
+    if (networkStatus.isOfflineLike) {
+        HomePresentation(
+            mode = HomePresentationMode.Offline,
+            showRemoteContent = false,
+            showDownloadedContent = true,
+        )
+    } else {
+        HomePresentation(
+            mode = HomePresentationMode.Online,
+            showRemoteContent = true,
+            showDownloadedContent = false,
+        )
+    }
+
+internal fun shouldResetHomeScroll(
+    previous: HomePresentationMode?,
+    current: HomePresentationMode,
+): Boolean = previous != null && previous != current
+
+internal class HomePresentationResetState {
+    private var previous: HomePresentationMode? = null
+    private var generation: Long = 0L
+    private var consumedGeneration: Long = 0L
+
+    fun onMode(mode: HomePresentationMode): Long {
+        if (shouldResetHomeScroll(previous, mode)) generation += 1L
+        previous = mode
+        return generation
+    }
+
+    fun consume(pendingGeneration: Long): Boolean {
+        if (pendingGeneration <= consumedGeneration) return false
+        consumedGeneration = pendingGeneration
+        return true
+    }
+}
 
 data class MetaPreview(
     val id: String,
@@ -48,6 +98,19 @@ data class HomeUiState(
     val sections: List<HomeCatalogSection> = emptyList(),
     val errorMessage: String? = null,
 )
+
+internal fun shouldShowInitialHomeLoading(
+    hasRenderableHomeRows: Boolean,
+    addonManifestsLoading: Boolean,
+    homeCatalogLoading: Boolean,
+): Boolean = !hasRenderableHomeRows && (addonManifestsLoading || homeCatalogLoading)
+
+internal fun shouldShowHomeHeroSlot(
+    heroEnabled: Boolean,
+    hasHeroItems: Boolean,
+    isResolvingHeroSources: Boolean,
+    hasRenderableHomeRows: Boolean,
+): Boolean = heroEnabled && (hasHeroItems || isResolvingHeroSources || hasRenderableHomeRows)
 
 internal data class CatalogRequest(
     val addon: ManagedAddon,

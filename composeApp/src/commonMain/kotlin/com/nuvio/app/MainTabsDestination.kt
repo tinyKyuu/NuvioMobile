@@ -20,7 +20,9 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.nuvio.app.core.network.NetworkCondition
+import com.nuvio.app.core.network.NetworkRecoveryPhase
+import com.nuvio.app.core.network.NetworkRecoveryUiState
+import com.nuvio.app.core.network.NetworkStatusUiState
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
 import com.nuvio.app.core.ui.LocalNuvioNavBarScrollState
 import com.nuvio.app.core.ui.LocalNuvioTopNavigationOverlayPadding
@@ -53,7 +55,8 @@ internal fun MainTabsDestination(
     useNativeTabBar: Boolean,
     liquidGlassNativeTabBarSupported: Boolean,
     liquidGlassNativeTabBarEnabled: Boolean,
-    networkCondition: NetworkCondition,
+    networkStatus: NetworkStatusUiState,
+    networkRecovery: NetworkRecoveryUiState,
     requests: AppTabRequests,
     state: AppTabState,
     actions: (isTabletLayout: Boolean) -> AppTabActions,
@@ -73,9 +76,10 @@ internal fun MainTabsDestination(
             liquidGlassNativeTabBarSupported && liquidGlassNativeTabBarEnabled && initialHomeReady
         }
         val tabsRouteActive = rootRouteActive
+        val reconnectControlState = reconnectControlState(networkStatus, networkRecovery)
         val offlineStatusPresentation = rootOfflineStatusPresentation(
             rootRouteActive = tabsRouteActive,
-            condition = networkCondition,
+            state = reconnectControlState,
             isTabletLayout = isTabletLayout,
             showRetryLabel = maxWidth >= 900.dp,
         )
@@ -162,7 +166,8 @@ internal fun MainTabsDestination(
 
                 if (offlineStatusPresentation != RootOfflineStatusPresentation.Hidden) {
                     RootOfflineStatusPill(
-                        condition = networkCondition,
+                        condition = networkStatus.condition,
+                        state = reconnectControlState,
                         showRetryLabel = offlineStatusPresentation == RootOfflineStatusPresentation.RetryPill,
                         onRetry = onNetworkRetry,
                         modifier = Modifier.align(Alignment.TopEnd),
@@ -238,11 +243,29 @@ internal fun rootNavigationOverlayPadding(
 
 internal fun shouldShowRootOfflineStatus(
     rootRouteActive: Boolean,
-    condition: NetworkCondition,
-): Boolean = rootRouteActive && (
-    condition == NetworkCondition.NoInternet ||
-        condition == NetworkCondition.ServersUnreachable
-    )
+    state: ReconnectControlState,
+): Boolean = rootRouteActive && state != ReconnectControlState.Hidden
+
+internal enum class ReconnectControlState {
+    Hidden,
+    Offline,
+    Probing,
+    Restoring,
+    Failed,
+}
+
+internal fun reconnectControlState(
+    networkStatus: NetworkStatusUiState,
+    recovery: NetworkRecoveryUiState,
+): ReconnectControlState = when {
+    networkStatus.isProbing &&
+        (networkStatus.isOfflineLike || recovery.phase == NetworkRecoveryPhase.Failed) ->
+        ReconnectControlState.Probing
+    recovery.phase == NetworkRecoveryPhase.Failed -> ReconnectControlState.Failed
+    recovery.isRecovering -> ReconnectControlState.Restoring
+    networkStatus.isOfflineLike -> ReconnectControlState.Offline
+    else -> ReconnectControlState.Hidden
+}
 
 internal enum class RootOfflineStatusPresentation {
     Hidden,
@@ -252,11 +275,11 @@ internal enum class RootOfflineStatusPresentation {
 
 internal fun rootOfflineStatusPresentation(
     rootRouteActive: Boolean,
-    condition: NetworkCondition,
+    state: ReconnectControlState,
     isTabletLayout: Boolean,
     showRetryLabel: Boolean,
 ): RootOfflineStatusPresentation = when {
-    !shouldShowRootOfflineStatus(rootRouteActive, condition) -> RootOfflineStatusPresentation.Hidden
+    !shouldShowRootOfflineStatus(rootRouteActive, state) -> RootOfflineStatusPresentation.Hidden
     isTabletLayout && showRetryLabel -> RootOfflineStatusPresentation.RetryPill
     else -> RootOfflineStatusPresentation.CompactIcon
 }

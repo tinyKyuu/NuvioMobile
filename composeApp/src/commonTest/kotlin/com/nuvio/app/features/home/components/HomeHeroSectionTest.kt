@@ -1,10 +1,39 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.watchprogress.ContinueWatchingSectionStyle
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class HomeHeroSectionTest {
+
+    @Test
+    fun `hero artwork tries banner then poster and drops blank duplicates`() {
+        assertEquals(
+            listOf("https://example.test/banner.jpg", "https://example.test/poster.jpg"),
+            homeHeroArtworkCandidates(
+                MetaPreview(
+                    id = "movie",
+                    type = "movie",
+                    name = "Movie",
+                    banner = "https://example.test/banner.jpg",
+                    poster = "https://example.test/poster.jpg",
+                ),
+            ),
+        )
+        assertEquals(
+            listOf("https://example.test/poster.jpg"),
+            homeHeroArtworkCandidates(
+                MetaPreview(
+                    id = "movie",
+                    type = "movie",
+                    name = "Movie",
+                    banner = " ",
+                    poster = "https://example.test/poster.jpg",
+                ),
+            ),
+        )
+    }
 
     @Test
     fun `mobile hero height follows viewport height when provided`() {

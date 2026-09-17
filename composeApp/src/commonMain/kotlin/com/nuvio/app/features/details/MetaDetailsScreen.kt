@@ -77,6 +77,7 @@ import coil3.compose.AsyncImage
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.network.NetworkCondition
+import com.nuvio.app.core.network.NetworkRecoveryCoordinator
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.ui.NuvioBackButton
@@ -141,6 +142,7 @@ import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.buildPlaybackVideoId
+import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepository
 import com.nuvio.app.features.watching.application.WatchingActions
 import com.nuvio.app.features.watching.application.WatchingState
@@ -171,6 +173,7 @@ fun MetaDetailsScreen(
 ) {
     val uiState by MetaDetailsRepository.uiState.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    val networkRecoveryUiState by NetworkRecoveryCoordinator.uiState.collectAsStateWithLifecycle()
     val offlineLibraryUiState by remember {
         OfflineLibraryRepository.ensureLoaded()
         OfflineLibraryRepository.uiState
@@ -225,7 +228,6 @@ fun MetaDetailsScreen(
     }.collectAsStateWithLifecycle()
     var autoLoadAttempted by remember(type, id) { mutableStateOf(false) }
     var enrichmentLoadFingerprint by remember(type, id) { mutableStateOf<String?>(null) }
-    var observedOfflineState by remember(type, id) { mutableStateOf(false) }
     var selectedEpisodeForActions by remember(type, id) { mutableStateOf<MetaVideo?>(null) }
     var selectedEpisodeZoomAnchor by remember(type, id) { mutableStateOf<PosterZoomAnchor?>(null) }
     val episodeOverlayHazeState = rememberHazeState()
@@ -429,30 +431,8 @@ fun MetaDetailsScreen(
         }
     }
 
-    LaunchedEffect(networkStatusUiState.condition, displayedMeta, uiState.isLoading, type, id) {
-        when (networkStatusUiState.condition) {
-            NetworkCondition.NoInternet,
-            NetworkCondition.ServersUnreachable,
-            -> {
-                observedOfflineState = true
-            }
-
-            NetworkCondition.Online -> {
-                if (offlineMeta != null) {
-                    OfflineLibraryRepository.refresh(type, id)
-                }
-                if (!observedOfflineState) return@LaunchedEffect
-                observedOfflineState = false
-                if (displayedMeta == null && !uiState.isLoading) {
-                    MetaDetailsRepository.load(type, id)
-                }
-            }
-
-            NetworkCondition.Unknown,
-            NetworkCondition.Checking,
-            -> Unit
-        }
-    }
+    val recoveryInProgress = networkRecoveryUiState.profileId == ProfileRepository.activeProfileId &&
+        networkRecoveryUiState.isRecovering
 
     Box(
         modifier = modifier
@@ -472,7 +452,7 @@ fun MetaDetailsScreen(
                 .background(MaterialTheme.colorScheme.background),
         ) {
             when {
-            displayedMeta == null && uiState.isLoading -> {
+            displayedMeta == null && (uiState.isLoading || recoveryInProgress) -> {
                 NuvioLoadingIndicator(
                     modifier = Modifier.align(Alignment.Center),
                     color = MaterialTheme.colorScheme.primary,
@@ -504,10 +484,7 @@ fun MetaDetailsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(
                         onClick = {
-                            NetworkStatusRepository.requestRefresh(force = true)
-                            if (displayPolicy.ordinaryOnlineRequestsAllowed) {
-                                MetaDetailsRepository.load(type, id)
-                            }
+                            NetworkRecoveryCoordinator.retry()
                         },
                     ) {
                         Text(stringResource(Res.string.action_retry))

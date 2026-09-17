@@ -36,6 +36,31 @@ class AddonModelsTest {
         assertEquals(listOf(enabled), listOf(enabled, disabled).enabledAddons())
         assertTrue(enabled.isActive)
     }
+
+    @Test
+    fun `pending manifest is not classified as no active addons`() {
+        val pending = ManagedAddon(
+            manifestUrl = "https://pending.example/manifest.json",
+            enabled = true,
+            isRefreshing = true,
+        )
+
+        assertTrue(listOf(pending).hasPendingEnabledManifests())
+        assertTrue(listOf(pending).isWaitingForFirstEnabledManifest())
+        assertEquals(null, listOf(pending).firstEnabledManifestError())
+    }
+
+    @Test
+    fun `manifest failure is distinguishable from an empty addon list`() {
+        val failed = ManagedAddon(
+            manifestUrl = "https://failed.example/manifest.json",
+            enabled = true,
+            errorMessage = "network failed",
+        )
+
+        assertFalse(listOf(failed).isWaitingForFirstEnabledManifest())
+        assertEquals("network failed", listOf(failed).firstEnabledManifestError())
+    }
 }
 
 private fun manifest(id: String = "addon") = AddonManifest(

@@ -1,5 +1,7 @@
 package com.nuvio.app.features.home
 
+import com.nuvio.app.core.network.NetworkCondition
+import com.nuvio.app.core.network.NetworkStatusUiState
 import com.nuvio.app.features.cloud.CloudLibraryFile
 import com.nuvio.app.features.cloud.CloudLibraryItem
 import com.nuvio.app.features.cloud.CloudLibraryItemType
@@ -30,6 +32,120 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class HomeScreenTest {
+
+    @Test
+    fun `confirmed offline presentation atomically swaps remote content for downloads`() {
+        val online = homePresentationFor(NetworkStatusUiState(NetworkCondition.Online))
+        val offline = homePresentationFor(NetworkStatusUiState(NetworkCondition.NoInternet))
+
+        assertTrue(online.showRemoteContent)
+        assertFalse(online.showDownloadedContent)
+        assertFalse(offline.showRemoteContent)
+        assertTrue(offline.showDownloadedContent)
+    }
+
+    @Test
+    fun `home scroll reset occurs once for each confirmed presentation transition`() {
+        val sequence = listOf(
+            HomePresentationMode.Online,
+            HomePresentationMode.Online,
+            HomePresentationMode.Offline,
+            HomePresentationMode.Offline,
+            HomePresentationMode.Online,
+            HomePresentationMode.Online,
+        )
+        var previous: HomePresentationMode? = null
+        val resetIndexes = sequence.mapIndexedNotNull { index, current ->
+            val reset = shouldResetHomeScroll(previous, current)
+            previous = current
+            index.takeIf { reset }
+        }
+
+        assertEquals(listOf(2, 4), resetIndexes)
+    }
+
+    @Test
+    fun `home scroll reset generation remains pending while Home is not presented`() {
+        val state = HomePresentationResetState()
+
+        assertEquals(0L, state.onMode(HomePresentationMode.Online))
+        assertEquals(1L, state.onMode(HomePresentationMode.Offline))
+        assertEquals(1L, state.onMode(HomePresentationMode.Offline))
+        assertEquals(2L, state.onMode(HomePresentationMode.Online))
+        assertEquals(2L, state.onMode(HomePresentationMode.Online))
+    }
+
+    @Test
+    fun `hidden Home consumes a pending presentation reset once without replay`() {
+        val state = HomePresentationResetState()
+
+        state.onMode(HomePresentationMode.Online)
+        val pendingGeneration = state.onMode(HomePresentationMode.Offline)
+
+        assertTrue(state.consume(pendingGeneration))
+        assertFalse(state.consume(pendingGeneration))
+    }
+
+    @Test
+    fun `saved state restoration cannot suppress the next real presentation transition`() {
+        val restoredSession = HomePresentationResetState()
+
+        assertEquals(0L, restoredSession.onMode(HomePresentationMode.Online))
+        val nextTransition = restoredSession.onMode(HomePresentationMode.Offline)
+
+        assertTrue(restoredSession.consume(nextTransition))
+    }
+
+    @Test
+    fun `probing keeps the last confirmed home presentation`() {
+        val onlineProbe = homePresentationFor(
+            NetworkStatusUiState(NetworkCondition.Online, isProbing = true),
+        )
+        val offlineProbe = homePresentationFor(
+            NetworkStatusUiState(NetworkCondition.ServersUnreachable, isProbing = true),
+        )
+
+        assertEquals(HomePresentationMode.Online, onlineProbe.mode)
+        assertEquals(HomePresentationMode.Offline, offlineProbe.mode)
+    }
+
+    @Test
+    fun `recovery loading does not replace already rendered home rows`() {
+        assertFalse(
+            shouldShowInitialHomeLoading(
+                hasRenderableHomeRows = true,
+                addonManifestsLoading = true,
+                homeCatalogLoading = true,
+            ),
+        )
+        assertTrue(
+            shouldShowInitialHomeLoading(
+                hasRenderableHomeRows = false,
+                addonManifestsLoading = true,
+                homeCatalogLoading = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `hero slot is omitted until a source or rendered row exists`() {
+        assertFalse(
+            shouldShowHomeHeroSlot(
+                heroEnabled = true,
+                hasHeroItems = false,
+                isResolvingHeroSources = false,
+                hasRenderableHomeRows = false,
+            ),
+        )
+        assertTrue(
+            shouldShowHomeHeroSlot(
+                heroEnabled = true,
+                hasHeroItems = false,
+                isResolvingHeroSources = true,
+                hasRenderableHomeRows = false,
+            ),
+        )
+    }
 
     @Test
     fun `offline continue watching keeps local media and preserves its live resume position`() {

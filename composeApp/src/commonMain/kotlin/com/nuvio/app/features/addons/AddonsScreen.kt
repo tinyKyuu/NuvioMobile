@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.build.AppFeaturePolicy
 import coil3.compose.AsyncImage
+import com.nuvio.app.core.network.NetworkRecoveryCoordinator
 import com.nuvio.app.core.ui.NuvioIconActionButton
 import com.nuvio.app.core.ui.NuvioInfoBadge
 import com.nuvio.app.core.ui.NuvioInputField
@@ -163,10 +164,7 @@ internal fun AddonsSettingsPageContent(
                         null
                     },
                     onRefreshClick = {
-                        AddonRepository.refreshAddon(
-                            manifestUrl = addon.manifestUrl,
-                            forceRefresh = true,
-                        )
+                        refreshAddonFromSettings(addon.manifestUrl)
                     },
                     onEnabledChange = { enabled ->
                         AddonRepository.setAddonEnabled(addon.manifestUrl, enabled)
@@ -235,6 +233,13 @@ internal fun AddonsSettingsPageContent(
             },
         )
     }
+}
+
+internal fun refreshAddonFromSettings(
+    manifestUrl: String,
+    refresh: (String, Boolean) -> Unit = AddonRepository::refreshAddon,
+) {
+    refresh(manifestUrl, true)
 }
 
 @Composable

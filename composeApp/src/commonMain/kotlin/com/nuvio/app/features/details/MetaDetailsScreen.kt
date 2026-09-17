@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CheckCircleOutline
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
 import androidx.compose.material.icons.rounded.Refresh
@@ -83,10 +84,12 @@ import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.ui.NuvioBackButton
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import com.nuvio.app.core.ui.NuvioPosterZoomActionOverlay
+import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.PosterZoomAnchor
 import com.nuvio.app.core.ui.PosterZoomAnchorHolder
 import com.nuvio.app.core.ui.PosterZoomOverlayAction
+import com.nuvio.app.core.ui.PosterZoomOverlayExitAnimation
 import com.nuvio.app.core.ui.TrackingListPickerDialog
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.rememberHeroStretchState
@@ -109,6 +112,9 @@ import com.nuvio.app.features.details.components.EpisodeWatchedActionSheet
 import com.nuvio.app.features.details.components.SeasonWatchedActionSheet
 import com.nuvio.app.features.details.components.TrailerPlayerPopup
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.DownloadBatchRemovalResult
+import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.findExactDownloadedEpisode
 import com.nuvio.app.features.downloads.OfflineLibraryRepository
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.library.LibraryRepository
@@ -215,6 +221,10 @@ fun MetaDetailsScreen(
         WatchedRepository.uiState
     }.collectAsStateWithLifecycle()
     val fullyWatchedSeriesKeys by WatchedRepository.fullyWatchedSeriesKeys.collectAsStateWithLifecycle()
+    val downloadsUiState by remember {
+        DownloadsRepository.ensureLoaded()
+        DownloadsRepository.uiState
+    }.collectAsStateWithLifecycle()
     val watchProgressUiState by remember {
         WatchProgressRepository.ensureLoaded()
         WatchProgressRepository.uiState
@@ -230,6 +240,10 @@ fun MetaDetailsScreen(
     var enrichmentLoadFingerprint by remember(type, id) { mutableStateOf<String?>(null) }
     var selectedEpisodeForActions by remember(type, id) { mutableStateOf<MetaVideo?>(null) }
     var selectedEpisodeZoomAnchor by remember(type, id) { mutableStateOf<PosterZoomAnchor?>(null) }
+    var pendingEpisodeDownloadRemoval by remember(type, id) { mutableStateOf<DownloadItem?>(null) }
+    var episodeDownloadRemovalFeedback by remember(type, id) {
+        mutableStateOf<DownloadBatchRemovalResult?>(null)
+    }
     val episodeOverlayHazeState = rememberHazeState()
     var selectedSeasonForActions by remember(type, id) { mutableStateOf<Int?>(null) }
     val commentsEnabled by remember {
@@ -1246,6 +1260,19 @@ fun MetaDetailsScreen(
                                     progressByVideoId = progressByVideoId,
                                 )
                             }
+                            val downloadedEpisode = remember(
+                                downloadsUiState.completedItems,
+                                meta.id,
+                                selectedEpisode.season,
+                                selectedEpisode.episode,
+                            ) {
+                                findExactDownloadedEpisode(
+                                    items = downloadsUiState.completedItems,
+                                    parentMetaId = meta.id,
+                                    seasonNumber = selectedEpisode.season,
+                                    episodeNumber = selectedEpisode.episode,
+                                )
+                            }
                             EpisodeWatchedActionSheet(
                                 episode = selectedEpisode,
                                 seasonLabel = selectedEpisode.season?.let {
@@ -1280,6 +1307,9 @@ fun MetaDetailsScreen(
                                 showPlayManually = showManualPlayOption,
                                 onPlayManually = {
                                     onEpisodeManualPlayClick(selectedEpisode)
+                                },
+                                onRemoveDownload = downloadedEpisode?.let { item ->
+                                    { pendingEpisodeDownloadRemoval = item }
                                 },
                             )
                         }
@@ -1527,6 +1557,19 @@ fun MetaDetailsScreen(
                     progressByVideoId = progressByVideoId,
                 )
             }
+            val downloadedEpisode = remember(
+                downloadsUiState.completedItems,
+                meta.id,
+                selectedEpisode.season,
+                selectedEpisode.episode,
+            ) {
+                findExactDownloadedEpisode(
+                    items = downloadsUiState.completedItems,
+                    parentMetaId = meta.id,
+                    seasonNumber = selectedEpisode.season,
+                    episodeNumber = selectedEpisode.episode,
+                )
+            }
             val seasonLabel = selectedEpisode.season?.let {
                 stringResource(Res.string.episodes_season, it)
             } ?: stringResource(Res.string.episodes_specials)
@@ -1627,6 +1670,19 @@ fun MetaDetailsScreen(
                             ),
                         )
                     }
+                    if (downloadedEpisode != null) {
+                        add(
+                            PosterZoomOverlayAction(
+                                icon = Icons.Default.DeleteOutline,
+                                label = stringResource(Res.string.downloads_remove_download),
+                                isDestructive = true,
+                                exitAnimation = PosterZoomOverlayExitAnimation.COLLAPSE,
+                                onSelected = {
+                                    pendingEpisodeDownloadRemoval = downloadedEpisode
+                                },
+                            ),
+                        )
+                    }
                 },
                 hazeState = episodeOverlayHazeState,
                 onDismissed = {
@@ -1634,6 +1690,34 @@ fun MetaDetailsScreen(
                     selectedEpisodeZoomAnchor = null
                 },
             )
+        }
+
+        pendingEpisodeDownloadRemoval?.let { episodeDownload ->
+            NuvioStatusModal(
+                title = stringResource(Res.string.downloads_remove_episode_title),
+                message = stringResource(Res.string.downloads_remove_episode_message),
+                isVisible = true,
+                confirmText = stringResource(Res.string.downloads_remove_download),
+                dismissText = stringResource(Res.string.action_cancel),
+                onConfirm = {
+                    episodeDownloadRemovalFeedback = DownloadsRepository.cancelDownloads(setOf(episodeDownload.id))
+                    pendingEpisodeDownloadRemoval = null
+                },
+                onDismiss = { pendingEpisodeDownloadRemoval = null },
+            )
+        }
+
+        val removalFeedback = episodeDownloadRemovalFeedback
+        if (removalFeedback != null) {
+            val feedbackMessage = if (removalFeedback.failures.isEmpty()) {
+                stringResource(Res.string.downloads_remove_episode_succeeded)
+            } else {
+                stringResource(Res.string.downloads_remove_episode_failed)
+            }
+            LaunchedEffect(removalFeedback) {
+                NuvioToastController.show(feedbackMessage)
+                episodeDownloadRemovalFeedback = null
+            }
         }
     }
 }

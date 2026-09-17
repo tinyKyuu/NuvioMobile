@@ -21,10 +21,10 @@ internal actual object DownloadsRequestStorage {
             ?.commit()
             ?: false
 
-    actual fun remove(downloadId: String) {
+    actual fun remove(downloadId: String): Boolean =
         preferences
             ?.edit()
             ?.remove(downloadId)
             ?.commit()
-    }
+            ?: false
 }

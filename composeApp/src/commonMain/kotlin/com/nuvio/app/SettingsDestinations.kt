@@ -12,7 +12,11 @@ import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.collection.FolderDetailRepository
 import com.nuvio.app.features.collection.FolderDetailScreen
 import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadEntrySource
+import com.nuvio.app.features.downloads.DownloadNavigationTarget
 import com.nuvio.app.features.downloads.DownloadsScreen
+import com.nuvio.app.features.downloads.DownloadsScreenMode
+import com.nuvio.app.features.downloads.resolveDownloadNavigationTarget
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.settings.SettingsScreen
@@ -21,7 +25,7 @@ import com.nuvio.app.navigation.CollectionEditorPageRoute
 import com.nuvio.app.navigation.CollectionEditorRoute
 import com.nuvio.app.navigation.CollectionsRoute
 import com.nuvio.app.navigation.DetailRoute
-import com.nuvio.app.navigation.DownloadShowRoute
+import com.nuvio.app.navigation.DownloadActivityRoute
 import com.nuvio.app.navigation.DownloadsSettingsRoute
 import com.nuvio.app.navigation.FolderDetailRoute
 import com.nuvio.app.navigation.NuvioNavigator
@@ -72,31 +76,58 @@ internal fun SettingsRootDestination(
 internal fun DownloadsDestination(
     route: DownloadsSettingsRoute,
     navController: NuvioNavigator,
-    useNativeNavigation: Boolean,
     onOpenDownload: (DownloadItem) -> Unit,
+    onManageCompletedDownloads: () -> Unit,
 ) {
-    val onBack = rememberGuardedPopBackStack(navController, route)
-    DownloadsScreen(
-        onBack = onBack,
+    DownloadRouteDestination(
+        route = route,
+        navController = navController,
         onOpenDownload = onOpenDownload,
-        onNavigateToShow = { showId, title ->
-            navController.navigate(DetailRoute(type = "series", id = showId, title = title))
+        onManageCompletedDownloads = onManageCompletedDownloads,
+        mode = when (
+            resolveDownloadNavigationTarget(
+                source = DownloadEntrySource.Settings,
+                explicitDestination = route.destination,
+            )
+        ) {
+            DownloadNavigationTarget.Activity -> DownloadsScreenMode.Activity
+            DownloadNavigationTarget.Policy -> DownloadsScreenMode.Policy
+            DownloadNavigationTarget.CompletedLibrary -> DownloadsScreenMode.Legacy
         },
     )
 }
 
 @Composable
-internal fun DownloadShowDestination(
-    route: DownloadShowRoute,
+internal fun DownloadActivityDestination(
+    route: DownloadActivityRoute,
     navController: NuvioNavigator,
     onOpenDownload: (DownloadItem) -> Unit,
+) {
+    DownloadRouteDestination(
+        route = route,
+        navController = navController,
+        onOpenDownload = onOpenDownload,
+        mode = DownloadsScreenMode.Activity,
+    )
+}
+
+@Composable
+private fun DownloadRouteDestination(
+    route: AppRoute,
+    navController: NuvioNavigator,
+    onOpenDownload: (DownloadItem) -> Unit,
+    onManageCompletedDownloads: (() -> Unit)? = null,
+    mode: DownloadsScreenMode,
 ) {
     val onBack = rememberGuardedPopBackStack(navController, route)
     DownloadsScreen(
         onBack = onBack,
         onOpenDownload = onOpenDownload,
-        initialShowId = route.showId,
-        onBackFromShow = onBack,
+        onManageCompletedDownloads = onManageCompletedDownloads,
+        onNavigateToShow = { showId, title ->
+            navController.navigate(DetailRoute(type = "series", id = showId, title = title))
+        },
+        mode = mode,
     )
 }
 

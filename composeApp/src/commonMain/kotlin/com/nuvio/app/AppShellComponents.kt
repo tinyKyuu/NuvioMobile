@@ -114,6 +114,7 @@ internal data class AppTabState(
     val libraryDisintegrationRequest: DisintegrationRequest<String>? = null,
     val continueWatchingDisintegrationRequest: DisintegrationRequest<String>? = null,
     val requestedSettingsPageName: String? = null,
+    val openLibraryDownloadsRequest: Int = 0,
 )
 
 internal data class AppTabRequests(
@@ -140,7 +141,9 @@ internal data class AppTabActions(
     val onHomescreenSettingsClick: () -> Unit = {},
     val onMetaScreenSettingsClick: () -> Unit = {},
     val onContinueWatchingSettingsClick: () -> Unit = {},
+    val onDownloadActivityClick: () -> Unit = {},
     val onDownloadsSettingsClick: () -> Unit = {},
+    val onPlayDownloaded: ((com.nuvio.app.features.downloads.DownloadItem) -> Unit)? = null,
     val onAddonsSettingsClick: () -> Unit = {},
     val onPluginsSettingsClick: () -> Unit = {},
     val onAccountSettingsClick: () -> Unit = {},
@@ -214,7 +217,9 @@ internal fun AppTabHost(
                         onSectionViewAllClick = actions.onLibrarySectionViewAllClick,
                         onCloudFilePlay = actions.onCloudFilePlay,
                         onConnectCloudClick = actions.onConnectCloudClick,
-                        onDownloadsClick = actions.onDownloadsSettingsClick,
+                        onDownloadsClick = actions.onDownloadActivityClick,
+                        onPlayDownloaded = actions.onPlayDownloaded,
+                        openDownloadsRequest = state.openLibraryDownloadsRequest,
                         disintegrationRequest = state.libraryDisintegrationRequest,
                     )
                 }

@@ -2,6 +2,7 @@ package com.nuvio.app.features.home.components
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,7 +12,15 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,8 +35,14 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
+import com.nuvio.app.core.ui.NuvioPosterSelectionState
 import com.nuvio.app.core.ui.NuvioPosterWatchedOverlay
+import com.nuvio.app.core.ui.NuvioTokens
+import com.nuvio.app.core.ui.ThemeColors
+import com.nuvio.app.core.ui.accentBrush
+import com.nuvio.app.core.ui.appTheme
 import com.nuvio.app.core.ui.nuvioCardDepth
+import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.posterCardClickable
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.features.home.MetaPreview
@@ -52,6 +67,10 @@ internal fun PosterGridRow(
     fullyWatchedSeriesKeys: Set<String> = emptySet(),
     onPosterClick: ((MetaPreview) -> Unit)? = null,
     onPosterLongClick: ((MetaPreview) -> Unit)? = null,
+    selectionState: (MetaPreview) -> NuvioPosterSelectionState = { NuvioPosterSelectionState.None },
+    selectionContentDescription: ((MetaPreview) -> String?)? = null,
+    menuContentDescription: ((MetaPreview) -> String?)? = null,
+    onPosterMenuClick: ((MetaPreview) -> Unit)? = null,
 ) {
     val posterCardStyle = rememberPosterCardStyleUiState()
 
@@ -73,6 +92,10 @@ internal fun PosterGridRow(
                 ),
                 onClick = onPosterClick?.let { { it(item) } },
                 onLongClick = onPosterLongClick?.let { { it(item) } },
+                selectionState = selectionState(item),
+                selectionContentDescription = selectionContentDescription?.invoke(item),
+                menuContentDescription = menuContentDescription?.invoke(item),
+                onMenuClick = onPosterMenuClick?.let { { it(item) } },
             )
         }
         repeat(columns - items.size) {
@@ -114,6 +137,10 @@ private fun PosterGridTile(
     isWatched: Boolean = false,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    selectionState: NuvioPosterSelectionState = NuvioPosterSelectionState.None,
+    selectionContentDescription: String? = null,
+    menuContentDescription: String? = null,
+    onMenuClick: (() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier,
@@ -123,6 +150,17 @@ private fun PosterGridTile(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(item.posterShape.posterGridAspectRatio())
+                .then(
+                    if (selectionState != NuvioPosterSelectionState.None) {
+                        Modifier.border(
+                            MaterialTheme.nuvio.borders.medium,
+                            MaterialTheme.nuvio.colors.borderSelected,
+                            RoundedCornerShape(cornerRadiusDp.dp),
+                        )
+                    } else {
+                        Modifier
+                    },
+                )
                 .clip(RoundedCornerShape(cornerRadiusDp.dp))
                 .background(MaterialTheme.colorScheme.surface)
                 .nuvioCardDepth(
@@ -145,6 +183,48 @@ private fun PosterGridTile(
                 )
             }
             NuvioPosterWatchedOverlay(isWatched = isWatched)
+            if (onMenuClick != null) {
+                IconButton(
+                    onClick = onMenuClick,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .clip(MaterialTheme.nuvio.shapes.avatar)
+                        .background(MaterialTheme.nuvio.colors.overlayScrim),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = menuContentDescription,
+                        tint = MaterialTheme.nuvio.colors.textPrimary,
+                    )
+                }
+            }
+            if (selectionState != NuvioPosterSelectionState.None) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(NuvioTokens.Space.s6)
+                        .size(NuvioTokens.Icon.md)
+                        .clip(MaterialTheme.nuvio.shapes.avatar)
+                        .background(ThemeColors.getColorPalette(MaterialTheme.appTheme).accentBrush())
+                        .border(
+                            MaterialTheme.nuvio.borders.thin,
+                            MaterialTheme.nuvio.colors.borderStrong,
+                            MaterialTheme.nuvio.shapes.avatar,
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = if (selectionState == NuvioPosterSelectionState.Full) {
+                            Icons.Default.Check
+                        } else {
+                            Icons.Default.Remove
+                        },
+                        contentDescription = selectionContentDescription,
+                        tint = MaterialTheme.nuvio.colors.onAccent,
+                        modifier = Modifier.size(NuvioTokens.Icon.xs),
+                    )
+                }
+            }
         }
         if (!hideLabels) {
             Text(

@@ -86,6 +86,7 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Download the exact direct-file source currently playing without leaving the player | Player | Shared mobile source, iOS tested | Merged |
 | Select and remove several active or completed downloads in one operation | Downloads | Shared mobile source, iOS tested | Merged |
 | Play completed files offline and export them through the native share sheet | Downloads and Details | iOS and iPadOS | Merged |
+| Browse and manage completed movies, shows, seasons, and episodes from Library > Downloads; keep transfer activity separate from download policy | Library, Download activity, and Settings | iOS, iPadOS, and Android shared source | [In review](./F08-REVIEW.md) |
 
 ### Home
 
@@ -108,8 +109,9 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Feature | Where | Platforms | Status |
 | --- | --- | --- | --- |
 | Downloaded movies and series appear in the Library with horizontal shelves or a vertical poster grid | Library | Shared mobile source, iOS tested | Merged |
+| Download posters support Browse and Manage modes, partial/full show selection, exact size totals, contextual play/remove/share actions, and a shared phone/tablet manager | Library > Downloads | iOS, iPadOS, and Android shared source | [In review](./F08-REVIEW.md) |
 | Local metadata, title artwork, episode artwork, and principal cast images remain available offline | Library and Details | Shared mobile source, iOS tested | Merged |
-| Downloaded episodes remain playable from the normal series details screen while unavailable episodes show `Internet required` | Details | Shared mobile source, iOS tested | Merged |
+| Downloaded episodes remain playable from the normal series details screen, expose an exact-episode removal shortcut, and show `Internet required` when unavailable | Details | Shared mobile source, iOS tested; F08A removal shortcut in review | [In review](./F08-REVIEW.md) |
 
 ### Player
 

@@ -78,8 +78,9 @@ internal actual object DownloadsRequestStorage {
     }
 
     @OptIn(ExperimentalForeignApi::class)
-    actual fun remove(downloadId: String) {
-        withKeychainQuery(downloadId) { query -> SecItemDelete(query) }
+    actual fun remove(downloadId: String): Boolean = withKeychainQuery(downloadId) { query ->
+        val status = SecItemDelete(query)
+        status == errSecSuccess || status == errSecItemNotFound
     }
 
     @OptIn(ExperimentalForeignApi::class)

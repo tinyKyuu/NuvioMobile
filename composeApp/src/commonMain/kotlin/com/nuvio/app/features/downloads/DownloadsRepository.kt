@@ -349,7 +349,7 @@ object DownloadsRepository {
         pumpScheduler()
     }
 
-    fun cancelDownloads(downloadIds: Collection<String>): Int {
+    fun cancelDownloads(downloadIds: Collection<String>): DownloadBatchRemovalResult {
         ensureLoaded()
         val ownerProfileKey = activeOwnerProfileKey()
         val targets = synchronized(stateLock) {
@@ -357,35 +357,31 @@ object DownloadsRepository {
                 return@synchronized emptyList()
             }
 
-            val removedRecords = removeProfileRecordsFromCatalogAsBatch(
+            val selectedRecords = selectProfileRecordsForBatchRemoval(
                 store = store,
                 ownerProfileKey = ownerProfileKey,
                 requestedDownloadIds = downloadIds,
                 runtimeRecordsById = runtimeRecordsById,
             )
-            if (removedRecords.isEmpty()) return@synchronized emptyList()
-
-            val removedIds = removedRecords.mapTo(hashSetOf(), DownloadRecord::downloadId)
-            val removedTargets = removedRecords.map { record ->
+            selectedRecords.map { record ->
                 DownloadBatchRemovalTarget(
                     record = record,
                     activeHandle = activeHandles.remove(record.downloadId),
                 )
             }
-            removedIds.forEach { downloadId ->
-                runtimeRecordsById.remove(downloadId)
-                progressPersistencePolicy.remove(downloadId)
-            }
-            currentProfileRecords = currentProfileRecords.filterNot { it.downloadId in removedIds }
-            removedTargets
         }
 
-        performDownloadBatchCleanup(
+        val resolvedCompletedFileUris = targets
+            .asSequence()
+            .filter { it.record.internalState == DownloadInternalState.Completed }
+            .associate { target -> target.record.downloadId to resolveLocalUri(target.record) }
+        val cleanup = performDownloadBatchCleanup(
             targets = targets,
             cancelPlatformTask = DownloadsPlatformDownloader::cancel,
             removeRequest = DownloadsRequestStorage::remove,
             removeCompletedFile = { record ->
-                DownloadsPlatformDownloader.removeFile(resolveLocalUri(record))
+                val resolvedUri = resolvedCompletedFileUris[record.downloadId]
+                resolvedUri == null || DownloadsPlatformDownloader.removeFile(resolvedUri)
             },
             removePartialFile = { record ->
                 DownloadsPlatformDownloader.removePartialFile(
@@ -393,17 +389,50 @@ object DownloadsRepository {
                     destinationFileName = record.item.fileName,
                 )
             },
-            onBatchCleaned = {
-                targets.forEach { target ->
-                    val record = target.record
-                    log.i {
-                        "event=record_deleted_batch download_id=${record.downloadId} owner_profile=${record.ownerProfileKey} prior_state=${record.internalState} downloaded_bytes=${record.downloadedBytes} total_bytes=${record.expectedBytes ?: "unknown"}"
-                    }
+        )
+        val successfulRecords = cleanup.successfulTargets.map(DownloadBatchRemovalTarget::record)
+        val successfulIds = successfulRecords.mapTo(linkedSetOf(), DownloadRecord::downloadId)
+        synchronized(stateLock) {
+            if (successfulIds.isNotEmpty()) {
+                commitSuccessfulBatchRemoval(store, successfulRecords)
+                successfulIds.forEach { downloadId ->
+                    runtimeRecordsById.remove(downloadId)
+                    progressPersistencePolicy.remove(downloadId)
                 }
-                pumpScheduler(forcePublishCurrentProfile = true)
+                currentProfileRecords = currentProfileRecords.filterNot { it.downloadId in successfulIds }
+            }
+            cleanup.failures.forEach { failure ->
+                val record = targets.firstOrNull { it.record.downloadId == failure.downloadId }?.record
+                if (record != null) {
+                    runtimeRecordsById[record.downloadId] = record
+                }
+            }
+        }
+        successfulRecords.forEach { record ->
+            log.i {
+                "event=record_deleted_batch download_id=${record.downloadId} owner_profile=${record.ownerProfileKey} prior_state=${record.internalState} downloaded_bytes=${record.downloadedBytes} total_bytes=${record.expectedBytes ?: "unknown"}"
+            }
+        }
+        cleanup.failures.forEach { failure ->
+            log.w {
+                "event=record_delete_failed_batch download_id=${failure.downloadId} reasons=${failure.reasons.joinToString(",")}"
+            }
+        }
+        pumpScheduler(forcePublishCurrentProfile = true)
+        return DownloadBatchRemovalResult(
+            successfulIds = successfulIds,
+            failures = cleanup.failures,
+            bytesReclaimed = successfulRecords.sumOf { record ->
+                if (
+                    record.internalState == DownloadInternalState.Completed &&
+                    resolvedCompletedFileUris[record.downloadId] == null
+                ) {
+                    0L
+                } else {
+                    record.reclaimableBytes()
+                }
             },
         )
-        return targets.size
     }
 
     internal fun deleteProfileDownloads(profileId: Int): Int {
@@ -442,7 +471,8 @@ object DownloadsRepository {
             cancelPlatformTask = DownloadsPlatformDownloader::cancel,
             removeRequest = DownloadsRequestStorage::remove,
             removeCompletedFile = { record ->
-                DownloadsPlatformDownloader.removeFile(resolveLocalUri(record))
+                val resolvedUri = resolveLocalUri(record)
+                resolvedUri == null || DownloadsPlatformDownloader.removeFile(resolvedUri)
             },
             removePartialFile = { record ->
                 DownloadsPlatformDownloader.removePartialFile(
@@ -450,7 +480,6 @@ object DownloadsRepository {
                     destinationFileName = record.item.fileName,
                 )
             },
-            onBatchCleaned = {},
         )
         DownloadsStorage.removeLegacyPayload(profileId)
         OfflineLibraryRepository.deleteProfile(profileId)

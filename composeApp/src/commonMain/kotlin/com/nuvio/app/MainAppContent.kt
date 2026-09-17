@@ -97,7 +97,10 @@ import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.collection.CollectionSyncService
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadEntrySource
+import com.nuvio.app.features.downloads.DownloadNavigationTarget
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.resolveDownloadNavigationTarget
 import com.nuvio.app.features.home.HomeCatalogSection
 import com.nuvio.app.features.home.HomePresentationResetState
 import com.nuvio.app.features.home.homePresentationFor
@@ -245,6 +248,7 @@ internal fun MainAppContent(
         val libraryDisintegrationRequests = remember { DisintegrationRequestController<String>() }
         val continueWatchingDisintegrationRequests = remember { DisintegrationRequestController<String>() }
         var requestedSettingsPageName by rememberSaveable { mutableStateOf<String?>(null) }
+        var openLibraryDownloadsRequest by rememberSaveable { mutableStateOf(0) }
         var showLibraryListPicker by remember { mutableStateOf(false) }
         var pickerItem by remember { mutableStateOf<LibraryItem?>(null) }
         var pickerTitle by remember { mutableStateOf("") }
@@ -599,10 +603,8 @@ internal fun MainAppContent(
                     DownloadsRepository.playableLocalFileUri(it) != null
                 }
                 if (hasPlayableDownload) {
-                    activateTab(AppScreenTab.Settings)
-                    navController.navigate(DownloadsSettingsRoute(downloadsSettingsTitle)) {
-                        launchSingleTop = true
-                    }
+                    activateTab(AppScreenTab.Library)
+                    openLibraryDownloadsRequest += 1
                 }
             }
         }
@@ -787,8 +789,8 @@ internal fun MainAppContent(
                     }
 
                     AppDeepLink.Downloads -> {
-                        activateTab(AppScreenTab.Settings)
-                        navController.navigate(DownloadsSettingsRoute(downloadsSettingsTitle)) {
+                        activateTab(AppScreenTab.Library)
+                        navController.navigate(DownloadActivityRoute(downloadsSettingsTitle)) {
                             launchSingleTop = true
                         }
                         AppDeepLinkRepository.markConsumed(deepLink)
@@ -1306,6 +1308,7 @@ internal fun MainAppContent(
                             libraryDisintegrationRequest = libraryDisintegrationRequests.current,
                             continueWatchingDisintegrationRequest = continueWatchingDisintegrationRequests.current,
                             requestedSettingsPageName = requestedSettingsPageName,
+                            openLibraryDownloadsRequest = openLibraryDownloadsRequest,
                         ),
                         actions = { isTabletLayout ->
                             AppTabActions(
@@ -1382,7 +1385,11 @@ internal fun MainAppContent(
                                 onHomescreenSettingsClick = { navController.navigate(HomescreenSettingsRoute(homescreenSettingsTitle)) },
                                 onMetaScreenSettingsClick = { navController.navigate(MetaScreenSettingsRoute(metaScreenSettingsTitle)) },
                                 onContinueWatchingSettingsClick = { navController.navigate(ContinueWatchingSettingsRoute(continueWatchingSettingsTitle)) },
+                                onDownloadActivityClick = {
+                                    navController.navigate(DownloadActivityRoute(downloadsSettingsTitle))
+                                },
                                 onDownloadsSettingsClick = { navController.navigate(DownloadsSettingsRoute(downloadsSettingsTitle)) },
+                                onPlayDownloaded = ::openDownloadedItem,
                                 onAddonsSettingsClick = { navController.navigate(AddonsSettingsRoute(addonsSettingsTitle)) },
                                 onPluginsSettingsClick = {
                                     if (AppFeaturePolicy.pluginsEnabled) {
@@ -1550,19 +1557,48 @@ internal fun MainAppContent(
                     )
                 }
                 entry<DownloadsSettingsRoute> { route ->
-                    DownloadsDestination(
+                    if (
+                        resolveDownloadNavigationTarget(
+                            source = DownloadEntrySource.Settings,
+                            explicitDestination = route.destination,
+                        ) == DownloadNavigationTarget.CompletedLibrary
+                    ) {
+                        LaunchedEffect(route) {
+                            activateTab(AppScreenTab.Library)
+                            openLibraryDownloadsRequest += 1
+                            navController.popBackStack(expectedRoute = route)
+                        }
+                    } else {
+                        DownloadsDestination(
+                            route = route,
+                            navController = navController,
+                            onOpenDownload = ::openDownloadedDetails,
+                            onManageCompletedDownloads = {
+                                activateTab(AppScreenTab.Library)
+                                openLibraryDownloadsRequest += 1
+                                navController.popBackStack(expectedRoute = route)
+                            },
+                        )
+                    }
+                }
+                entry<DownloadActivityRoute> { route ->
+                    DownloadActivityDestination(
                         route = route,
                         navController = navController,
-                        useNativeNavigation = useNativeNavigation,
                         onOpenDownload = ::openDownloadedDetails,
                     )
                 }
                 entry<DownloadShowRoute> { route ->
-                    DownloadShowDestination(
-                        route = route,
-                        navController = navController,
-                        onOpenDownload = ::openDownloadedDetails,
-                    )
+                    when (resolveDownloadNavigationTarget(DownloadEntrySource.LegacyShowRoute)) {
+                        DownloadNavigationTarget.CompletedLibrary -> LaunchedEffect(route) {
+                            activateTab(AppScreenTab.Library)
+                            openLibraryDownloadsRequest += 1
+                            navController.popBackStack(expectedRoute = route)
+                        }
+                        DownloadNavigationTarget.Activity,
+                        DownloadNavigationTarget.Policy,
+                        -> Unit
+                    }
                 }
                 entry<AddonsSettingsRoute> { route ->
                     SettingsDestination(route, navController) { onBack ->

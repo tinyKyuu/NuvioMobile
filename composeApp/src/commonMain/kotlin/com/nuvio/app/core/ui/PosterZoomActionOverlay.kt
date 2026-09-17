@@ -438,7 +438,7 @@ fun NuvioPosterZoomActionOverlay(
                                 ).coerceAtLeast(0.001f)
                                 scaleX = 1f / scale
                                 scaleY = 1f / scale
-                                transformOrigin = TransformOrigin(1f, 0f)
+                                transformOrigin = TransformOrigin(0f, 0f)
                             }
                         },
                     )

@@ -69,13 +69,21 @@ import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
 
+enum class DownloadsScreenMode {
+    Legacy,
+    Activity,
+    Policy,
+}
+
 @Composable
 fun DownloadsScreen(
     onBack: () -> Unit,
     onOpenDownload: (DownloadItem) -> Unit,
+    onManageCompletedDownloads: (() -> Unit)? = null,
     initialShowId: String? = null,
     onNavigateToShow: ((showId: String, title: String) -> Unit)? = null,
     onBackFromShow: (() -> Unit)? = null,
+    mode: DownloadsScreenMode = DownloadsScreenMode.Legacy,
 ) {
     val uiState by remember {
         DownloadsRepository.ensureLoaded()
@@ -126,7 +134,7 @@ fun DownloadsScreen(
     }
     val allVisibleDownloadsSelected = visibleSelectionIds.isNotEmpty() &&
         visibleSelectionIds.all(selectionSummary.selectedIds::contains)
-    val selectionBarVisible = selectionMode && selectionSummary.fileCount > 0
+    val selectionBarVisible = mode == DownloadsScreenMode.Legacy && selectionMode && selectionSummary.fileCount > 0
     val bottomInset = nuvioSafeBottomPadding()
     val density = LocalDensity.current
     var selectionBarHeightPx by remember { mutableStateOf(0) }
@@ -157,13 +165,17 @@ fun DownloadsScreen(
         NuvioScreen(modifier = Modifier.fillMaxSize()) {
             stickyHeader {
                 NuvioScreenHeader(
-                    title = if (selectedShowId == null) {
+                    title = if (mode == DownloadsScreenMode.Activity) {
+                        stringResource(Res.string.downloads_activity_title)
+                    } else if (selectedShowId == null) {
                         stringResource(Res.string.compose_settings_root_downloads_title)
                     } else {
                         selectedShowTitle ?: stringResource(Res.string.downloads_show_downloads)
                     },
                     onBack = {
-                        if (selectionMode) {
+                        if (mode != DownloadsScreenMode.Legacy) {
+                            onBack()
+                        } else if (selectionMode) {
                             leaveSelection()
                         } else if (selectedShowId != null) {
                             onBackFromShow?.invoke() ?: run { selectedShowId = null }
@@ -172,31 +184,33 @@ fun DownloadsScreen(
                         }
                     },
                     actions = {
-                        if (selectionMode) {
-                            TextButton(onClick = ::leaveSelection) {
-                                Text(stringResource(Res.string.action_done))
-                            }
-                        } else if (selectedShowId == null) {
-                            TextButton(onClick = { selectionMode = true }) {
-                                Text(stringResource(Res.string.downloads_select))
-                            }
-                            IconButton(onClick = { showManagement = !showManagement }) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Storage,
-                                    contentDescription = stringResource(Res.string.downloads_manage_storage),
-                                    tint = MaterialTheme.nuvio.colors.textPrimary,
-                                )
-                            }
-                        } else {
-                            IconButton(
-                                enabled = selectedShowDownloadIds.isNotEmpty(),
-                                onClick = { downloadsPendingBulkDeletion = selectedShowDownloadIds },
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Delete,
-                                    contentDescription = stringResource(Res.string.downloads_delete_show),
-                                    tint = MaterialTheme.nuvio.colors.textPrimary,
-                                )
+                        if (mode == DownloadsScreenMode.Legacy) {
+                            if (selectionMode) {
+                                TextButton(onClick = ::leaveSelection) {
+                                    Text(stringResource(Res.string.action_done))
+                                }
+                            } else if (selectedShowId == null) {
+                                TextButton(onClick = { selectionMode = true }) {
+                                    Text(stringResource(Res.string.downloads_select))
+                                }
+                                IconButton(onClick = { showManagement = !showManagement }) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Storage,
+                                        contentDescription = stringResource(Res.string.downloads_manage_storage),
+                                        tint = MaterialTheme.nuvio.colors.textPrimary,
+                                    )
+                                }
+                            } else {
+                                IconButton(
+                                    enabled = selectedShowDownloadIds.isNotEmpty(),
+                                    onClick = { downloadsPendingBulkDeletion = selectedShowDownloadIds },
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.Delete,
+                                        contentDescription = stringResource(Res.string.downloads_delete_show),
+                                        tint = MaterialTheme.nuvio.colors.textPrimary,
+                                    )
+                                }
                             }
                         }
                     },
@@ -216,16 +230,26 @@ fun DownloadsScreen(
                         onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
                     },
                     onDeleteDownload = { downloadPendingDeletionId = it },
-                    selectionMode = selectionMode,
+                    selectionMode = mode == DownloadsScreenMode.Legacy && selectionMode,
                     selectedDownloadIds = selectionSummary.selectedIds,
-                    onEnterSelection = ::enterSelection,
-                    onToggleSelection = ::toggleSelection,
+                    onEnterSelection = if (mode == DownloadsScreenMode.Legacy) {
+                        ::enterSelection
+                    } else {
+                        { _ -> Unit }
+                    },
+                    onToggleSelection = if (mode == DownloadsScreenMode.Legacy) {
+                        ::toggleSelection
+                    } else {
+                        { _ -> Unit }
+                    },
                     onExportDownload = { item ->
                         val localFileUri = DownloadsRepository.playableLocalFileUri(item)
                         if (localFileUri == null || !DownloadsPlatformDownloader.exportFile(localFileUri)) {
                             NuvioToastController.show(exportFailedText)
                         }
                     },
+                    onManageCompletedDownloads = onManageCompletedDownloads,
+                    mode = mode,
                 )
             } else {
                 downloadsShowContent(
@@ -356,12 +380,26 @@ private fun LazyListScope.downloadsRootContent(
     onEnterSelection: (Collection<String>) -> Unit,
     onToggleSelection: (Collection<String>) -> Unit,
     onExportDownload: (DownloadItem) -> Unit,
+    onManageCompletedDownloads: (() -> Unit)?,
+    mode: DownloadsScreenMode,
 ) {
     val currentDownloads = currentDownloadsForDisplay(uiState.items)
     val movies = completedMoviesForDisplay(uiState.items, completedSort)
     val shows = completedShowsForDisplay(uiState.items, completedSort)
 
-    if (showManagement) {
+    if (mode == DownloadsScreenMode.Policy) {
+        item {
+            DownloadsManagementCard(
+                items = uiState.items,
+                policy = networkPolicy,
+                onPolicyChanged = onNetworkPolicyChanged,
+                onManageCompletedDownloads = onManageCompletedDownloads,
+            )
+        }
+        return
+    }
+
+    if (showManagement && mode == DownloadsScreenMode.Legacy) {
         item {
             DownloadsManagementCard(
                 items = uiState.items,
@@ -393,6 +431,26 @@ private fun LazyListScope.downloadsRootContent(
                 onToggleSelection = { onToggleSelection(listOf(item.id)) },
             )
         }
+    }
+
+    if (mode == DownloadsScreenMode.Activity) {
+        if (currentDownloads.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 40.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = stringResource(Res.string.downloads_activity_empty),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+        return
     }
 
     if (movies.isNotEmpty() || shows.isNotEmpty()) {
@@ -964,6 +1022,7 @@ private fun DownloadsManagementCard(
     items: List<DownloadItem>,
     policy: DownloadNetworkPolicy,
     onPolicyChanged: (DownloadNetworkPolicy) -> Unit,
+    onManageCompletedDownloads: (() -> Unit)? = null,
 ) {
     val storedBytes = items.sumOf { it.downloadedBytes.coerceAtLeast(0L) }
     Surface(
@@ -978,7 +1037,7 @@ private fun DownloadsManagementCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = stringResource(Res.string.downloads_manage_storage),
+                text = stringResource(Res.string.downloads_policy_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -991,6 +1050,14 @@ private fun DownloadsManagementCard(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            if (onManageCompletedDownloads != null) {
+                TextButton(
+                    onClick = onManageCompletedDownloads,
+                    modifier = Modifier.align(Alignment.End),
+                ) {
+                    Text(stringResource(Res.string.downloads_manage_storage))
+                }
+            }
             DownloadPolicySwitch(
                 title = stringResource(Res.string.downloads_network_wifi_only),
                 description = stringResource(Res.string.downloads_network_wifi_only_description),

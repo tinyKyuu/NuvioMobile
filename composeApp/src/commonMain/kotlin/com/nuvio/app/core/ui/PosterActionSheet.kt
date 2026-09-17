@@ -67,7 +67,7 @@ fun BoxScope.NuvioPosterWatchedOverlay(
     NuvioAnimatedWatchedBadge(
         isVisible = isWatched,
         modifier = modifier
-            .align(Alignment.TopEnd)
+            .align(Alignment.TopStart)
             .padding(padding),
     )
 }

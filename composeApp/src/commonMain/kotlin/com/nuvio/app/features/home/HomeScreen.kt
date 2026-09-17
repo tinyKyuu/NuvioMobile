@@ -123,6 +123,7 @@ fun HomeScreen(
     animateCollectionGifs: Boolean = true,
     scrollToTopRequests: Flow<Unit> = emptyFlow(),
     presentationResetGeneration: Long = 0L,
+    onPresentationResetConsumed: (Long) -> Boolean = { false },
     onCatalogClick: ((HomeCatalogSection) -> Unit)? = null,
     onPosterClick: ((MetaPreview) -> Unit)? = null,
     onPosterLongClick: ((MetaPreview) -> Unit)? = null,
@@ -299,12 +300,8 @@ fun HomeScreen(
     }
     val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
     val activeProfileId = profileState.activeProfile?.profileIndex ?: 1
-    var handledPresentationResetGeneration by rememberSaveable(activeProfileId) {
-        mutableStateOf(0L)
-    }
     LaunchedEffect(activeProfileId, presentationResetGeneration) {
-        if (presentationResetGeneration > handledPresentationResetGeneration) {
-            handledPresentationResetGeneration = presentationResetGeneration
+        if (onPresentationResetConsumed(presentationResetGeneration)) {
             homeListState.scrollToItem(0)
         }
     }

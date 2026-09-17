@@ -5,11 +5,16 @@ import kotlin.test.assertEquals
 
 class AddonsScreenTest {
     @Test
-    fun `addon card refresh targets only its selected manifest`() {
-        val refreshed = mutableListOf<String>()
+    fun `addon card refresh force reloads only its selected manifest`() {
+        val refreshed = mutableListOf<Pair<String, Boolean>>()
 
-        refreshAddonFromSettings("https://selected.example/manifest.json", refreshed::add)
+        refreshAddonFromSettings("https://selected.example/manifest.json") { manifestUrl, forceRefresh ->
+            refreshed += manifestUrl to forceRefresh
+        }
 
-        assertEquals(listOf("https://selected.example/manifest.json"), refreshed)
+        assertEquals(
+            listOf("https://selected.example/manifest.json" to true),
+            refreshed,
+        )
     }
 }

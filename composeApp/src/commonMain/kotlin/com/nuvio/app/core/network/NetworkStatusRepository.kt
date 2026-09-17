@@ -141,14 +141,21 @@ internal class NetworkStatusController(
     private val pathLossDebounceMs: Long = 1_000L,
     private val serverRetryDelaysMs: List<Long> = listOf(5_000L, 15_000L, 30_000L),
 ) {
+    private data class ProbeRequest(
+        val generation: Long,
+        val confirmFailures: Boolean,
+    )
+
     private val lock = SynchronizedObject()
     private val _uiState = MutableStateFlow(NetworkStatusUiState())
     val uiState: StateFlow<NetworkStatusUiState> = _uiState.asStateFlow()
 
     private var started = false
     private var foreground = true
+    private var lastNetworkPathEvent: NetworkPathEvent? = null
     private var latestProbeGeneration = 0L
     private var activeProbeGeneration: Long? = null
+    private var pendingProbeRequest: ProbeRequest? = null
     private var foregroundRefreshJob: Job? = null
     private var pathLossJob: Job? = null
     private var serverRetryJob: Job? = null
@@ -182,6 +189,12 @@ internal class NetworkStatusController(
 
     fun onNetworkPathEvent(event: NetworkPathEvent) {
         if (!synchronized(lock) { foreground }) return
+        val isNewPathState = synchronized(lock) {
+            (lastNetworkPathEvent != event).also { changed ->
+                if (changed) lastNetworkPathEvent = event
+            }
+        }
+        if (!isNewPathState) return
         when (event) {
             NetworkPathEvent.Available -> {
                 pathLossJob?.cancel()
@@ -200,14 +213,39 @@ internal class NetworkStatusController(
         }
     }
 
-    @Suppress("UNUSED_PARAMETER")
     fun requestRefresh(force: Boolean = false, confirmFailures: Boolean = false): Long {
         ensureMarkedStarted()
-        val generation = synchronized(lock) {
-            activeProbeGeneration?.let { return it }
+        var shouldLaunch = false
+        val request = synchronized(lock) {
+            activeProbeGeneration?.let { activeGeneration ->
+                if (!force) return activeGeneration
+                pendingProbeRequest?.let { pending ->
+                    if (confirmFailures && !pending.confirmFailures) {
+                        pendingProbeRequest = pending.copy(confirmFailures = true)
+                    }
+                    return pending.generation
+                }
+                latestProbeGeneration += 1L
+                return@synchronized ProbeRequest(
+                    generation = latestProbeGeneration,
+                    confirmFailures = confirmFailures,
+                ).also { pendingProbeRequest = it }
+            }
             latestProbeGeneration += 1L
-            latestProbeGeneration.also { activeProbeGeneration = it }
+            ProbeRequest(
+                generation = latestProbeGeneration,
+                confirmFailures = confirmFailures,
+            ).also {
+                activeProbeGeneration = it.generation
+                shouldLaunch = true
+            }
         }
+        if (shouldLaunch) launchProbe(request)
+        return request.generation
+    }
+
+    private fun launchProbe(request: ProbeRequest) {
+        val generation = request.generation
         serverRetryJob?.cancel()
         _uiState.value = _uiState.value.copy(
             condition = if (_uiState.value.condition == NetworkCondition.Unknown) {
@@ -222,7 +260,7 @@ internal class NetworkStatusController(
             try {
                 val previous = _uiState.value.condition
                 var next = probeCondition()
-                if (confirmFailures && previous == NetworkCondition.Online && next.isOfflineLike()) {
+                if (request.confirmFailures && previous == NetworkCondition.Online && next.isOfflineLike()) {
                     delayFor(failureConfirmDelayMs)
                     next = probeCondition()
                 }
@@ -234,25 +272,35 @@ internal class NetworkStatusController(
                 )
                 onProbeResult(generation, next)
             } finally {
-                synchronized(lock) {
-                    if (activeProbeGeneration == generation) activeProbeGeneration = null
+                val nextRequest = synchronized(lock) {
+                    if (activeProbeGeneration != generation) {
+                        null
+                    } else {
+                        pendingProbeRequest.also { pending ->
+                            pendingProbeRequest = null
+                            activeProbeGeneration = pending?.generation
+                        }
+                    }
                 }
                 if (_uiState.value.probeGeneration != generation) {
                     _uiState.value = _uiState.value.copy(isProbing = false)
                 }
-                when (result) {
-                    NetworkCondition.ServersUnreachable -> scheduleServerRetry()
-                    NetworkCondition.Online,
-                    NetworkCondition.NoInternet,
-                    -> {
-                        serverRetryIndex = 0
-                        serverRetryJob?.cancel()
+                if (nextRequest != null) {
+                    launchProbe(nextRequest)
+                } else {
+                    when (result) {
+                        NetworkCondition.ServersUnreachable -> scheduleServerRetry()
+                        NetworkCondition.Online,
+                        NetworkCondition.NoInternet,
+                        -> {
+                            serverRetryIndex = 0
+                            serverRetryJob?.cancel()
+                        }
+                        else -> Unit
                     }
-                    else -> Unit
                 }
             }
         }
-        return generation
     }
 
     private fun ensureMarkedStarted() {

@@ -387,7 +387,7 @@ object AddonRepository {
         profileId: Int,
         recoveryGeneration: Long,
         forceAll: Boolean,
-        onManifestRecovered: suspend (String) -> Unit,
+        onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
     ): AddonManifestRecoveryResult {
         if (ProfileRepository.activeProfileId != profileId) {
             return AddonManifestRecoveryResult(emptySet(), emptySet(), emptySet(), stale = true)
@@ -419,7 +419,7 @@ object AddonRepository {
                 ownsProfile(effectiveProfileId, operationGeneration) &&
                     ProfileRepository.activeProfileId == profileId
             },
-            onManifestRecovered = onManifestRecovered,
+            onManifestEvent = onManifestEvent,
         )
     }
 

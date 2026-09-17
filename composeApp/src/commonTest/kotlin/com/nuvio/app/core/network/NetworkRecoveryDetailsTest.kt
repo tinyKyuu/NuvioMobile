@@ -1,5 +1,6 @@
 package com.nuvio.app.core.network
 
+import com.nuvio.app.features.addons.ManifestRecoveryEvent
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaDetailsLoadResult
 import com.nuvio.app.features.details.MetaDetailsRepositoryController
@@ -66,7 +67,7 @@ class NetworkRecoveryDetailsTest {
         val controller = NetworkRecoveryController(
             fixture.scope, activeProfileId = { fixture.profile }, requestFreshProbe = { 3L },
             operations = object : NetworkRecoveryOperations {
-                override suspend fun recoverManifests(profileId: Int, generation: Long, forceAll: Boolean, onManifestRecovered: suspend (String) -> Unit): ManifestRecoveryOutcome {
+                override suspend fun recoverManifests(profileId: Int, generation: Long, forceAll: Boolean, onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit): ManifestRecoveryOutcome {
                     manifests.await()
                     return ManifestRecoveryOutcome()
                 }

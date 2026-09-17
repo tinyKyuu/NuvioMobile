@@ -35,14 +35,21 @@ internal fun shouldResetHomeScroll(
     current: HomePresentationMode,
 ): Boolean = previous != null && previous != current
 
-internal class HomePresentationResetTracker {
+internal class HomePresentationResetState {
     private var previous: HomePresentationMode? = null
     private var generation: Long = 0L
+    private var consumedGeneration: Long = 0L
 
     fun onMode(mode: HomePresentationMode): Long {
         if (shouldResetHomeScroll(previous, mode)) generation += 1L
         previous = mode
         return generation
+    }
+
+    fun consume(pendingGeneration: Long): Boolean {
+        if (pendingGeneration <= consumedGeneration) return false
+        consumedGeneration = pendingGeneration
+        return true
     }
 }
 

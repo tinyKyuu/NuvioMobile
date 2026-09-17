@@ -237,9 +237,9 @@ internal fun AddonsSettingsPageContent(
 
 internal fun refreshAddonFromSettings(
     manifestUrl: String,
-    refresh: (String) -> Unit = AddonRepository::refreshAddon,
+    refresh: (String, Boolean) -> Unit = AddonRepository::refreshAddon,
 ) {
-    refresh(manifestUrl)
+    refresh(manifestUrl, true)
 }
 
 @Composable

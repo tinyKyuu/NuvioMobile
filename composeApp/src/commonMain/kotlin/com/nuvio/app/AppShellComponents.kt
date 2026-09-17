@@ -124,6 +124,7 @@ internal data class AppTabRequests(
 )
 
 internal data class AppTabActions(
+    val onHomePresentationResetConsumed: (Long) -> Boolean = { false },
     val onCatalogClick: ((HomeCatalogSection) -> Unit)? = null,
     val onPosterClick: ((MetaPreview) -> Unit)? = null,
     val onPosterLongClick: ((MetaPreview) -> Unit)? = null,
@@ -178,6 +179,7 @@ internal fun AppTabHost(
                             animateCollectionGifs = state.animateHomeCollectionGifs,
                             scrollToTopRequests = requests.homeScrollToTopRequests,
                             presentationResetGeneration = state.homePresentationResetGeneration,
+                            onPresentationResetConsumed = actions.onHomePresentationResetConsumed,
                             onCatalogClick = actions.onCatalogClick,
                             onPosterClick = actions.onPosterClick,
                             onPosterLongClick = actions.onPosterLongClick,

@@ -66,13 +66,34 @@ class HomeScreenTest {
 
     @Test
     fun `home scroll reset generation remains pending while Home is not presented`() {
-        val tracker = HomePresentationResetTracker()
+        val state = HomePresentationResetState()
 
-        assertEquals(0L, tracker.onMode(HomePresentationMode.Online))
-        assertEquals(1L, tracker.onMode(HomePresentationMode.Offline))
-        assertEquals(1L, tracker.onMode(HomePresentationMode.Offline))
-        assertEquals(2L, tracker.onMode(HomePresentationMode.Online))
-        assertEquals(2L, tracker.onMode(HomePresentationMode.Online))
+        assertEquals(0L, state.onMode(HomePresentationMode.Online))
+        assertEquals(1L, state.onMode(HomePresentationMode.Offline))
+        assertEquals(1L, state.onMode(HomePresentationMode.Offline))
+        assertEquals(2L, state.onMode(HomePresentationMode.Online))
+        assertEquals(2L, state.onMode(HomePresentationMode.Online))
+    }
+
+    @Test
+    fun `hidden Home consumes a pending presentation reset once without replay`() {
+        val state = HomePresentationResetState()
+
+        state.onMode(HomePresentationMode.Online)
+        val pendingGeneration = state.onMode(HomePresentationMode.Offline)
+
+        assertTrue(state.consume(pendingGeneration))
+        assertFalse(state.consume(pendingGeneration))
+    }
+
+    @Test
+    fun `saved state restoration cannot suppress the next real presentation transition`() {
+        val restoredSession = HomePresentationResetState()
+
+        assertEquals(0L, restoredSession.onMode(HomePresentationMode.Online))
+        val nextTransition = restoredSession.onMode(HomePresentationMode.Offline)
+
+        assertTrue(restoredSession.consume(nextTransition))
     }
 
     @Test

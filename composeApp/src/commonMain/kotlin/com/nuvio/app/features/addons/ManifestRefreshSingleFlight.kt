@@ -28,6 +28,27 @@ internal enum class ManifestRefreshOutcome {
         get() = this != Failed
 }
 
+internal sealed interface ManifestRecoveryEvent {
+    val manifestUrl: String
+
+    data class CachedProviderAdmitted(
+        override val manifestUrl: String,
+    ) : ManifestRecoveryEvent
+
+    data class MissingProviderRecovered(
+        override val manifestUrl: String,
+    ) : ManifestRecoveryEvent
+
+    data class StaleProviderChanged(
+        override val manifestUrl: String,
+    ) : ManifestRecoveryEvent
+
+    data class ManualForceResult(
+        override val manifestUrl: String,
+        val outcome: ManifestRefreshOutcome,
+    ) : ManifestRecoveryEvent
+}
+
 internal data class ManifestRefreshIdentity(
     val profileId: Int,
     val profileGeneration: Long,
@@ -122,7 +143,9 @@ internal class ManifestRefreshSingleFlight {
 internal suspend fun collectManifestRecoveryResults(
     requests: Map<String, Deferred<ManifestRefreshOutcome>>,
     isCurrent: () -> Boolean,
-    onManifestRecovered: suspend (String) -> Unit,
+    forceAll: Boolean = false,
+    initiallyMissingUrls: Set<String> = emptySet(),
+    onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
 ): AddonManifestRecoveryResult = coroutineScope {
     if (requests.isEmpty()) {
         return@coroutineScope AddonManifestRecoveryResult(emptySet(), emptySet(), emptySet())
@@ -158,8 +181,16 @@ internal suspend fun collectManifestRecoveryResults(
                 recoveredUrls += manifestUrl
                 if (succeeded == ManifestRefreshOutcome.Changed) {
                     changedUrls += manifestUrl
-                    onManifestRecovered(manifestUrl)
                 }
+                val event = when {
+                    forceAll -> ManifestRecoveryEvent.ManualForceResult(manifestUrl, succeeded)
+                    succeeded == ManifestRefreshOutcome.Unchanged -> null
+                    manifestUrl in initiallyMissingUrls -> {
+                        ManifestRecoveryEvent.MissingProviderRecovered(manifestUrl)
+                    }
+                    else -> ManifestRecoveryEvent.StaleProviderChanged(manifestUrl)
+                }
+                if (event != null) onManifestEvent(event)
             } else {
                 failedUrls += manifestUrl
             }
@@ -186,7 +217,7 @@ internal suspend fun recoverAddonManifestBatch(
     forceAll: Boolean,
     isCurrent: () -> Boolean,
     startRefresh: (String) -> Deferred<ManifestRefreshOutcome>,
-    onManifestRecovered: suspend (String) -> Unit,
+    onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
 ): AddonManifestRecoveryResult {
     if (!isCurrent()) return AddonManifestRecoveryResult(emptySet(), emptySet(), emptySet(), stale = true)
     val attemptedUrls = selectAddonManifestRefreshUrls(addons, cache, nowEpochMs, forceAll)
@@ -197,7 +228,11 @@ internal suspend fun recoverAddonManifestBatch(
             .filter { it.enabled && it.manifest != null }
             .map(ManagedAddon::manifestUrl)
             .distinct()
-            .forEach { if (isCurrent()) onManifestRecovered(it) }
+            .forEach { manifestUrl ->
+                if (isCurrent()) {
+                    onManifestEvent(ManifestRecoveryEvent.CachedProviderAdmitted(manifestUrl))
+                }
+            }
     }
     if (!isCurrent()) {
         return AddonManifestRecoveryResult(emptySet(), emptySet(), emptySet(), stale = true)
@@ -211,9 +246,15 @@ internal suspend fun recoverAddonManifestBatch(
         )
     }
     val requests = attemptedUrls.associateWith(startRefresh)
+    val initiallyMissingUrls = addons.asSequence()
+        .filter { it.enabled && it.manifest == null }
+        .map(ManagedAddon::manifestUrl)
+        .toSet()
     return collectManifestRecoveryResults(
         requests = requests,
         isCurrent = isCurrent,
-        onManifestRecovered = onManifestRecovered,
+        forceAll = forceAll,
+        initiallyMissingUrls = initiallyMissingUrls,
+        onManifestEvent = onManifestEvent,
     )
 }

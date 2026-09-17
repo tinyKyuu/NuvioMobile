@@ -26,7 +26,7 @@ class ManifestRecoveryTest {
                     CompletableDeferred(ManifestRefreshOutcome.Unchanged),
             ),
             isCurrent = { true },
-            onManifestRecovered = { reconciliationCount += 1 },
+            onManifestEvent = { reconciliationCount += 1 },
         )
 
         assertEquals(setOf("https://unchanged.example/manifest.json"), result.recoveredUrls)
@@ -47,7 +47,7 @@ class ManifestRecoveryTest {
                     "hanging" to hanging,
                 ),
                 isCurrent = { true },
-                onManifestRecovered = healthyPublished::complete,
+                onManifestEvent = { event -> healthyPublished.complete(event.manifestUrl) },
             )
         }
 
@@ -97,7 +97,8 @@ class ManifestRecoveryTest {
         val result = collectManifestRecoveryResults(
             requests = mapOf(url to reconnectRequest),
             isCurrent = { true },
-            onManifestRecovered = { contentRecovered = true },
+            initiallyMissingUrls = setOf(url),
+            onManifestEvent = { contentRecovered = true },
         )
         offlineRequest.join()
 
@@ -137,7 +138,7 @@ class ManifestRecoveryTest {
             collectManifestRecoveryResults(
                 requests = mapOf("old-profile" to late),
                 isCurrent = { current },
-                onManifestRecovered = { published = true },
+                onManifestEvent = { published = true },
             )
         }
 

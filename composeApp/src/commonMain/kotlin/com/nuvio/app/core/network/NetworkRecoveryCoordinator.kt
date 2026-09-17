@@ -3,6 +3,7 @@ package com.nuvio.app.core.network
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.ManagedAddon
+import com.nuvio.app.features.addons.ManifestRecoveryEvent
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.catalog.CatalogRepository
 import com.nuvio.app.features.details.MetaDetailsRepository
@@ -87,7 +88,7 @@ internal interface NetworkRecoveryOperations {
         profileId: Int,
         generation: Long,
         forceAll: Boolean,
-        onManifestRecovered: suspend (String) -> Unit,
+        onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
     ): ManifestRecoveryOutcome
     suspend fun refreshCatalogs(
         profileId: Int,
@@ -123,19 +124,28 @@ internal suspend fun runOrderedNetworkRecovery(
 ): NetworkRecoveryRunResult {
     if (!isCurrent()) return NetworkRecoveryRunResult.Discarded
     onPhase(NetworkRecoveryPhase.RestoringAddons, null)
-    val recoveredManifestUrls = linkedSetOf<String>()
+    val admittedManifestUrls = linkedSetOf<String>()
     val manifests = operations.recoverManifests(
         profileId = profileId,
         generation = generation,
         forceAll = forceAllManifests,
-        onManifestRecovered = { manifestUrl ->
+        onManifestEvent = { event ->
             if (isCurrent()) {
-                recoveredManifestUrls += manifestUrl
+                val readyManifestUrls = when (event) {
+                    is ManifestRecoveryEvent.CachedProviderAdmitted -> {
+                        admittedManifestUrls += event.manifestUrl
+                        admittedManifestUrls.toSet()
+                    }
+                    is ManifestRecoveryEvent.MissingProviderRecovered,
+                    is ManifestRecoveryEvent.StaleProviderChanged,
+                    is ManifestRecoveryEvent.ManualForceResult,
+                    -> setOf(event.manifestUrl)
+                }
                 onPhase(NetworkRecoveryPhase.RefreshingCatalogs, null)
                 operations.refreshCatalogs(
                     profileId = profileId,
                     generation = generation,
-                    readyManifestUrls = recoveredManifestUrls.toSet(),
+                    readyManifestUrls = readyManifestUrls,
                 )
             }
         },
@@ -253,13 +263,13 @@ object NetworkRecoveryCoordinator {
             profileId: Int,
             generation: Long,
             forceAll: Boolean,
-            onManifestRecovered: suspend (String) -> Unit,
+            onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
         ): ManifestRecoveryOutcome {
             val result = AddonRepository.recoverEnabledManifests(
                 profileId = profileId,
                 recoveryGeneration = generation,
                 forceAll = forceAll,
-                onManifestRecovered = onManifestRecovered,
+                onManifestEvent = onManifestEvent,
             )
             return ManifestRecoveryOutcome(
                 attemptedUrls = result.attemptedUrls,
@@ -350,7 +360,9 @@ internal class NetworkRecoveryController(
     fun retry(forceAllManifests: Boolean = false) {
         synchronized(transitionLock) {
             forceAllPendingUntilOnline = forceAllPendingUntilOnline || forceAllManifests
-            retryProbeGeneration = requestFreshProbe()
+            if (retryProbeGeneration == null) {
+                retryProbeGeneration = requestFreshProbe()
+            }
         }
     }
 
@@ -375,6 +387,12 @@ internal class NetworkRecoveryController(
         synchronized(transitionLock) {
             reconnected = transitionTracker.onCondition(state.condition)
             shouldCancelRecovery = state.isOfflineLike && _uiState.value.isRecovering
+            if (
+                state.isOfflineLike &&
+                retryProbeGeneration?.let { state.probeGeneration >= it } == true
+            ) {
+                retryProbeGeneration = null
+            }
             if (state.isOnline) {
                 val retryReady = retryProbeGeneration?.let { state.probeGeneration >= it } == true
                 shouldRecover = reconnected || retryReady

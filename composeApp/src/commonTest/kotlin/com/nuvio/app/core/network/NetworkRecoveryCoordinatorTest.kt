@@ -1,6 +1,7 @@
 package com.nuvio.app.core.network
 
 import com.nuvio.app.features.addons.collectManifestRecoveryResults
+import com.nuvio.app.features.addons.ManifestRecoveryEvent
 import com.nuvio.app.features.addons.ManifestRefreshOutcome
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -36,11 +37,11 @@ class NetworkRecoveryCoordinatorTest {
                     profileId: Int,
                     generation: Long,
                     forceAll: Boolean,
-                    onManifestRecovered: suspend (String) -> Unit,
+                    onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
                 ): ManifestRecoveryOutcome {
                     manifestAttempts++
                     if (network != NetworkCondition.Online) offlineRequest.await()
-                    onManifestRecovered("healthy")
+                    onManifestEvent(ManifestRecoveryEvent.CachedProviderAdmitted("healthy"))
                     return ManifestRecoveryOutcome(recoveredUrls = setOf("healthy"))
                 }
 
@@ -82,7 +83,7 @@ class NetworkRecoveryCoordinatorTest {
                     profileId: Int,
                     generation: Long,
                     forceAll: Boolean,
-                    onManifestRecovered: suspend (String) -> Unit,
+                    onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
                 ): ManifestRecoveryOutcome {
                     attempts++
                     hold.await()
@@ -102,6 +103,45 @@ class NetworkRecoveryCoordinatorTest {
             assertEquals(generation, controller.uiState.value.generation)
             hold.complete(Unit)
             withTimeout(5_000L) { controller.uiState.first { it.phase == NetworkRecoveryPhase.Completed } }
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `repeated Reconnect requests share one probe and a failed probe permits another attempt`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var probeRequests = 0
+        val controller = NetworkRecoveryController(
+            scope = scope,
+            activeProfileId = { 1 },
+            requestFreshProbe = { (++probeRequests).toLong() },
+            operations = object : NetworkRecoveryOperations {
+                override suspend fun recoverManifests(
+                    profileId: Int,
+                    generation: Long,
+                    forceAll: Boolean,
+                    onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
+                ) = ManifestRecoveryOutcome()
+
+                override suspend fun refreshCatalogs(
+                    profileId: Int,
+                    generation: Long,
+                    readyManifestUrls: Set<String>?,
+                ) = Unit
+            },
+        )
+
+        try {
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.NoInternet, 0L))
+            controller.retry()
+            controller.retry()
+            controller.retry()
+            assertEquals(1, probeRequests)
+
+            controller.onNetworkState(NetworkStatusUiState(NetworkCondition.NoInternet, 1L))
+            controller.retry()
+            assertEquals(2, probeRequests)
         } finally {
             scope.cancel()
         }
@@ -130,10 +170,10 @@ class NetworkRecoveryCoordinatorTest {
                 profileId: Int,
                 generation: Long,
                 forceAll: Boolean,
-                onManifestRecovered: suspend (String) -> Unit,
+                onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
             ): ManifestRecoveryOutcome {
                 events += "manifests-start:$profileId:$generation:$forceAll"
-                onManifestRecovered("one")
+                onManifestEvent(ManifestRecoveryEvent.CachedProviderAdmitted("one"))
                 events += "manifests-settled"
                 return ManifestRecoveryOutcome(
                     attemptedUrls = setOf("one", "two"),
@@ -195,7 +235,7 @@ class NetworkRecoveryCoordinatorTest {
                         profileId: Int,
                         generation: Long,
                         forceAll: Boolean,
-                        onManifestRecovered: suspend (String) -> Unit,
+                        onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
                     ) = ManifestRecoveryOutcome()
 
                     override suspend fun refreshCatalogs(
@@ -233,7 +273,7 @@ class NetworkRecoveryCoordinatorTest {
                     profileId: Int,
                     generation: Long,
                     forceAll: Boolean,
-                    onManifestRecovered: suspend (String) -> Unit,
+                    onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
                 ) = ManifestRecoveryOutcome()
 
                 override suspend fun refreshCatalogs(
@@ -275,7 +315,7 @@ class NetworkRecoveryCoordinatorTest {
                 profileId: Int,
                 generation: Long,
                 forceAll: Boolean,
-                onManifestRecovered: suspend (String) -> Unit,
+                onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
             ): ManifestRecoveryOutcome {
                 val result = collectManifestRecoveryResults(
                     requests = linkedMapOf(
@@ -283,7 +323,7 @@ class NetworkRecoveryCoordinatorTest {
                         "slow" to slow,
                     ),
                     isCurrent = { true },
-                    onManifestRecovered = onManifestRecovered,
+                    onManifestEvent = onManifestEvent,
                 )
                 return ManifestRecoveryOutcome(
                     attemptedUrls = result.attemptedUrls,
@@ -331,7 +371,7 @@ class NetworkRecoveryCoordinatorTest {
                 profileId: Int,
                 generation: Long,
                 forceAll: Boolean,
-                onManifestRecovered: suspend (String) -> Unit,
+                onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
             ): ManifestRecoveryOutcome {
                 current = false
                 return ManifestRecoveryOutcome(recoveredUrls = setOf("one"))
@@ -491,7 +531,7 @@ class NetworkRecoveryCoordinatorTest {
                     profileId: Int,
                     generation: Long,
                     forceAll: Boolean,
-                    onManifestRecovered: suspend (String) -> Unit,
+                    onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
                 ): ManifestRecoveryOutcome {
                     attempts += profileId to generation
                     forceAllAttempts += forceAll
@@ -500,7 +540,7 @@ class NetworkRecoveryCoordinatorTest {
                     return withContext(NonCancellable) {
                         val fail = hold.await()
                         if (fail) error("late transport failure")
-                        onManifestRecovered("healthy")
+                        onManifestEvent(ManifestRecoveryEvent.CachedProviderAdmitted("healthy"))
                         ManifestRecoveryOutcome(recoveredUrls = setOf("healthy"))
                     }
                 }
@@ -567,10 +607,10 @@ class NetworkRecoveryCoordinatorTest {
                 profileId: Int,
                 generation: Long,
                 forceAll: Boolean,
-                onManifestRecovered: suspend (String) -> Unit,
+                onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
             ): ManifestRecoveryOutcome {
                 events += "manifest-start"
-                onManifestRecovered("missing")
+                onManifestEvent(ManifestRecoveryEvent.MissingProviderRecovered("missing"))
                 events += "manifest-finished"
                 return ManifestRecoveryOutcome(
                     attemptedUrls = setOf("missing"),

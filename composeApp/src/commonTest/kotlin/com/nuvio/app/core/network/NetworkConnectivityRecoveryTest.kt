@@ -81,9 +81,87 @@ class NetworkConnectivityRecoveryTest {
             val restored = withTimeout(1_000) { controller.uiState.first { it.condition == NetworkCondition.Online } }
             assertEquals(2L, restored.probeGeneration)
             assertFalse(restored.isProbing)
+            yield()
+            assertEquals(2, probeCount)
         } finally {
             scope.cancel()
         }
+    }
+
+    @Test
+    fun `availability during an active offline probe queues one fresh probe and one recovery`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val probes = List(3) { CompletableDeferred<NetworkCondition>() }
+        val transitions = NetworkRecoveryTransitionTracker()
+        var probeCount = 0
+        var recoveryCount = 0
+        val controller = NetworkStatusController(
+            scope = scope,
+            probeCondition = { probes[probeCount++].await() },
+            onProbeResult = { _, condition ->
+                if (transitions.onCondition(condition)) recoveryCount += 1
+            },
+        )
+        try {
+            controller.ensureStarted()
+            probes[0].complete(NetworkCondition.NoInternet)
+            withTimeout(1_000) {
+                controller.uiState.first { it.condition == NetworkCondition.NoInternet }
+            }
+
+            controller.requestRefresh(force = true)
+            controller.onNetworkPathEvent(NetworkPathEvent.Available)
+            val repeatedReconnectGenerations = listOf(
+                controller.requestRefresh(force = true),
+                controller.requestRefresh(force = true),
+            )
+
+            assertEquals(listOf(3L, 3L), repeatedReconnectGenerations)
+            assertEquals(2, probeCount)
+
+            probes[1].complete(NetworkCondition.NoInternet)
+            withTimeout(1_000) {
+                while (probeCount < 3) yield()
+            }
+            assertEquals(3, probeCount)
+
+            probes[2].complete(NetworkCondition.Online)
+            withTimeout(1_000) {
+                controller.uiState.first { it.condition == NetworkCondition.Online && !it.isProbing }
+            }
+
+            assertEquals(1, recoveryCount)
+            assertEquals(3L, controller.uiState.value.probeGeneration)
+        } finally {
+            probes.forEach { it.complete(NetworkCondition.NoInternet) }
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `android recovery availability requires validated internet capability`() {
+        assertEquals(
+            NetworkPathEvent.Unavailable,
+            networkPathEventForCapabilities(
+                hasInternetCapability = true,
+                hasValidatedCapability = false,
+            ),
+        )
+        assertEquals(
+            NetworkPathEvent.Available,
+            networkPathEventForCapabilities(
+                hasInternetCapability = true,
+                hasValidatedCapability = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `android default path loss is unavailable even while active capabilities are stale`() {
+        assertEquals(
+            NetworkPathEvent.Unavailable,
+            networkPathEventAfterLoss(),
+        )
     }
 
     @Test

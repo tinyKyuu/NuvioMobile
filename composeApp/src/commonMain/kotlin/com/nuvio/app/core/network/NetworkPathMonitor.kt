@@ -11,6 +11,18 @@ internal enum class NetworkPathEvent {
     Unavailable,
 }
 
+internal fun networkPathEventForCapabilities(
+    hasInternetCapability: Boolean,
+    hasValidatedCapability: Boolean,
+): NetworkPathEvent =
+    if (hasInternetCapability && hasValidatedCapability) {
+        NetworkPathEvent.Available
+    } else {
+        NetworkPathEvent.Unavailable
+    }
+
+internal fun networkPathEventAfterLoss(): NetworkPathEvent = NetworkPathEvent.Unavailable
+
 internal expect object NetworkPathMonitor {
     fun events(): Flow<NetworkPathEvent>
 }

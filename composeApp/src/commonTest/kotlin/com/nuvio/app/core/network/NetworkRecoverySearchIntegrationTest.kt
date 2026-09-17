@@ -1,5 +1,6 @@
 package com.nuvio.app.core.network
 
+import com.nuvio.app.features.addons.ManifestRecoveryEvent
 import com.nuvio.app.features.addons.AddonCatalog
 import com.nuvio.app.features.addons.AddonExtraProperty
 import com.nuvio.app.features.addons.AddonManifest
@@ -173,7 +174,7 @@ class NetworkRecoverySearchIntegrationTest {
                 assertEquals(listOf("b-fresh"), fixture.discoverItems())
                 assertNull(fixture.repository.uiState.value.emptyStateReason)
                 assertNull(fixture.repository.discoverUiState.value.emptyStateReason)
-                assertEquals(listOf(setOf(A_URL), setOf(A_URL, B_URL), null), fixture.passes)
+                assertEquals(listOf(setOf(A_URL), setOf(B_URL), null), fixture.passes)
             } else {
                 assertEquals(SearchEmptyStateReason.RequestFailed, fixture.repository.uiState.value.emptyStateReason)
                 assertEquals(DiscoverEmptyStateReason.RequestFailed, fixture.repository.discoverUiState.value.emptyStateReason)
@@ -231,17 +232,17 @@ class NetworkRecoverySearchIntegrationTest {
                     profileId: Int,
                     generation: Long,
                     forceAll: Boolean,
-                    onManifestRecovered: suspend (String) -> Unit,
+                    onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
                 ): ManifestRecoveryOutcome {
                     addons = addons.map { if (it.manifestUrl == A_URL) it.copy(isRefreshing = false) else it }
-                    onManifestRecovered(A_URL)
+                    onManifestEvent(ManifestRecoveryEvent.CachedProviderAdmitted(A_URL))
                     val success = manifestHold.await()
                     addons = addons.map {
                         if (it.manifestUrl != B_URL) it
                         else if (success) addon("b")
                         else it.copy(isRefreshing = false, errorMessage = "B manifest unavailable")
                     }
-                    if (success) onManifestRecovered(B_URL)
+                    if (success) onManifestEvent(ManifestRecoveryEvent.MissingProviderRecovered(B_URL))
                     return ManifestRecoveryOutcome(
                         recoveredUrls = if (success) setOf(A_URL, B_URL) else setOf(A_URL),
                         failedUrls = if (success) emptySet() else setOf(B_URL),

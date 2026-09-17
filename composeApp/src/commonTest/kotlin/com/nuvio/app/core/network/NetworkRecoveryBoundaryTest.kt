@@ -40,7 +40,7 @@ class NetworkRecoveryBoundaryTest {
                 forceAll = false,
                 isCurrent = { true },
                 startRefresh = { hold },
-                onManifestRecovered = ready::complete,
+                onManifestEvent = { event -> ready.complete(event.manifestUrl) },
             )
         }
 
@@ -255,6 +255,70 @@ class NetworkRecoveryBoundaryTest {
     }
 
     @Test
+    fun `manual force all publishes an unchanged provider before another provider settles`(): Unit = runBlocking {
+        val fixture = Fixture("a")
+        val first = CompletableDeferred<ManifestRefreshOutcome>()
+        val second = CompletableDeferred<ManifestRefreshOutcome>()
+        HomeRepository.clear()
+        try {
+            val attempts = mutableListOf<String>()
+            val run = fixture.scope.async {
+                runOrderedNetworkRecovery(1, 10, true, fixture.operations(
+                    cache = listOf("a", "b").associate { url(it) to CachedAddonManifest("{}", NOW - 1) },
+                    transport = { attempts += it; if (it == url("a")) first else second },
+                ), isCurrent = { true }, onPhase = { _, _ -> })
+            }
+            assertEquals(listOf(url("a"), url("b")), attempts)
+            first.complete(ManifestRefreshOutcome.Unchanged)
+            withTimeout(1_000) {
+                while (fixture.passes.isEmpty()) yield()
+            }
+
+            assertFalse(run.isCompleted)
+            assertEquals(setOf(url("a")), fixture.passes.first())
+
+            second.complete(ManifestRefreshOutcome.Failed)
+            run.await()
+            assertNull(fixture.passes.last())
+        } finally {
+            fixture.scope.cancel()
+            HomeRepository.clear()
+        }
+    }
+
+    @Test
+    fun `changed stale provider reconciles without refetching an unrelated ready provider`(): Unit = runBlocking {
+        val fixture = Fixture("a")
+        HomeRepository.clear()
+        try {
+            val result = runOrderedNetworkRecovery(
+                profileId = 1,
+                generation = 11,
+                forceAllManifests = false,
+                operations = fixture.operations(
+                    cache = mapOf(
+                        url("a") to CachedAddonManifest("{}", NOW - ADDON_MANIFEST_FRESHNESS_MS),
+                        url("b") to CachedAddonManifest("{}", NOW - 1),
+                    ),
+                    transport = { manifestUrl ->
+                        assertEquals(url("a"), manifestUrl)
+                        CompletableDeferred(ManifestRefreshOutcome.Changed)
+                    },
+                ),
+                isCurrent = { true },
+                onPhase = { _, _ -> },
+            )
+
+            assertEquals(NetworkRecoveryRunResult.Completed, result)
+            assertEquals(setOf(url("a")), fixture.passes.dropLast(1).last())
+            assertNull(fixture.passes.last())
+        } finally {
+            fixture.scope.cancel()
+            HomeRepository.clear()
+        }
+    }
+
+    @Test
     fun `empty parsed Search success removes only its catalog while transport failure retains another`(): Unit = runBlocking {
         val fixture = Fixture("a")
         try {
@@ -373,20 +437,26 @@ class NetworkRecoveryBoundaryTest {
             cache: Map<String, CachedAddonManifest>,
             transport: (String) -> Deferred<ManifestRefreshOutcome>,
         ) = object : NetworkRecoveryOperations {
-            override suspend fun recoverManifests(profileId: Int, generation: Long, forceAll: Boolean, onManifestRecovered: suspend (String) -> Unit): ManifestRecoveryOutcome {
+            override suspend fun recoverManifests(profileId: Int, generation: Long, forceAll: Boolean, onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit): ManifestRecoveryOutcome {
                 val result = recoverAddonManifestBatch(
                     addons, cache, NOW, forceAll, isCurrent = { true },
                     startRefresh = { manifestUrl ->
                         addons = addons.map { if (it.manifestUrl == manifestUrl) it.copy(isRefreshing = true) else it }
                         transport(manifestUrl)
                     },
-                    onManifestRecovered = { manifestUrl ->
-                        addons = addons.map { if (it.manifestUrl == manifestUrl) it.copy(isRefreshing = false) else it }
-                        onManifestRecovered(manifestUrl)
+                    onManifestEvent = { event ->
+                        addons = addons.map { if (it.manifestUrl == event.manifestUrl) it.copy(isRefreshing = false) else it }
+                        onManifestEvent(event)
                     },
                 )
                 addons = addons.map { it.copy(isRefreshing = false) }
-                return ManifestRecoveryOutcome(result.attemptedUrls, result.recoveredUrls, result.failedUrls, result.stale)
+                return ManifestRecoveryOutcome(
+                    result.attemptedUrls,
+                    result.recoveredUrls,
+                    result.failedUrls,
+                    result.stale,
+                    result.changedUrls,
+                )
             }
             override suspend fun refreshCatalogs(profileId: Int, generation: Long, readyManifestUrls: Set<String>?) = refresh(readyManifestUrls)
         }

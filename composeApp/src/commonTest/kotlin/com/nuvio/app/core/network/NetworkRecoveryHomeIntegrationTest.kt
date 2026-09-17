@@ -6,6 +6,7 @@ import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.addons.CachedAddonManifest
 import com.nuvio.app.features.addons.collectManifestRecoveryResults
 import com.nuvio.app.features.addons.ManifestRefreshOutcome
+import com.nuvio.app.features.addons.ManifestRecoveryEvent
 import com.nuvio.app.features.addons.selectAddonManifestRefreshUrls
 import com.nuvio.app.features.catalog.CatalogTarget
 import com.nuvio.app.features.home.HomeCatalogDefinition
@@ -55,7 +56,7 @@ class NetworkRecoveryHomeIntegrationTest {
                     profileId: Int,
                     generation: Long,
                     forceAll: Boolean,
-                    onManifestRecovered: suspend (String) -> Unit,
+                    onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
                 ): ManifestRecoveryOutcome {
                     val result = collectManifestRecoveryResults(
                         requests = linkedMapOf(
@@ -63,9 +64,10 @@ class NetworkRecoveryHomeIntegrationTest {
                             slowUrl to slowManifestRequest,
                         ),
                         isCurrent = { true },
-                        onManifestRecovered = { manifestUrl ->
+                        initiallyMissingUrls = setOf(healthyUrl),
+                        onManifestEvent = { event ->
                             addons = addons.map { addon ->
-                                if (addon.manifestUrl == manifestUrl) {
+                                if (addon.manifestUrl == event.manifestUrl) {
                                     addon.copy(
                                         manifest = healthyManifest,
                                         isRefreshing = false,
@@ -74,7 +76,7 @@ class NetworkRecoveryHomeIntegrationTest {
                                     addon
                                 }
                             }
-                            onManifestRecovered(manifestUrl)
+                            onManifestEvent(event)
                         },
                     )
                     addons = addons.map { addon ->
@@ -190,7 +192,7 @@ class NetworkRecoveryHomeIntegrationTest {
                         profileId: Int,
                         generation: Long,
                         forceAll: Boolean,
-                        onManifestRecovered: suspend (String) -> Unit,
+                        onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
                     ): ManifestRecoveryOutcome {
                         val attempted = selectAddonManifestRefreshUrls(addons, freshCache, 1_001L)
                         assertTrue(attempted.isEmpty())

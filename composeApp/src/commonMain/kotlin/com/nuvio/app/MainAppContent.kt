@@ -99,7 +99,7 @@ import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.home.HomeCatalogSection
-import com.nuvio.app.features.home.HomePresentationResetTracker
+import com.nuvio.app.features.home.HomePresentationResetState
 import com.nuvio.app.features.home.homePresentationFor
 import com.nuvio.app.features.home.components.shouldBlurContinueWatchingArtwork
 import com.nuvio.app.features.library.LibraryItem
@@ -341,8 +341,8 @@ internal fun MainAppContent(
     val backOnlineToastTracker = remember(profileState.activeProfile?.profileIndex) {
         BackOnlineToastTracker(networkRecoveryUiState.generation)
     }
-    val homePresentationResetTracker = remember(profileState.activeProfile?.profileIndex) {
-        HomePresentationResetTracker()
+    val homePresentationResetState = remember(profileState.activeProfile?.profileIndex) {
+        HomePresentationResetState()
     }
     var homePresentationResetGeneration by remember(profileState.activeProfile?.profileIndex) {
         mutableStateOf(0L)
@@ -522,8 +522,8 @@ internal fun MainAppContent(
         lastNetworkToastCondition = condition.name
     }
 
-    LaunchedEffect(networkStatusUiState.condition, homePresentationResetTracker) {
-        homePresentationResetGeneration = homePresentationResetTracker.onMode(
+    LaunchedEffect(networkStatusUiState.condition, homePresentationResetState) {
+        homePresentationResetGeneration = homePresentationResetState.onMode(
             homePresentationFor(networkStatusUiState).mode,
         )
     }
@@ -1309,6 +1309,7 @@ internal fun MainAppContent(
                         ),
                         actions = { isTabletLayout ->
                             AppTabActions(
+                                onHomePresentationResetConsumed = homePresentationResetState::consume,
                                 onCatalogClick = onCatalogClick,
                                 onPosterClick = { meta ->
                                     navController.navigate(

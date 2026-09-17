@@ -25,23 +25,33 @@ internal actual object NetworkPathMonitor {
         }
         fun currentEvent(): NetworkPathEvent {
             val capabilities = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
-            return if (capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true) {
-                NetworkPathEvent.Available
-            } else {
-                NetworkPathEvent.Unavailable
-            }
+            return networkPathEventForCapabilities(
+                hasInternetCapability = capabilities?.hasCapability(
+                    NetworkCapabilities.NET_CAPABILITY_INTERNET,
+                ) == true,
+                hasValidatedCapability = capabilities?.hasCapability(
+                    NetworkCapabilities.NET_CAPABILITY_VALIDATED,
+                ) == true,
+            )
         }
         val callback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                trySend(NetworkPathEvent.Available)
-            }
+            override fun onAvailable(network: Network) = Unit
 
             override fun onLost(network: Network) {
-                trySend(currentEvent())
+                trySend(networkPathEventAfterLoss())
             }
 
             override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                trySend(currentEvent())
+                trySend(
+                    networkPathEventForCapabilities(
+                        hasInternetCapability = capabilities.hasCapability(
+                            NetworkCapabilities.NET_CAPABILITY_INTERNET,
+                        ),
+                        hasValidatedCapability = capabilities.hasCapability(
+                            NetworkCapabilities.NET_CAPABILITY_VALIDATED,
+                        ),
+                    ),
+                )
             }
         }
         trySend(currentEvent())

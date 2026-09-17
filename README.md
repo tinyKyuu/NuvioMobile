@@ -42,8 +42,8 @@ Last reviewed on September 17, 2026.
 | Item | Current state |
 | --- | --- |
 | Stable source branch | [`codex/testflight-internal`](https://github.com/tinyKyuu/NuvioMobile/tree/codex/testflight-internal) |
-| Source version | `0.4.12` build `122` |
-| Upstream comparison | Based on NuvioMobile commit [`e68cbb0`](https://github.com/NuvioMedia/NuvioMobile/commit/e68cbb08415c81630f7955b7c1b6ed8d1fdd6e28); selected later fixes are integrated separately |
+| Source version | `0.4.12` build `123` |
+| Upstream comparison | Reviewed through NuvioMobile commit [`95347544`](https://github.com/NuvioMedia/NuvioMobile/commit/95347544858e31d8cf36569a3b154961276ed46e); selected later fixes are integrated separately |
 | Latest upstream release reviewed | [`0.4.22-beta`](https://github.com/NuvioMedia/NuvioMobile/releases/tag/0.4.22-beta) |
 | Public binaries | None |
 | Watch Together | Shared core and an iOS development client are merged; hosted pilot client is still in testing |
@@ -84,9 +84,9 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Durable direct-file downloads that continue while the app is in the background | Downloads | iOS and iPadOS | Merged |
 | Persisted queue state, two active transfer slots, pause and resume, and Wi-Fi-only network policy | Downloads | iOS and iPadOS | Merged |
 | Download the exact direct-file source currently playing without leaving the player | Player | Shared mobile source, iOS tested | Merged |
-| Select and remove several current transfers from Download activity, or completed files from Library > Downloads, without mixing the two sets | Download activity and Library > Downloads | iOS, iPadOS, and Android shared source | [In review](./F08-REVIEW.md) |
+| Select and remove several current transfers from Download activity, or completed files from Library > Downloads, without mixing the two sets | Download activity and Library > Downloads | iOS, iPadOS, and Android shared source | [Merged](https://github.com/tinyKyuu/NuvioMobile/pull/27) |
 | Play completed files offline and export them through the native share sheet | Downloads and Details | iOS and iPadOS | Merged |
-| Browse and manage completed movies, shows, seasons, and episodes from Library > Downloads; keep transfer activity separate from download policy | Library, Download activity, and Settings | iOS, iPadOS, and Android shared source | [In review](./F08-REVIEW.md) |
+| Browse and manage completed movies, shows, seasons, and episodes from Library > Downloads; keep transfer activity separate from download policy | Library, Download activity, and Settings | iOS, iPadOS, and Android shared source | [Merged](https://github.com/tinyKyuu/NuvioMobile/pull/27) |
 
 ### Home
 
@@ -95,7 +95,7 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Offline Home keeps Continue Watching and Downloaded content available while remote catalog rows stay hidden | Home | Shared mobile source, iOS tested | Merged |
 | Compact connection status keeps Reconnect reachable without covering playable local content | Home | Shared mobile source, iOS tested | Merged |
 | Continue Watching can reuse verified local artwork for downloaded titles | Home | Shared mobile source, iOS tested | Merged |
-| Foreground network restoration queues one fresh validated-path probe, then restores affected providers before final Home/Search/Discover reconciliation. Confirmed offline Home stays local-only; manual Reconnect coalesces; a failed force-refresh request expires with its matching probe; per-card refresh is forced and targeted; Home consumes one app-shell reset token per real presentation change. | Home, Search, Discover, Details, and add-on Settings | iOS, iPadOS, and Android shared source; Android emulator and cross-platform builds tested | [In review](./F07-REVIEW.md) |
+| Foreground network restoration revalidates connectivity, restores affected add-ons and catalogs, preserves local offline Home, and coalesces manual reconnect work | Home, Search, Discover, Details, and add-on Settings | iOS, iPadOS, and Android shared source; Android emulator and cross-platform builds tested | [Merged](https://github.com/tinyKyuu/NuvioMobile/pull/26) |
 
 ### Navigation and appearance
 
@@ -109,9 +109,9 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Feature | Where | Platforms | Status |
 | --- | --- | --- | --- |
 | Downloaded movies and series appear in the Library with horizontal shelves or a vertical poster grid | Library | Shared mobile source, iOS tested | Merged |
-| Download posters support Browse and Manage modes, partial/full show selection, exact size totals, contextual play/remove/share actions, and a shared phone/tablet manager | Library > Downloads | iOS, iPadOS, and Android shared source | [In review](./F08-REVIEW.md) |
+| Download posters support Browse and Manage modes, partial/full show selection, exact size totals, contextual play/remove/share actions, and a shared phone/tablet manager | Library > Downloads | iOS, iPadOS, and Android shared source | [Merged](https://github.com/tinyKyuu/NuvioMobile/pull/27) |
 | Local metadata, title artwork, episode artwork, and principal cast images remain available offline | Library and Details | Shared mobile source, iOS tested | Merged |
-| Downloaded episodes remain playable from the normal series details screen, expose an exact-episode removal shortcut, and show `Internet required` when unavailable | Details | Shared mobile source, iOS tested; F08A removal shortcut in review | [In review](./F08-REVIEW.md) |
+| Downloaded episodes remain playable from the normal series details screen, expose an exact-episode removal shortcut, and show `Internet required` when unavailable | Details | Shared mobile source, iOS tested | [Merged](https://github.com/tinyKyuu/NuvioMobile/pull/27) |
 
 ### Player
 
@@ -232,7 +232,7 @@ env NUVIO_IOS_DISTRIBUTION=full xcodebuild \
 
 The existing archive workflow produces an internal-only TestFlight export. It
 cannot be promoted to external TestFlight testing or released on the App Store.
-See [Internal TestFlight notes](./IOS_INTERNAL_TESTFLIGHT.md) for the current
+See [Internal TestFlight notes](./Docs/distribution/ios-internal-testflight.md) for the current
 archive checks and local signing setup.
 
 ## Reporting problems

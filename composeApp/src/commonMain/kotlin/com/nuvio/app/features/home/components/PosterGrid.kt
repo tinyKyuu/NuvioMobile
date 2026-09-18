@@ -14,10 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +36,7 @@ import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import com.nuvio.app.core.ui.NuvioPosterAvailability
 import com.nuvio.app.core.ui.NuvioPosterAvailabilityOverlay
+import com.nuvio.app.core.ui.NuvioPosterMenuOverlay
 import com.nuvio.app.core.ui.NuvioPosterSelectionState
 import com.nuvio.app.core.ui.NuvioPosterSelectionOverlay
 import com.nuvio.app.core.ui.NuvioPosterWatchedOverlay
@@ -206,19 +203,10 @@ private fun PosterGridTile(
             NuvioPosterWatchedOverlay(isWatched = isWatched)
             NuvioPosterAvailabilityOverlay(availability = availability)
             if (onMenuClick != null) {
-                IconButton(
+                NuvioPosterMenuOverlay(
                     onClick = onMenuClick,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .clip(MaterialTheme.nuvio.shapes.avatar)
-                        .background(MaterialTheme.nuvio.colors.overlayScrim),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = menuContentDescription,
-                        tint = MaterialTheme.nuvio.colors.textPrimary,
-                    )
-                }
+                    contentDescription = menuContentDescription,
+                )
             }
             NuvioPosterSelectionOverlay(state = selectionState)
         }

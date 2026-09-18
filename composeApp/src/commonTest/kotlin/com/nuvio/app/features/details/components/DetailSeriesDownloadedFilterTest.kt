@@ -1,5 +1,6 @@
 package com.nuvio.app.features.details.components
 
+import androidx.compose.ui.unit.dp
 import com.nuvio.app.features.details.MetaVideo
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -57,6 +58,12 @@ class DetailSeriesDownloadedFilterTest {
     fun `season selector stays visible when filtering leaves one of several seasons`() {
         assertTrue(shouldKeepSeasonSelector(allSeasonCount = 4))
         assertFalse(shouldKeepSeasonSelector(allSeasonCount = 1))
+    }
+
+    @Test
+    fun `season label padding aligns the first chip text with its heading`() {
+        assertEquals(20.dp, seasonSelectorStartPadding(40.dp, 20.dp))
+        assertEquals(0.dp, seasonSelectorStartPadding(16.dp, 20.dp))
     }
 
     private fun episode(season: Int, episode: Int) = MetaVideo(

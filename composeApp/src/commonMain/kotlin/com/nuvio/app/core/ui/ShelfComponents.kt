@@ -249,7 +249,6 @@ fun NuvioPosterCard(
                 )
             }
 
-            NuvioPosterSelectionOverlay(state = selectionState, scale = overlayScale)
         }
         if (shouldShowTitleBelow) {
             Text(

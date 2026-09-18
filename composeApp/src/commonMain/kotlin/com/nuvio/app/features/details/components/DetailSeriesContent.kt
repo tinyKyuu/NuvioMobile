@@ -251,8 +251,7 @@ fun DetailSeriesContent(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -261,7 +260,6 @@ fun DetailSeriesContent(
                             } else {
                                 stringResource(Res.string.details_seasons)
                             },
-                            modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontSize = sizing.seasonHeaderSize,
                                 fontWeight = FontWeight.SemiBold,
@@ -445,18 +443,13 @@ private fun EpisodeAvailabilityControl(
                 value = downloadedOnly,
                 role = Role.Switch,
                 onValueChange = onDownloadedOnlyChanged,
-            ),
+            )
+            .padding(NuvioTokens.Space.s2),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         EpisodeAvailabilitySegment(
             label = allLabel,
             selected = !downloadedOnly,
-        )
-        Box(
-            modifier = Modifier
-                .width(tokens.borders.thin)
-                .height(NuvioTokens.Space.s20)
-                .background(tokens.colors.borderSubtle),
         )
         EpisodeAvailabilitySegment(
             label = downloadedLabel,
@@ -473,10 +466,11 @@ private fun EpisodeAvailabilitySegment(
     val tokens = MaterialTheme.nuvio
     Box(
         modifier = Modifier
+            .clip(tokens.shapes.chip)
             .background(
                 if (selected) tokens.colors.overlaySelected else Color.Transparent,
             )
-            .padding(horizontal = NuvioTokens.Space.s10, vertical = NuvioTokens.Space.s8),
+            .padding(horizontal = NuvioTokens.Space.s8, vertical = NuvioTokens.Space.s4),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -519,7 +513,13 @@ private fun SeasonTextChipScrollRow(
         modifier = Modifier
             .nuvioHorizontalScrollBleed(horizontalScrollPadding)
             .fillMaxWidth(),
-        contentPadding = PaddingValues(horizontal = horizontalScrollPadding),
+        contentPadding = PaddingValues(
+            start = seasonSelectorStartPadding(
+                horizontalScrollPadding = horizontalScrollPadding,
+                chipHorizontalPadding = sizing.seasonChipHorizontalPadding,
+            ),
+            end = horizontalScrollPadding,
+        ),
         horizontalArrangement = Arrangement.spacedBy(sizing.seasonChipGap),
     ) {
         items(seasons, key = { season -> season }) { season ->
@@ -1595,6 +1595,11 @@ internal fun shouldOfferDownloadedOnlyFilter(
     allEpisodes.values.sumOf(List<MetaVideo>::size)
 
 internal fun shouldKeepSeasonSelector(allSeasonCount: Int): Boolean = allSeasonCount > 1
+
+internal fun seasonSelectorStartPadding(
+    horizontalScrollPadding: Dp,
+    chipHorizontalPadding: Dp,
+): Dp = (horizontalScrollPadding - chipHorizontalPadding).coerceAtLeast(0.dp)
 
 internal fun MetaVideo.seasonEpisodeKey(): Pair<Int, Int>? {
     val seasonNumber = season ?: return null

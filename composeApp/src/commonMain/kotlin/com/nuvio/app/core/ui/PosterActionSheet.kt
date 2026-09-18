@@ -4,8 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -19,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.Icon
@@ -34,6 +31,7 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -98,39 +96,6 @@ fun BoxScope.NuvioPosterWatchedOverlay(
             .padding(scale.overlayPadding),
     ) {
         NuvioWatchedBadge(size = scale.statusBadgeSize)
-    }
-}
-
-/**
- * Draws the standard poster selection mark in the corner opposite the watched
- * badge and the poster menu. The solid accent keeps the on-accent icon
- * predictable across every theme, while the dark edge separates bright
- * accents from light artwork.
- */
-@Composable
-fun BoxScope.NuvioPosterSelectionOverlay(
-    state: NuvioPosterSelectionState,
-    modifier: Modifier = Modifier,
-    scale: NuvioPosterOverlayScale = NuvioPosterOverlayScale.Regular,
-) {
-    AnimatedVisibility(
-        visible = state != NuvioPosterSelectionState.None,
-        enter = fadeIn() + scaleIn(initialScale = 0.82f),
-        exit = fadeOut() + scaleOut(targetScale = 0.82f),
-        modifier = modifier
-            .align(Alignment.BottomEnd)
-            .padding(scale.overlayPadding),
-    ) {
-        NuvioMediaBadge(
-            imageVector = if (state == NuvioPosterSelectionState.Full) {
-                Icons.Default.Check
-            } else {
-                Icons.Default.Remove
-            },
-            contentDescription = null,
-            tone = NuvioMediaBadgeTone.Accent,
-            size = scale.statusBadgeSize,
-        )
     }
 }
 
@@ -372,7 +337,16 @@ fun Modifier.nuvioPosterStateOutline(
     cornerRadius: Dp,
 ): Modifier {
     val tokens = MaterialTheme.nuvio
-    val selectionColor = tokens.colors.borderSelected
+    val selectionColor = when (selectionState) {
+        NuvioPosterSelectionState.Full -> tokens.colors.borderSelected
+        NuvioPosterSelectionState.Partial -> tokens.colors.borderSelected.copy(alpha = 0.62f)
+        NuvioPosterSelectionState.None -> Color.Transparent
+    }
+    val selectionWashColor = when (selectionState) {
+        NuvioPosterSelectionState.Full -> tokens.colors.accent.copy(alpha = 0.18f)
+        NuvioPosterSelectionState.Partial -> tokens.colors.accent.copy(alpha = 0.09f)
+        NuvioPosterSelectionState.None -> Color.Transparent
+    }
     val selectionSeparatorColor = tokens.colors.overlayScrim
     val focusColor = tokens.colors.borderFocus
     val selectionStroke = tokens.borders.medium
@@ -390,6 +364,11 @@ fun Modifier.nuvioPosterStateOutline(
         onDrawWithContent {
             drawContent()
             if (selectionState != NuvioPosterSelectionState.None) {
+                drawRoundRect(
+                    color = selectionWashColor,
+                    size = size,
+                    cornerRadius = CornerRadius(radiusPx, radiusPx),
+                )
                 val separatorInset = separatorStrokePx / 2f
                 drawRoundRect(
                     color = selectionSeparatorColor,

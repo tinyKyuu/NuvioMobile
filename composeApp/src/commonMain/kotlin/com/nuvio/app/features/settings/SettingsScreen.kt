@@ -387,6 +387,7 @@ fun SettingsScreen(
                 onPageChange = ::openPage,
                 onNavigateBack = ::navigateBack,
                 showInternalHeader = showInternalHeader,
+                hideBackWhenNativeNavigationVisible = onNavigatePage != null,
                 showLoadingOverlay = playerSettingsUiState.showLoadingOverlay,
                 holdToSpeedEnabled = playerSettingsUiState.holdToSpeedEnabled,
                 holdToSpeedValue = playerSettingsUiState.holdToSpeedValue,
@@ -889,6 +890,7 @@ private fun TabletSettingsScreen(
     onPageChange: (SettingsPage) -> Unit,
     onNavigateBack: () -> Unit,
     showInternalHeader: Boolean,
+    hideBackWhenNativeNavigationVisible: Boolean,
     showLoadingOverlay: Boolean,
     holdToSpeedEnabled: Boolean,
     holdToSpeedValue: Float,
@@ -1088,6 +1090,7 @@ private fun TabletSettingsScreen(
                             },
                             showBack = previousPage != null,
                             onBack = onNavigateBack,
+                            hideBackWhenNativeNavigationVisible = hideBackWhenNativeNavigationVisible,
                         )
                     }
                 }

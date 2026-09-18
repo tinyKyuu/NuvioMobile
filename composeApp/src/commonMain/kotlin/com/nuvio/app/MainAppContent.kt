@@ -1575,11 +1575,6 @@ internal fun MainAppContent(
                             route = route,
                             navController = navController,
                             onOpenDownload = ::openDownloadedDetails,
-                            onManageCompletedDownloads = {
-                                activateTab(AppScreenTab.Library)
-                                openLibraryDownloadsRequest += 1
-                                navController.popBackStack(expectedRoute = route)
-                            },
                         )
                     }
                 }
@@ -1588,11 +1583,6 @@ internal fun MainAppContent(
                         route = route,
                         navController = navController,
                         onOpenDownload = ::openDownloadedDetails,
-                        onManageCompletedDownloads = {
-                            activateTab(AppScreenTab.Library)
-                            openLibraryDownloadsRequest += 1
-                            navController.popBackStack(expectedRoute = route)
-                        },
                     )
                 }
                 entry<DownloadShowRoute> { route ->

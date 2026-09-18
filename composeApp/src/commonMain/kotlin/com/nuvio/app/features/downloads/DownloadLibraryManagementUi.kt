@@ -404,6 +404,12 @@ private fun DownloadManagerBarActions(
                 onClick = onRemove,
                 colors = ButtonDefaults.textButtonColors(contentColor = ThemeColors.Crimson.secondary),
             ) {
+                Icon(
+                    imageVector = Icons.Default.DeleteOutline,
+                    contentDescription = null,
+                    modifier = Modifier.size(NuvioTokens.Icon.sm),
+                )
+                Spacer(Modifier.size(NuvioTokens.Space.s4))
                 Text(
                     stringResource(Res.string.downloads_remove_selected_count, summary.fileCount),
                     maxLines = 1,

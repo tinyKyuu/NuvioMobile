@@ -84,7 +84,6 @@ enum class DownloadsScreenMode {
 fun DownloadsScreen(
     onBack: () -> Unit,
     onOpenDownload: (DownloadItem) -> Unit,
-    onManageCompletedDownloads: (() -> Unit)? = null,
     initialShowId: String? = null,
     onNavigateToShow: ((showId: String, title: String) -> Unit)? = null,
     onBackFromShow: (() -> Unit)? = null,
@@ -279,7 +278,6 @@ fun DownloadsScreen(
                             NuvioToastController.show(exportFailedText)
                         }
                     },
-                    onManageCompletedDownloads = onManageCompletedDownloads,
                     activityPolicyExpanded = activityPolicyExpanded,
                     onActivityPolicyExpandedChanged = { activityPolicyExpanded = it },
                     mode = mode,
@@ -434,7 +432,6 @@ private fun LazyListScope.downloadsRootContent(
     onEnterSelection: (Collection<String>) -> Unit,
     onToggleSelection: (Collection<String>) -> Unit,
     onExportDownload: (DownloadItem) -> Unit,
-    onManageCompletedDownloads: (() -> Unit)?,
     activityPolicyExpanded: Boolean,
     onActivityPolicyExpandedChanged: (Boolean) -> Unit,
     mode: DownloadsScreenMode,
@@ -449,7 +446,6 @@ private fun LazyListScope.downloadsRootContent(
                 items = uiState.items,
                 policy = networkPolicy,
                 onPolicyChanged = onNetworkPolicyChanged,
-                onManageCompletedDownloads = onManageCompletedDownloads,
                 expanded = true,
             )
         }
@@ -472,7 +468,6 @@ private fun LazyListScope.downloadsRootContent(
                 items = uiState.items,
                 policy = networkPolicy,
                 onPolicyChanged = onNetworkPolicyChanged,
-                onManageCompletedDownloads = onManageCompletedDownloads,
                 collapsible = true,
                 expanded = activityPolicyExpanded,
                 onExpandedChanged = onActivityPolicyExpandedChanged,
@@ -1134,7 +1129,6 @@ private fun DownloadsManagementCard(
     items: List<DownloadItem>,
     policy: DownloadNetworkPolicy,
     onPolicyChanged: (DownloadNetworkPolicy) -> Unit,
-    onManageCompletedDownloads: (() -> Unit)? = null,
     collapsible: Boolean = false,
     expanded: Boolean = true,
     onExpandedChanged: (Boolean) -> Unit = {},
@@ -1209,14 +1203,6 @@ private fun DownloadsManagementCard(
                 )
             }
             if (expanded) {
-                if (onManageCompletedDownloads != null) {
-                    TextButton(
-                        onClick = onManageCompletedDownloads,
-                        modifier = Modifier.align(Alignment.End),
-                    ) {
-                        Text(stringResource(Res.string.downloads_manage_storage))
-                    }
-                }
                 DownloadPolicySwitch(
                     title = stringResource(Res.string.downloads_network_wifi_only),
                     description = stringResource(Res.string.downloads_network_wifi_only_description),

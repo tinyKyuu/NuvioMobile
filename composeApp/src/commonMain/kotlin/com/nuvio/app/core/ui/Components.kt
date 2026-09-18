@@ -452,6 +452,7 @@ fun NuvioQuietActionButton(
     icon: ImageVector? = null,
     contentDescription: String? = label,
     enabled: Boolean = true,
+    contentColor: Color? = null,
 ) {
     require(label != null || icon != null)
     val tokens = MaterialTheme.nuvio
@@ -465,7 +466,7 @@ fun NuvioQuietActionButton(
         shape = tokens.shapes.chip,
         colors = ButtonDefaults.textButtonColors(
             containerColor = tokens.colors.overlayHover,
-            contentColor = tokens.colors.textPrimary,
+            contentColor = contentColor ?: tokens.colors.textPrimary,
             disabledContainerColor = tokens.colors.overlayHover.copy(alpha = tokens.opacity.disabled),
             disabledContentColor = tokens.colors.textDisabled,
         ),
@@ -501,8 +502,13 @@ fun NuvioBackButton(
     buttonSize: Dp = NuvioTokens.Space.s40,
     iconSize: Dp = NuvioTokens.Icon.md,
     contentDescription: String = stringResource(Res.string.action_back),
+    hideWhenNativeNavigationVisible: Boolean = true,
 ) {
-    if (LocalUseNativeNavigation.current && !LocalNativeNavigationBarHidden.current) return
+    if (
+        hideWhenNativeNavigationVisible &&
+        LocalUseNativeNavigation.current &&
+        !LocalNativeNavigationBarHidden.current
+    ) return
 
     Box(
         modifier = modifier

@@ -1203,13 +1203,14 @@ private fun LibraryHeaderActions(
                         hasDownloadedItems = hasDownloadedItems,
                     )
                     Box(
-                        modifier = Modifier.width(64.dp),
+                        modifier = Modifier.width(76.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         if (presentation.label == LibraryManageActionLabel.Close) {
                             NuvioQuietActionButton(
                                 icon = Icons.Rounded.Close,
                                 contentDescription = stringResource(Res.string.downloads_exit_selection),
+                                contentColor = mutedColor,
                                 onClick = {
                                     onManagementStateChange(
                                         reduceDownloadLibraryManagement(
@@ -1223,6 +1224,7 @@ private fun LibraryHeaderActions(
                             NuvioQuietActionButton(
                                 label = stringResource(Res.string.downloads_select),
                                 enabled = presentation.enabled,
+                                contentColor = mutedColor,
                                 onClick = {
                                     onManagementStateChange(
                                         reduceDownloadLibraryManagement(

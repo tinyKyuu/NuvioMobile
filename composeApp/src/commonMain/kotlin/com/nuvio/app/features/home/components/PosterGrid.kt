@@ -39,7 +39,6 @@ import com.nuvio.app.core.ui.NuvioPosterAvailability
 import com.nuvio.app.core.ui.NuvioPosterAvailabilityOverlay
 import com.nuvio.app.core.ui.NuvioPosterMenuOverlay
 import com.nuvio.app.core.ui.NuvioPosterSelectionState
-import com.nuvio.app.core.ui.NuvioPosterSelectionOverlay
 import com.nuvio.app.core.ui.NuvioPosterWatchedOverlay
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvioCardDepth
@@ -219,7 +218,6 @@ private fun PosterGridTile(
                     scale = overlayScale,
                 )
             }
-            NuvioPosterSelectionOverlay(state = selectionState, scale = overlayScale)
         }
         if (!hideLabels) {
             Text(

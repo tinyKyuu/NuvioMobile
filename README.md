@@ -93,7 +93,7 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Feature | Where | Platforms | Status |
 | --- | --- | --- | --- |
 | Offline Home keeps Continue Watching and Downloaded content available while remote catalog rows stay hidden | Home | Shared mobile source, iOS tested | Merged |
-| Compact connection status keeps Reconnect reachable without covering playable local content | Home | Shared mobile source, iOS tested | Merged |
+| Header-integrated connection status keeps one finite Reconnect session visible without covering playable local content | Home, Search, and Library | Shared mobile source; iPhone and iPad simulators tested | [In review](https://github.com/tinyKyuu/NuvioMobile/pull/32) |
 | Continue Watching can reuse verified local artwork for downloaded titles | Home | Shared mobile source, iOS tested | Merged |
 | Foreground network restoration revalidates connectivity, restores affected add-ons and catalogs, preserves local offline Home, and coalesces manual reconnect work | Home, Search, Discover, Details, and add-on Settings | iOS, iPadOS, and Android shared source; Android emulator and cross-platform builds tested | [Merged](https://github.com/tinyKyuu/NuvioMobile/pull/26) |
 

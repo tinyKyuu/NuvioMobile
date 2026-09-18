@@ -1911,7 +1911,7 @@
     <string name="library_empty_message">Saved titles will appear here after you tap Save on a details screen.</string>
     <string name="library_empty_title">Your library is empty</string>
     <string name="library_filter_empty_title">No matching titles</string>
-    <string name="library_filter_empty_message">Try another watched or type filter.</string>
+    <string name="library_filter_empty_message">Try another watch status, type, or genre filter.</string>
     <string name="library_filter_all_types">All types</string>
     <string name="library_filter_list">Select list</string>
     <string name="library_filter_sort">Sort library</string>

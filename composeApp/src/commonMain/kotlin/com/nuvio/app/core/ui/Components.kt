@@ -11,6 +11,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,11 +57,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -459,17 +463,22 @@ fun NuvioQuietActionButton(
     val tokens = MaterialTheme.nuvio
     val iconOnly = label == null
     val destructiveColor = ThemeColors.Crimson.secondary
-    val containerColor = when (tone) {
-        NuvioQuietActionTone.Neutral -> tokens.colors.overlayHover
-        NuvioQuietActionTone.Destructive -> destructiveColor.copy(alpha = tokens.opacity.selected)
+    val selected = style == NuvioQuietActionStyle.Selected
+    val containerColor = when {
+        selected && tone == NuvioQuietActionTone.Neutral -> MaterialTheme.colorScheme.primaryContainer
+        tone == NuvioQuietActionTone.Neutral -> tokens.colors.overlayHover
+        else -> destructiveColor.copy(alpha = tokens.opacity.selected)
     }
-    val contentColor = when (tone) {
-        NuvioQuietActionTone.Neutral -> tokens.colors.textSecondary
-        NuvioQuietActionTone.Destructive -> destructiveColor
+    val contentColor = when {
+        selected && tone == NuvioQuietActionTone.Neutral -> MaterialTheme.colorScheme.onPrimaryContainer
+        tone == NuvioQuietActionTone.Neutral -> tokens.colors.textSecondary
+        else -> destructiveColor
     }
-    val borderColor = when (tone) {
-        NuvioQuietActionTone.Neutral -> tokens.colors.borderStrong
-        NuvioQuietActionTone.Destructive -> destructiveColor.copy(alpha = tokens.opacity.medium)
+    val borderColor = when {
+        selected && tone == NuvioQuietActionTone.Neutral ->
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+        tone == NuvioQuietActionTone.Neutral -> tokens.colors.borderStrong
+        else -> destructiveColor.copy(alpha = tokens.opacity.medium)
     }.let { color ->
         if (enabled) color else color.copy(alpha = color.alpha * tokens.opacity.disabled)
     }
@@ -479,65 +488,72 @@ fun NuvioQuietActionButton(
         containerColor.copy(alpha = containerColor.alpha * tokens.opacity.disabled)
     }
     val resolvedContentColor = if (enabled) contentColor else tokens.colors.textDisabled
-    val border = if (style == NuvioQuietActionStyle.Outlined) {
+    val border = if (style == NuvioQuietActionStyle.Outlined || selected) {
         BorderStroke(tokens.borders.thin, borderColor)
     } else {
         null
     }
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val visibleContainerColor = if (enabled && isPressed) {
+        tokens.colors.overlayPressed.compositeOver(resolvedContainerColor)
+    } else {
+        resolvedContainerColor
+    }
+    Box(
         modifier = modifier.then(
             if (iconOnly) {
                 Modifier.size(NuvioTokens.Space.s40 + NuvioTokens.Space.s4)
             } else {
                 Modifier.height(NuvioTokens.Space.s40 + NuvioTokens.Space.s4)
             },
+        ).clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            enabled = enabled,
+            role = Role.Button,
+            onClick = onClick,
         ),
-        shape = tokens.shapes.chip,
-        color = Color.Transparent,
-        contentColor = resolvedContentColor,
+        contentAlignment = Alignment.Center,
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Surface(
+        Surface(
+            modifier = if (iconOnly) {
+                Modifier.size(NuvioTokens.Space.s32)
+            } else {
+                Modifier.height(NuvioTokens.Space.s32)
+            },
+            shape = tokens.shapes.chip,
+            color = visibleContainerColor,
+            contentColor = resolvedContentColor,
+            border = border,
+        ) {
+            Row(
                 modifier = if (iconOnly) {
-                    Modifier.size(NuvioTokens.Space.s32)
+                    Modifier.fillMaxSize()
                 } else {
-                    Modifier.height(NuvioTokens.Space.s32)
+                    Modifier.padding(horizontal = NuvioTokens.Space.s10)
                 },
-                shape = tokens.shapes.chip,
-                color = resolvedContainerColor,
-                contentColor = resolvedContentColor,
-                border = border,
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = if (iconOnly) {
-                        Modifier.fillMaxSize()
-                    } else {
-                        Modifier.padding(horizontal = NuvioTokens.Space.s10)
-                    },
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (icon != null) {
-                        Icon(
-                            imageVector = icon,
-                            contentDescription = contentDescription,
-                            modifier = Modifier.size(
-                                if (iconOnly) NuvioTokens.Icon.md else NuvioTokens.Icon.sm,
-                            ),
-                        )
-                    }
-                    if (icon != null && label != null) {
-                        Spacer(Modifier.width(NuvioTokens.Space.s6))
-                    }
-                    if (label != null) {
-                        Text(
-                            text = label,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                        )
-                    }
+                if (icon != null) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = contentDescription,
+                        modifier = Modifier.size(
+                            if (iconOnly) NuvioTokens.Icon.md else NuvioTokens.Icon.sm,
+                        ),
+                    )
+                }
+                if (icon != null && label != null) {
+                    Spacer(Modifier.width(NuvioTokens.Space.s6))
+                }
+                if (label != null) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                    )
                 }
             }
         }
@@ -552,6 +568,7 @@ enum class NuvioQuietActionTone {
 enum class NuvioQuietActionStyle {
     Compact,
     Outlined,
+    Selected,
 }
 
 @Composable

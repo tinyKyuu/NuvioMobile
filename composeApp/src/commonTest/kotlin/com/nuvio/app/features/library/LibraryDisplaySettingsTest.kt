@@ -336,6 +336,84 @@ class LibraryDisplaySettingsTest {
         )
     }
 
+    @Test
+    fun `available genres are normalized deduplicated and sorted`() {
+        val sections = listOf(
+            LibrarySection(
+                type = "movie",
+                displayTitle = "Movies",
+                items = listOf(
+                    item("movie").copy(genres = listOf(" Drama ", "Action", "")),
+                ),
+            ),
+            LibrarySection(
+                type = "series",
+                displayTitle = "Series",
+                items = listOf(
+                    item("series", type = "series").copy(genres = listOf("action", "Comedy")),
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                LibraryGenreOption(key = "action", label = "Action"),
+                LibraryGenreOption(key = "comedy", label = "Comedy"),
+                LibraryGenreOption(key = "drama", label = "Drama"),
+            ),
+            availableLibraryGenreOptions(sections),
+        )
+    }
+
+    @Test
+    fun `genre filter preserves section and item order while dropping empty sections`() {
+        val sections = listOf(
+            LibrarySection(
+                type = "movie",
+                displayTitle = "Movies",
+                items = listOf(
+                    item("movie-drama").copy(genres = listOf("Drama")),
+                    item("movie-comedy").copy(genres = listOf("Comedy")),
+                ),
+            ),
+            LibrarySection(
+                type = "series",
+                displayTitle = "Series",
+                items = listOf(
+                    item("series-drama", type = "series").copy(genres = listOf("Crime", "drama")),
+                ),
+            ),
+            LibrarySection(
+                type = "documentary",
+                displayTitle = "Documentaries",
+                items = listOf(item("documentary").copy(genres = listOf("Documentary"))),
+            ),
+        )
+
+        val filtered = filterLibrarySectionsByGenre(sections, selectedGenreKey = "DRAMA")
+
+        assertEquals(listOf("movie", "series"), filtered.map { section -> section.type })
+        assertEquals(
+            listOf("movie-drama", "series-drama"),
+            filtered.flatMap(LibrarySection::items).map { item -> item.id },
+        )
+    }
+
+    @Test
+    fun `genre selection temporarily falls back when the current scope lacks it`() {
+        val allTitleGenres = listOf(
+            LibraryGenreOption(key = "action", label = "Action"),
+            LibraryGenreOption(key = "drama", label = "Drama"),
+        )
+        val downloadedGenres = listOf(
+            LibraryGenreOption(key = "action", label = "Action"),
+        )
+
+        assertEquals("drama", effectiveLibraryGenreSelection(" Drama ", allTitleGenres))
+        assertEquals(null, effectiveLibraryGenreSelection("drama", downloadedGenres))
+        assertEquals("drama", effectiveLibraryGenreSelection("drama", allTitleGenres))
+    }
+
     private fun item(
         id: String,
         type: String = "movie",

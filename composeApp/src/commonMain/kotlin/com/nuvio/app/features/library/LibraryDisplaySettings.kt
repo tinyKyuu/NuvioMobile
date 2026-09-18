@@ -91,6 +91,11 @@ internal data class LibraryVerticalEntry(
     val section: LibrarySection,
 )
 
+internal data class LibraryGenreOption(
+    val key: String,
+    val label: String,
+)
+
 internal data class LibraryVerticalProjection(
     val availableSections: List<LibrarySection>,
     val selectedSectionKey: String?,
@@ -173,6 +178,49 @@ internal fun filterLibrarySectionsByWatchedState(
                 fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
             )
             isWatched == keepWatched
+        }
+        section.copy(items = items).takeIf { items.isNotEmpty() }
+    }
+}
+
+internal fun availableLibraryGenreOptions(
+    sections: List<LibrarySection>,
+): List<LibraryGenreOption> {
+    val labelsByKey = linkedMapOf<String, String>()
+    sections.forEach { section ->
+        section.items.forEach { item ->
+            item.genres.forEach { genre ->
+                val label = genre.trim()
+                val key = label.lowercase()
+                if (key.isNotBlank() && key !in labelsByKey) {
+                    labelsByKey[key] = label
+                }
+            }
+        }
+    }
+    return labelsByKey
+        .map { (key, label) -> LibraryGenreOption(key = key, label = label) }
+        .sortedBy { option -> option.label.lowercase() }
+}
+
+internal fun effectiveLibraryGenreSelection(
+    selectedGenreKey: String?,
+    availableGenres: List<LibraryGenreOption>,
+): String? {
+    val normalizedKey = selectedGenreKey?.trim()?.lowercase()?.takeIf(String::isNotBlank)
+        ?: return null
+    return normalizedKey.takeIf { key -> availableGenres.any { option -> option.key == key } }
+}
+
+internal fun filterLibrarySectionsByGenre(
+    sections: List<LibrarySection>,
+    selectedGenreKey: String?,
+): List<LibrarySection> {
+    val normalizedKey = selectedGenreKey?.trim()?.lowercase()?.takeIf(String::isNotBlank)
+        ?: return sections
+    return sections.mapNotNull { section ->
+        val items = section.items.filter { item ->
+            item.genres.any { genre -> genre.trim().lowercase() == normalizedKey }
         }
         section.copy(items = items).takeIf { items.isNotEmpty() }
     }

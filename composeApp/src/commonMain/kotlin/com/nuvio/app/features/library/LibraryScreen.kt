@@ -83,6 +83,7 @@ import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioPosterAvailability
 import com.nuvio.app.core.ui.NuvioPosterSelectionState
 import com.nuvio.app.core.ui.NuvioQuietActionButton
+import com.nuvio.app.core.ui.NuvioQuietActionStyle
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.NuvioViewAllPillSize
@@ -192,6 +193,7 @@ fun LibraryScreen(
     var selectedCloudItemKey by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedLibrarySectionKey by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedLibraryType by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedLibraryGenreKey by rememberSaveable { mutableStateOf<String?>(null) }
     var downloadManagementState by rememberSaveable(
         stateSaver = DownloadLibraryManagementStateSaver,
     ) { mutableStateOf(DownloadLibraryManagementState()) }
@@ -243,7 +245,16 @@ fun LibraryScreen(
         LibraryViewMode.Downloaded -> downloadedSections
         LibraryViewMode.Cloud -> emptyList()
     }
-    val filteredTitleSections = remember(
+    val availableGenreOptions = remember(unfilteredTitleSections) {
+        availableLibraryGenreOptions(unfilteredTitleSections)
+    }
+    val effectiveGenreKey = remember(selectedLibraryGenreKey, availableGenreOptions) {
+        effectiveLibraryGenreSelection(
+            selectedGenreKey = selectedLibraryGenreKey,
+            availableGenres = availableGenreOptions,
+        )
+    }
+    val watchedFilteredTitleSections = remember(
         unfilteredTitleSections,
         displaySettings.watchedFilter,
         watchedUiState.watchedKeys,
@@ -254,6 +265,12 @@ fun LibraryScreen(
             filter = displaySettings.watchedFilter,
             watchedKeys = watchedUiState.watchedKeys,
             fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+        )
+    }
+    val filteredTitleSections = remember(watchedFilteredTitleSections, effectiveGenreKey) {
+        filterLibrarySectionsByGenre(
+            sections = watchedFilteredTitleSections,
+            selectedGenreKey = effectiveGenreKey,
         )
     }
     val effectiveSortOption = effectiveLibrarySortOption(
@@ -502,30 +519,30 @@ fun LibraryScreen(
                 }
             }
 
-            if (sourceMode == LibraryViewMode.Downloaded) {
-                if (downloadedItems.isNotEmpty()) {
-                    item(
-                        key = "library-downloaded-controls:${displaySettings.layoutMode}:" +
-                            "$effectiveSortOption:${displaySettings.watchedFilter}",
-                    ) {
-                        LibrarySavedControls(
-                            layoutMode = displaySettings.layoutMode,
-                            sourceMode = titleSourceMode,
-                            sortOption = effectiveSortOption,
-                            watchedFilter = displaySettings.watchedFilter,
-                            verticalProjection = verticalProjection,
-                            onSectionSelected = { sectionKey ->
-                                selectedLibrarySectionKey = sectionKey
-                                selectedLibraryType = null
-                            },
-                            onTypeSelected = { type -> selectedLibraryType = type },
-                            onSortSelected = LibraryDisplaySettingsRepository::setSortOption,
-                            onWatchedFilterSelected = LibraryDisplaySettingsRepository::setWatchedFilter,
-                            modifier = libraryContentTransitionModifier()
-                                .padding(horizontal = 16.dp),
-                        )
-                    }
+            if (sourceMode != LibraryViewMode.Cloud && unfilteredTitleSections.isNotEmpty()) {
+                item(key = "library-title-controls") {
+                    LibrarySavedControls(
+                        layoutMode = displaySettings.layoutMode,
+                        sourceMode = titleSourceMode,
+                        sortOption = effectiveSortOption,
+                        watchedFilter = displaySettings.watchedFilter,
+                        availableGenres = availableGenreOptions,
+                        selectedGenreKey = effectiveGenreKey,
+                        verticalProjection = verticalProjection,
+                        onSectionSelected = { sectionKey ->
+                            selectedLibrarySectionKey = sectionKey
+                            selectedLibraryType = null
+                        },
+                        onTypeSelected = { type -> selectedLibraryType = type },
+                        onSortSelected = LibraryDisplaySettingsRepository::setSortOption,
+                        onWatchedFilterSelected = LibraryDisplaySettingsRepository::setWatchedFilter,
+                        onGenreSelected = { genreKey -> selectedLibraryGenreKey = genreKey },
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
                 }
+            }
+
+            if (sourceMode == LibraryViewMode.Downloaded) {
                 if (downloadedItems.isEmpty()) {
                     item {
                         HomeEmptyStateCard(
@@ -725,28 +742,6 @@ fun LibraryScreen(
                     }
 
                     else -> {
-                        item(
-                            key = "library-title-controls:$sourceMode:${uiState.sourceMode}:" +
-                                "${displaySettings.layoutMode}:$effectiveSortOption:" +
-                                displaySettings.watchedFilter,
-                        ) {
-                            LibrarySavedControls(
-                                layoutMode = displaySettings.layoutMode,
-                                sourceMode = titleSourceMode,
-                                sortOption = effectiveSortOption,
-                                watchedFilter = displaySettings.watchedFilter,
-                                verticalProjection = verticalProjection,
-                                onSectionSelected = { sectionKey ->
-                                    selectedLibrarySectionKey = sectionKey
-                                    selectedLibraryType = null
-                                },
-                                onTypeSelected = { type -> selectedLibraryType = type },
-                                onSortSelected = LibraryDisplaySettingsRepository::setSortOption,
-                                onWatchedFilterSelected = LibraryDisplaySettingsRepository::setWatchedFilter,
-                                modifier = libraryContentTransitionModifier()
-                                    .padding(horizontal = 16.dp),
-                            )
-                        }
                         if (sortedSections.isEmpty()) {
                             item {
                                 LibraryFilterEmptyState(
@@ -1211,6 +1206,7 @@ private fun LibraryHeaderActions(
                             NuvioQuietActionButton(
                                 icon = Icons.Rounded.Close,
                                 contentDescription = stringResource(Res.string.downloads_exit_selection),
+                                style = NuvioQuietActionStyle.Selected,
                                 onClick = {
                                     onManagementStateChange(
                                         reduceDownloadLibraryManagement(

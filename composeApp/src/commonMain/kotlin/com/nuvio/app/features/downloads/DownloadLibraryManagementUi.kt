@@ -383,7 +383,7 @@ private fun DownloadManagerBarActions(
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
+        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s10),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (summary.fileCount == 0) {

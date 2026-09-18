@@ -21,6 +21,8 @@ import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.components.PosterGridRow
 import com.nuvio.app.features.home.components.PosterGridSkeletonRow
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.discover_all_genres
+import nuvio.composeapp.generated.resources.discover_select_genre
 import nuvio.composeapp.generated.resources.library_filter_all_types
 import nuvio.composeapp.generated.resources.library_filter_list
 import nuvio.composeapp.generated.resources.library_filter_sort
@@ -42,11 +44,14 @@ internal fun LibrarySavedControls(
     sourceMode: LibrarySourceMode,
     sortOption: LibrarySortOption,
     watchedFilter: LibraryWatchedFilter,
+    availableGenres: List<LibraryGenreOption>,
+    selectedGenreKey: String?,
     verticalProjection: LibraryVerticalProjection,
     onSectionSelected: (String) -> Unit,
     onTypeSelected: (String?) -> Unit,
     onSortSelected: (LibrarySortOption) -> Unit,
     onWatchedFilterSelected: (LibraryWatchedFilter) -> Unit,
+    onGenreSelected: (String?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val sortOptions = availableLibrarySortOptions(sourceMode)
@@ -106,6 +111,29 @@ internal fun LibrarySavedControls(
                 options = typeOptions,
                 enabled = typeOptions.size > 1,
                 onSelected = { option -> onTypeSelected(option.key.ifBlank { null }) },
+            )
+        }
+
+        if (availableGenres.isNotEmpty()) {
+            val allGenresLabel = stringResource(Res.string.discover_all_genres)
+            val genreOptions = buildList {
+                add(NuvioDropdownOption(key = "", label = allGenresLabel))
+                addAll(
+                    availableGenres.map { genre ->
+                        NuvioDropdownOption(key = genre.key, label = genre.label)
+                    },
+                )
+            }
+            NuvioDropdownChip(
+                title = stringResource(Res.string.discover_select_genre),
+                label = availableGenres
+                    .firstOrNull { genre -> genre.key == selectedGenreKey }
+                    ?.label
+                    ?: allGenresLabel,
+                selectedKey = selectedGenreKey.orEmpty(),
+                options = genreOptions,
+                enabled = genreOptions.size > 1,
+                onSelected = { option -> onGenreSelected(option.key.ifBlank { null }) },
             )
         }
 

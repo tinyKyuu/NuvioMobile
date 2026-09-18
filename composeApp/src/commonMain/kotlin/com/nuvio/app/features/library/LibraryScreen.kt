@@ -84,6 +84,7 @@ import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioPosterAvailability
 import com.nuvio.app.core.ui.NuvioPosterSelectionState
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.NuvioViewAllPillSize
 import com.nuvio.app.core.ui.NuvioShelfSection
 import com.nuvio.app.core.ui.ScopedDisintegrationTracker
@@ -396,6 +397,13 @@ fun LibraryScreen(
 
     LaunchedEffect(downloadManagementState.isManaging) {
         onDownloadManagementActiveChange(downloadManagementState.isManaging)
+    }
+
+    PlatformBackHandler(enabled = downloadManagementState.isManaging) {
+        downloadManagementState = reduceDownloadLibraryManagement(
+            downloadManagementState,
+            DownloadLibraryManagementEvent.Done,
+        )
     }
 
     DisposableEffect(Unit) {
@@ -1146,8 +1154,8 @@ internal fun libraryHeaderActionOrder(
 }
 
 internal enum class LibraryManageActionLabel {
-    Manage,
-    Done,
+    Select,
+    Close,
 }
 
 internal enum class LibraryHeaderActionColorFamily {
@@ -1164,7 +1172,7 @@ internal fun libraryManageActionPresentation(
     isManaging: Boolean,
     hasDownloadedItems: Boolean,
 ): LibraryManageActionPresentation = LibraryManageActionPresentation(
-    label = if (isManaging) LibraryManageActionLabel.Done else LibraryManageActionLabel.Manage,
+    label = if (isManaging) LibraryManageActionLabel.Close else LibraryManageActionLabel.Select,
     enabled = hasDownloadedItems || isManaging,
 )
 
@@ -1195,31 +1203,47 @@ private fun LibraryHeaderActions(
                         isManaging = managementState.isManaging,
                         hasDownloadedItems = hasDownloadedItems,
                     )
-                    val label = when (presentation.label) {
-                        LibraryManageActionLabel.Manage -> stringResource(Res.string.downloads_manage)
-                        LibraryManageActionLabel.Done -> stringResource(Res.string.action_done)
-                    }
-                    TextButton(
-                        enabled = presentation.enabled,
-                        contentPadding = PaddingValues(horizontal = 8.dp),
-                        colors = ButtonDefaults.textButtonColors(
-                            contentColor = mutedColor,
-                            disabledContentColor = mutedColor.copy(alpha = 0.38f),
-                        ),
-                        onClick = {
-                            onManagementStateChange(
-                                reduceDownloadLibraryManagement(
-                                    managementState,
-                                    if (managementState.isManaging) {
-                                        DownloadLibraryManagementEvent.Done
-                                    } else {
-                                        DownloadLibraryManagementEvent.EnterManage
-                                    },
-                                ),
-                            )
-                        },
+                    Box(
+                        modifier = Modifier.width(64.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Text(label)
+                        if (presentation.label == LibraryManageActionLabel.Close) {
+                            IconButton(
+                                onClick = {
+                                    onManagementStateChange(
+                                        reduceDownloadLibraryManagement(
+                                            managementState,
+                                            DownloadLibraryManagementEvent.Done,
+                                        ),
+                                    )
+                                },
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = stringResource(Res.string.downloads_exit_selection),
+                                    tint = mutedColor,
+                                )
+                            }
+                        } else {
+                            TextButton(
+                                enabled = presentation.enabled,
+                                contentPadding = PaddingValues(horizontal = 8.dp),
+                                colors = ButtonDefaults.textButtonColors(
+                                    contentColor = mutedColor,
+                                    disabledContentColor = mutedColor.copy(alpha = 0.38f),
+                                ),
+                                onClick = {
+                                    onManagementStateChange(
+                                        reduceDownloadLibraryManagement(
+                                            managementState,
+                                            DownloadLibraryManagementEvent.EnterManage,
+                                        ),
+                                    )
+                                },
+                            ) {
+                                Text(stringResource(Res.string.downloads_select))
+                            }
+                        }
                     }
                 }
 

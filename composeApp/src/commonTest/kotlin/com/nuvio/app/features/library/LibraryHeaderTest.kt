@@ -72,7 +72,7 @@ class LibraryHeaderTest {
     }
 
     @Test
-    fun `Manage and Done keep enabled semantics and the muted color family`() {
+    fun `Select and Close keep enabled semantics and the muted color family`() {
         val empty = libraryManageActionPresentation(
             isManaging = false,
             hasDownloadedItems = false,
@@ -86,10 +86,10 @@ class LibraryHeaderTest {
             hasDownloadedItems = false,
         )
 
-        assertEquals(LibraryManageActionLabel.Manage, empty.label)
+        assertEquals(LibraryManageActionLabel.Select, empty.label)
         assertFalse(empty.enabled)
         assertTrue(ready.enabled)
-        assertEquals(LibraryManageActionLabel.Done, managing.label)
+        assertEquals(LibraryManageActionLabel.Close, managing.label)
         assertTrue(managing.enabled)
         assertEquals(LibraryHeaderActionColorFamily.Muted, ready.colorFamily)
         assertEquals(LibraryHeaderActionColorFamily.Muted, managing.colorFamily)

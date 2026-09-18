@@ -36,6 +36,23 @@ class DetailSeriesDownloadedFilterTest {
         assertFalse(shouldOfferDownloadedOnlyFilter(true, all, all))
     }
 
+    @Test
+    fun `season animation content keeps its episodes when the filtered map changes`() {
+        val allEpisodes = mapOf(
+            1 to listOf(episode(1, 1)),
+            2 to listOf(episode(2, 1), episode(2, 2)),
+        )
+        val outgoing = seasonEpisodeContent(season = 2, groupedEpisodes = allEpisodes)
+
+        val downloadedEpisodes = mapOf(1 to listOf(episode(1, 1)))
+        val incoming = seasonEpisodeContent(season = 1, groupedEpisodes = downloadedEpisodes)
+
+        assertEquals(2, outgoing.season)
+        assertEquals(listOf(1, 2), outgoing.episodes.map(MetaVideo::episode))
+        assertEquals(1, incoming.season)
+        assertEquals(listOf(1), incoming.episodes.map(MetaVideo::episode))
+    }
+
     private fun episode(season: Int, episode: Int) = MetaVideo(
         id = "s${season}e$episode",
         title = "Episode $episode",

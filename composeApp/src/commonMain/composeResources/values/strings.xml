@@ -477,6 +477,9 @@
     <string name="offline_episode_requires_internet">Internet required</string>
     <string name="offline_season_downloaded_only">Only downloaded episodes are available offline</string>
     <string name="offline_filter_downloaded_only">Downloaded only</string>
+    <string name="details_episode_availability">Availability</string>
+    <string name="details_episode_availability_all">All</string>
+    <string name="details_episode_availability_downloaded">Downloaded</string>
     <string name="compose_player_airs_prefix">Airs</string>
     <string name="compose_player_tba">TBA</string>
     <string name="compose_player_tap_to_unlock">Tap to unlock</string>
@@ -637,6 +640,8 @@
     <string name="downloads_export_failed">Couldn&apos;t export this download</string>
     <string name="downloads_manage_storage">Manage downloads</string>
     <string name="downloads_policy_title">Download policy</string>
+    <string name="downloads_policy_expand">Show download policy</string>
+    <string name="downloads_policy_collapse">Hide download policy</string>
     <string name="downloads_manage">Manage</string>
     <string name="downloads_manage_completed">Manage Downloads</string>
     <string name="downloads_manage_storage_description">%1$d item(s) • %2$s stored • up to 2 active downloads</string>
@@ -657,6 +662,10 @@
     <string name="downloads_section_shows">Shows</string>
     <string name="downloads_select">Select</string>
     <string name="downloads_select_all">Select all</string>
+    <string name="downloads_deselect_all">Deselect all</string>
+    <string name="downloads_exit_selection">Exit selection</string>
+    <string name="downloads_select_prompt">Select downloads</string>
+    <string name="downloads_remove_selected_count">Remove %1$d</string>
     <string name="downloads_selection_count">%1$d file(s)</string>
     <string name="downloads_selection_summary">%1$d file(s) • %2$s known storage</string>
     <string name="downloads_show_downloads">Show Downloads</string>
@@ -672,7 +681,7 @@
     <string name="downloads_status_paused">Paused • %1$s</string>
     <string name="downloads_status_queued">Queued</string>
     <string name="downloads_status_waiting_for_network">Waiting for an allowed network • %1$s</string>
-    <string name="downloads_activity_title">Download activity</string>
+    <string name="downloads_activity_title">Downloads</string>
     <string name="downloads_activity_empty">No current, queued, paused, or failed transfers</string>
     <string name="downloads_activity_remove_succeeded">Removed %1$d current transfer(s) and reclaimed %2$s</string>
     <string name="downloads_activity_remove_partial_failed">Removed %1$d current transfer(s), but %2$d could not be canceled and remain selected</string>

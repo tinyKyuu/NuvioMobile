@@ -63,7 +63,7 @@ class DownloadLibraryManagementTest {
     }
 
     @Test
-    fun `clear exits management and restores the root navigation`() {
+    fun `clear deselects everything without leaving management`() {
         val state = DownloadLibraryManagementState(
             isManaging = true,
             selectedIds = setOf("movie"),
@@ -71,10 +71,12 @@ class DownloadLibraryManagementTest {
             route = DownloadManagerRoute.Show("show"),
         )
 
-        assertEquals(
-            DownloadLibraryManagementState(),
-            reduceDownloadLibraryManagement(state, DownloadLibraryManagementEvent.Clear),
-        )
+        val cleared = reduceDownloadLibraryManagement(state, DownloadLibraryManagementEvent.Clear)
+
+        assertTrue(cleared.isManaging)
+        assertTrue(cleared.isExpanded)
+        assertEquals(DownloadManagerRoute.Show("show"), cleared.route)
+        assertEquals(emptySet(), cleared.selectedIds)
     }
 
     @Test
@@ -190,6 +192,23 @@ class DownloadLibraryManagementTest {
 
         assertEquals(setOf("failed", "other"), next.selectedIds)
         assertTrue(next.isManaging)
+    }
+
+    @Test
+    fun `successful removal exits management and restores root navigation`() {
+        val state = DownloadLibraryManagementState(
+            isManaging = true,
+            selectedIds = setOf("first", "second"),
+            isExpanded = true,
+            route = DownloadManagerRoute.Show("show"),
+        )
+
+        val next = applyDownloadRemovalResult(
+            state,
+            DownloadBatchRemovalResult(successfulIds = state.selectedIds),
+        )
+
+        assertEquals(DownloadLibraryManagementState(), next)
     }
 
     @Test

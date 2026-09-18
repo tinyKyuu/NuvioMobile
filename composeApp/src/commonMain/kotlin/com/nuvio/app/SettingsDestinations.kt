@@ -102,11 +102,13 @@ internal fun DownloadActivityDestination(
     route: DownloadActivityRoute,
     navController: NuvioNavigator,
     onOpenDownload: (DownloadItem) -> Unit,
+    onManageCompletedDownloads: () -> Unit,
 ) {
     DownloadRouteDestination(
         route = route,
         navController = navController,
         onOpenDownload = onOpenDownload,
+        onManageCompletedDownloads = onManageCompletedDownloads,
         mode = DownloadsScreenMode.Activity,
     )
 }

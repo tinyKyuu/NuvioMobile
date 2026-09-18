@@ -38,7 +38,6 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -75,6 +74,9 @@ import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import co.touchlab.kermit.Logger
 import coil3.compose.AsyncImage
+import com.nuvio.app.ReconnectControlState
+import com.nuvio.app.RootConnectionControl
+import com.nuvio.app.reconnectControlState
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.build.TrailerPlaybackMode
 import com.nuvio.app.core.network.NetworkCondition
@@ -180,6 +182,10 @@ fun MetaDetailsScreen(
     val uiState by MetaDetailsRepository.uiState.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
     val networkRecoveryUiState by NetworkRecoveryCoordinator.uiState.collectAsStateWithLifecycle()
+    val detailReconnectState = reconnectControlState(
+        networkStatus = networkStatusUiState,
+        recovery = networkRecoveryUiState,
+    )
     val offlineLibraryUiState by remember {
         OfflineLibraryRepository.ensureLoaded()
         OfflineLibraryRepository.uiState
@@ -1211,14 +1217,10 @@ fun MetaDetailsScreen(
                             backgroundColor = dominantBackdropColor.takeIf { dominantColorEnabled },
                             onBack = onBackFromDetails,
                             onToggleSaved = toggleSaved,
-                            onRefresh = if (offlineMeta != null) {
-                                {
-                                    OfflineLibraryRepository.refresh(type, id, manual = true)
-                                    NetworkStatusRepository.requestRefresh(force = true)
-                                }
-                            } else {
-                                null
-                            },
+                            networkCondition = networkStatusUiState.condition,
+                            reconnectControlState = detailReconnectState.takeIf { offlineMeta != null }
+                                ?: ReconnectControlState.Hidden,
+                            onNetworkRetry = NetworkRecoveryCoordinator::retry,
                         )
 
                         selectedEpisodeForActions
@@ -1736,7 +1738,9 @@ private fun DetailHeaderOverlay(
     backgroundColor: Color?,
     onBack: () -> Unit,
     onToggleSaved: () -> Unit,
-    onRefresh: (() -> Unit)?,
+    networkCondition: NetworkCondition,
+    reconnectControlState: ReconnectControlState,
+    onNetworkRetry: () -> Unit,
 ) {
     val headerTarget = if (isHeroCollapsed.value) 1f else 0f
     val headerProgress by animateFloatAsState(
@@ -1761,24 +1765,18 @@ private fun DetailHeaderOverlay(
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onBackground,
             )
-            if (onRefresh != null) {
-                IconButton(
-                    onClick = onRefresh,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(
-                            end = 12.dp,
-                            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
-                        )
-                        .zIndex(2f),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Refresh,
-                        contentDescription = stringResource(Res.string.offline_metadata_refresh),
-                        tint = MaterialTheme.colorScheme.onBackground,
+            RootConnectionControl(
+                condition = networkCondition,
+                state = reconnectControlState,
+                onRetry = onNetworkRetry,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(
+                        end = 12.dp,
+                        top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
                     )
-                }
-            }
+                    .zIndex(2f),
+            )
         }
 
         DetailFloatingHeader(

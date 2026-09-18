@@ -191,7 +191,7 @@ internal fun reduceDownloadLibraryManagement(
     DownloadLibraryManagementEvent.ProfileChanged,
     -> DownloadLibraryManagementState()
 
-    DownloadLibraryManagementEvent.Clear -> DownloadLibraryManagementState()
+    DownloadLibraryManagementEvent.Clear -> state.copy(selectedIds = emptySet())
     DownloadLibraryManagementEvent.Collapse -> state.copy(isExpanded = false)
     DownloadLibraryManagementEvent.ExpandRoot -> state.copy(
         isManaging = true,
@@ -283,10 +283,17 @@ internal fun summarizeCompletedDownloadSelection(
 internal fun applyDownloadRemovalResult(
     state: DownloadLibraryManagementState,
     result: DownloadBatchRemovalResult,
-): DownloadLibraryManagementState = state.copy(
-    isManaging = state.isManaging || result.failedIds.isNotEmpty(),
-    selectedIds = (state.selectedIds - result.successfulIds) + result.failedIds,
-)
+): DownloadLibraryManagementState {
+    val retainedIds = (state.selectedIds - result.successfulIds) + result.failedIds
+    return if (retainedIds.isEmpty()) {
+        DownloadLibraryManagementState()
+    } else {
+        state.copy(
+            isManaging = true,
+            selectedIds = retainedIds,
+        )
+    }
+}
 
 internal fun findExactDownloadedEpisode(
     items: Collection<DownloadItem>,

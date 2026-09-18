@@ -7,11 +7,11 @@ import com.nuvio.app.core.network.NetworkRecoveryUiState
 import com.nuvio.app.core.network.NetworkStatusUiState
 import com.nuvio.app.features.home.shouldShowOfflineHomeConnectionCard
 import com.nuvio.app.features.settings.NavBarStyle
-import com.nuvio.app.core.ui.NuvioScreenHeaderActionsLayout
+import com.nuvio.app.core.ui.NuvioAdaptiveHeaderPresentation
+import com.nuvio.app.core.ui.resolveAdaptiveHeaderPresentation
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class MainTabsDestinationTest {
 
@@ -150,36 +150,56 @@ class MainTabsDestinationTest {
     }
 
     @Test
-    fun `root headers keep a visible connection control inline until the width is genuinely narrow`() {
+    fun `root headers remove the status graphic before stacking the connection control`() {
         assertEquals(
-            NuvioScreenHeaderActionsLayout.Stacked,
-            rootHeaderActionsLayoutForWidth(340.dp, ReconnectControlState.Probing),
+            NuvioAdaptiveHeaderPresentation.FullInline,
+            resolveAdaptiveHeaderPresentation(
+                availableWidthPx = 220,
+                naturalTitleWidthPx = 100,
+                fullActionsWidthPx = 100,
+                compactActionsWidthPx = 80,
+                minimumInlineTitleWidthPx = 96,
+                spacingPx = 10,
+            ),
         )
         assertEquals(
-            NuvioScreenHeaderActionsLayout.Inline,
-            rootHeaderActionsLayoutForWidth(390.dp, ReconnectControlState.Probing),
+            NuvioAdaptiveHeaderPresentation.CompactInline,
+            resolveAdaptiveHeaderPresentation(
+                availableWidthPx = 220,
+                naturalTitleWidthPx = 150,
+                fullActionsWidthPx = 100,
+                compactActionsWidthPx = 80,
+                minimumInlineTitleWidthPx = 96,
+                spacingPx = 10,
+            ),
         )
         assertEquals(
-            NuvioScreenHeaderActionsLayout.Inline,
-            rootHeaderActionsLayoutForWidth(768.dp, ReconnectControlState.Restoring),
-        )
-        assertEquals(
-            NuvioScreenHeaderActionsLayout.Inline,
-            rootHeaderActionsLayoutForWidth(320.dp, ReconnectControlState.Hidden),
+            NuvioAdaptiveHeaderPresentation.CompactStacked,
+            resolveAdaptiveHeaderPresentation(
+                availableWidthPx = 180,
+                naturalTitleWidthPx = 150,
+                fullActionsWidthPx = 100,
+                compactActionsWidthPx = 80,
+                minimumInlineTitleWidthPx = 96,
+                spacingPx = 10,
+            ),
         )
     }
 
     @Test
-    fun `root connection control drops its status graphic before it stacks`() {
-        assertFalse(rootConnectionControlShowsStatusGraphic(390.dp))
-        assertTrue(rootConnectionControlShowsStatusGraphic(440.dp))
-    }
-
-    @Test
-    fun `tablet dock hides labels when a tablet window is narrow`() {
-        assertEquals(TabletDockPresentation.Compact, tabletDockPresentationForWidth(599.dp))
-        assertEquals(TabletDockPresentation.Labeled, tabletDockPresentationForWidth(600.dp))
-        assertEquals(TabletDockPresentation.Labeled, tabletDockPresentationForWidth(1_024.dp))
+    fun `tablet dock keeps labels exactly while measured content fits`() {
+        assertEquals(
+            TabletDockPresentation.Compact,
+            tabletDockPresentationForMeasuredContent(availableWidthPx = 599, labeledWidthPx = 600),
+        )
+        assertEquals(
+            TabletDockPresentation.Labeled,
+            tabletDockPresentationForMeasuredContent(availableWidthPx = 600, labeledWidthPx = 600),
+        )
+        assertEquals(
+            TabletDockPresentation.Labeled,
+            tabletDockPresentationForMeasuredContent(availableWidthPx = 1_024, labeledWidthPx = 600),
+        )
     }
 
     @Test

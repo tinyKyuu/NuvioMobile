@@ -1,5 +1,6 @@
 package com.nuvio.app.features.library
 
+import com.nuvio.app.features.watched.watchedItemKeys
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -252,12 +253,63 @@ class LibraryDisplaySettingsTest {
         val state = LibraryDisplaySettingsUiState(
             layoutMode = LibraryLayoutMode.VERTICAL,
             sortOption = LibrarySortOption.TITLE_DESC,
+            watchedFilter = LibraryWatchedFilter.UNWATCHED,
         )
 
         assertEquals(state, decodeLibraryDisplaySettings(encodeLibraryDisplaySettings(state)))
         assertEquals(
             LibraryDisplaySettingsUiState(),
             decodeLibraryDisplaySettings("""{"layout_mode":"unknown","sort_option":"unknown"}"""),
+        )
+    }
+
+    @Test
+    fun `All titles merges saved and downloaded aliases without duplicate posters`() {
+        val saved = item("show-1", type = "show", name = "Saved title")
+        val downloaded = item("show-1", type = "series", name = "Downloaded title").copy(
+            poster = "file:///offline/poster.jpg",
+        )
+
+        val merged = mergeLibraryTitleItems(
+            savedItems = listOf(saved),
+            downloadedItems = listOf(downloaded, item("movie-2", name = "Download only")),
+        )
+
+        assertEquals(listOf("show-1", "movie-2"), merged.map { it.id })
+        assertEquals("Saved title", merged.first().name)
+        assertEquals("file:///offline/poster.jpg", merged.first().poster)
+    }
+
+    @Test
+    fun `watched filter keeps fully watched series separate from partial progress`() {
+        val watchedMovie = item("movie-watched")
+        val unwatchedMovie = item("movie-unwatched")
+        val completeSeries = item("series-complete", type = "series")
+        val partialSeries = item("series-partial", type = "series")
+        val sections = listOf(
+            LibrarySection("movie", "Movies", listOf(watchedMovie, unwatchedMovie)),
+            LibrarySection("series", "Series", listOf(completeSeries, partialSeries)),
+        )
+        val watchedKeys = watchedItemKeys(type = "movie", id = watchedMovie.id)
+        val fullyWatchedSeriesKeys = watchedItemKeys(type = "series", id = completeSeries.id)
+
+        assertEquals(
+            listOf("movie-watched", "series-complete"),
+            filterLibrarySectionsByWatchedState(
+                sections = sections,
+                filter = LibraryWatchedFilter.WATCHED,
+                watchedKeys = watchedKeys,
+                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+            ).flatMap(LibrarySection::items).map { it.id },
+        )
+        assertEquals(
+            listOf("movie-unwatched", "series-partial"),
+            filterLibrarySectionsByWatchedState(
+                sections = sections,
+                filter = LibraryWatchedFilter.UNWATCHED,
+                watchedKeys = watchedKeys,
+                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+            ).flatMap(LibrarySection::items).map { it.id },
         )
     }
 

@@ -1,6 +1,6 @@
 package com.nuvio.app.features.library
 
-import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.ui.NuvioPosterAvailability
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -8,24 +8,36 @@ import kotlin.test.assertTrue
 
 class LibraryHeaderTest {
     @Test
-    fun `wide and narrow widths keep Library actions out of the connection row`() {
-        val phone = libraryHeaderLayoutForWidth(390.dp)
-        val narrowTablet = libraryHeaderLayoutForWidth(519.dp)
-        val tablet = libraryHeaderLayoutForWidth(520.dp)
-        val wideTablet = libraryHeaderLayoutForWidth(1_024.dp)
+    fun `Library header chooses chips then dropdown then stacking from measured fit`() {
+        assertEquals(
+            LibraryHeaderPresentation.InlineChoices,
+            resolveLibraryHeaderPresentation(600, 440, 150, 140, 12),
+        )
+        assertEquals(
+            LibraryHeaderPresentation.InlineDropdown,
+            resolveLibraryHeaderPresentation(400, 440, 150, 140, 12),
+        )
+        assertEquals(
+            LibraryHeaderPresentation.StackedDropdown,
+            resolveLibraryHeaderPresentation(280, 440, 150, 140, 12),
+        )
+    }
 
-        assertEquals(LibraryHeaderArrangement.Narrow, phone.arrangement)
-        assertEquals(LibraryHeaderRow.Tertiary, phone.actionsRow)
-        assertEquals(LibraryHeaderArrangement.Narrow, narrowTablet.arrangement)
-        assertEquals(LibraryHeaderRow.Tertiary, narrowTablet.actionsRow)
-        assertEquals(LibraryHeaderArrangement.Wide, tablet.arrangement)
-        assertEquals(LibraryHeaderRow.Secondary, tablet.actionsRow)
-        assertEquals(LibraryHeaderArrangement.Wide, wideTablet.arrangement)
-        listOf(phone, narrowTablet, tablet, wideTablet).forEach { layout ->
-            assertEquals(LibraryHeaderRow.Title, layout.connectionRow)
-            assertEquals(LibraryHeaderRow.Secondary, layout.sourcesRow)
-            assertFalse(layout.actionsRow == layout.connectionRow)
-        }
+    @Test
+    fun `Cloud files only appears when a compatible provider exists`() {
+        assertEquals(
+            listOf(LibraryViewMode.All, LibraryViewMode.Saved, LibraryViewMode.Downloaded),
+            availableLibraryViewModes(hasCloudLibraryProvider = false),
+        )
+        assertEquals(
+            listOf(
+                LibraryViewMode.All,
+                LibraryViewMode.Saved,
+                LibraryViewMode.Downloaded,
+                LibraryViewMode.Cloud,
+            ),
+            availableLibraryViewModes(hasCloudLibraryProvider = true),
+        )
     }
 
     @Test
@@ -75,12 +87,31 @@ class LibraryHeaderTest {
             hasDownloadedItems = false,
         )
 
-        assertEquals(LibraryManageActionLabel.ManageDownloads, empty.label)
+        assertEquals(LibraryManageActionLabel.Manage, empty.label)
         assertFalse(empty.enabled)
         assertTrue(ready.enabled)
         assertEquals(LibraryManageActionLabel.Done, managing.label)
         assertTrue(managing.enabled)
         assertEquals(LibraryHeaderActionColorFamily.Muted, ready.colorFamily)
         assertEquals(LibraryHeaderActionColorFamily.Muted, managing.colorFamily)
+    }
+
+    @Test
+    fun `offline availability marks downloads and blocks only online titles`() {
+        assertEquals(
+            NuvioPosterAvailability.Downloaded,
+            libraryPosterAvailability(isOfflineLike = true, isDownloaded = true),
+        )
+        assertEquals(
+            NuvioPosterAvailability.InternetRequired,
+            libraryPosterAvailability(isOfflineLike = true, isDownloaded = false),
+        )
+        assertEquals(
+            NuvioPosterAvailability.None,
+            libraryPosterAvailability(isOfflineLike = false, isDownloaded = false),
+        )
+        assertTrue(shouldOpenLibraryTitle(isOfflineLike = true, isDownloaded = true))
+        assertTrue(shouldOpenLibraryTitle(isOfflineLike = false, isDownloaded = false))
+        assertFalse(shouldOpenLibraryTitle(isOfflineLike = true, isDownloaded = false))
     }
 }

@@ -140,6 +140,7 @@ fun NuvioPosterCard(
     bottomLeftLogoUrl: String? = null,
     bottomLeftText: String? = null,
     isWatched: Boolean = false,
+    availability: NuvioPosterAvailability = NuvioPosterAvailability.None,
     selectionState: NuvioPosterSelectionState = NuvioPosterSelectionState.None,
     selectionContentDescription: String? = null,
     menuContentDescription: String? = null,
@@ -239,6 +240,7 @@ fun NuvioPosterCard(
             }
 
             NuvioPosterWatchedOverlay(isWatched = isWatched)
+            NuvioPosterAvailabilityOverlay(availability = availability)
 
             if (onMenuClick != null) {
                 IconButton(

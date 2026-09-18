@@ -3,6 +3,7 @@ package com.nuvio.app
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -35,9 +36,12 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -73,7 +77,6 @@ import nuvio.composeapp.generated.resources.app_brand_name
 import nuvio.composeapp.generated.resources.compose_nav_home
 import nuvio.composeapp.generated.resources.compose_nav_library
 import nuvio.composeapp.generated.resources.compose_nav_search
-import nuvio.composeapp.generated.resources.compose_settings_page_root
 import nuvio.composeapp.generated.resources.network_reconnect
 import nuvio.composeapp.generated.resources.network_reconnecting
 import nuvio.composeapp.generated.resources.network_online
@@ -275,18 +278,48 @@ internal fun TabletFloatingBottomDock(
     onTabSelected: (AppScreenTab) -> Unit,
     onProfileSelected: (NuvioProfile) -> Unit,
     onAddProfileRequested: () -> Unit,
-    presentation: TabletDockPresentation,
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
-    val showLabels = presentation == TabletDockPresentation.Labeled
+    val homeLabel = stringResource(Res.string.compose_nav_home)
+    val searchLabel = stringResource(Res.string.compose_nav_search)
+    val libraryLabel = stringResource(Res.string.compose_nav_library)
+    val labelStyle = MaterialTheme.typography.labelLarge
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
+            .padding(horizontal = NuvioTokens.Space.s16)
             .padding(bottom = nuvioSafeBottomPadding(tokens.spacing.controlGap)),
         contentAlignment = Alignment.BottomCenter,
     ) {
+        val compactWidthPx = with(density) {
+            (
+                NuvioTokens.Space.s10 * 2 +
+                    tokens.spacing.controlGap * 3 +
+                    (tokens.components.chipHorizontalPadding * 2 + NuvioTokens.Space.s18) * 3 +
+                    tokens.spacing.listGap * 2 +
+                    NuvioTokens.Space.s28
+                ).roundToPx()
+        }
+        val labelWidthsPx = listOf(homeLabel, searchLabel, libraryLabel).sumOf { label ->
+            textMeasurer.measure(
+                text = AnnotatedString(label),
+                style = labelStyle,
+                maxLines = 1,
+            ).size.width
+        }
+        val labeledWidthPx = compactWidthPx + labelWidthsPx + with(density) {
+            (tokens.spacing.controlGap * 3).roundToPx()
+        }
+        val presentation = tabletDockPresentationForMeasuredContent(
+            availableWidthPx = with(density) { maxWidth.roundToPx() },
+            labeledWidthPx = labeledWidthPx,
+        )
+        val showLabels = presentation == TabletDockPresentation.Labeled
+
         Surface(
             color = tokens.colors.surface.copy(alpha = tokens.opacity.visible - tokens.opacity.subtle),
             shape = tokens.shapes.chip,
@@ -299,7 +332,7 @@ internal fun TabletFloatingBottomDock(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 TabletDockPillItem(
-                    label = stringResource(Res.string.compose_nav_home),
+                    label = homeLabel,
                     showLabel = showLabels,
                     selected = selectedTab == AppScreenTab.Home,
                     onClick = { onTabSelected(AppScreenTab.Home) },
@@ -317,7 +350,7 @@ internal fun TabletFloatingBottomDock(
                     },
                 )
                 TabletDockPillItem(
-                    label = stringResource(Res.string.compose_nav_search),
+                    label = searchLabel,
                     showLabel = showLabels,
                     selected = selectedTab == AppScreenTab.Search,
                     onClick = { onTabSelected(AppScreenTab.Search) },
@@ -335,7 +368,7 @@ internal fun TabletFloatingBottomDock(
                     },
                 )
                 TabletDockPillItem(
-                    label = stringResource(Res.string.compose_nav_library),
+                    label = libraryLabel,
                     showLabel = showLabels,
                     selected = selectedTab == AppScreenTab.Library,
                     onClick = { onTabSelected(AppScreenTab.Library) },
@@ -371,18 +404,6 @@ internal fun TabletFloatingBottomDock(
                             onProfileSelected = onProfileSelected,
                             onAddProfileRequested = onAddProfileRequested,
                         )
-                        if (showLabels) {
-                            Text(
-                                text = stringResource(Res.string.compose_settings_page_root),
-                                modifier = Modifier.clickable { onTabSelected(AppScreenTab.Settings) },
-                                style = MaterialTheme.typography.labelLarge,
-                                color = if (selectedTab == AppScreenTab.Settings) {
-                                    tokens.colors.textPrimary
-                                } else {
-                                    tokens.colors.textMuted
-                                },
-                            )
-                        }
                     }
                 }
             }

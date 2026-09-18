@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -28,6 +30,8 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.unit.Dp
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.episodes_cd_watched
+import nuvio.composeapp.generated.resources.library_availability_downloaded
+import nuvio.composeapp.generated.resources.library_availability_internet_required
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -128,6 +132,47 @@ fun BoxScope.NuvioPosterSelectionOverlay(
                 modifier = Modifier.size(NuvioTokens.Icon.xs),
             )
         }
+    }
+}
+
+enum class NuvioPosterAvailability {
+    None,
+    Downloaded,
+    InternetRequired,
+}
+
+@Composable
+fun BoxScope.NuvioPosterAvailabilityOverlay(
+    availability: NuvioPosterAvailability,
+    modifier: Modifier = Modifier,
+    padding: Dp = NuvioTokens.Space.s6,
+) {
+    if (availability == NuvioPosterAvailability.None) return
+    val tokens = MaterialTheme.nuvio
+    val isDownloaded = availability == NuvioPosterAvailability.Downloaded
+    Box(
+        modifier = modifier
+            .align(Alignment.BottomStart)
+            .padding(padding)
+            .size(NuvioTokens.Icon.md)
+            .clip(tokens.shapes.avatar)
+            .background(
+                if (isDownloaded) tokens.colors.accent else tokens.colors.overlayScrim,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = if (isDownloaded) Icons.Rounded.Download else Icons.Rounded.WifiOff,
+            contentDescription = stringResource(
+                if (isDownloaded) {
+                    Res.string.library_availability_downloaded
+                } else {
+                    Res.string.library_availability_internet_required
+                },
+            ),
+            tint = if (isDownloaded) tokens.colors.onAccent else tokens.colors.textPrimary,
+            modifier = Modifier.size(NuvioTokens.Icon.xs),
+        )
     }
 }
 

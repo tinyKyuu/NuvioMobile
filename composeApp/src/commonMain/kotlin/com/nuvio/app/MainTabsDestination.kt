@@ -28,7 +28,6 @@ import com.nuvio.app.core.ui.LocalNuvioNavBarScrollState
 import com.nuvio.app.core.ui.LocalNuvioTopNavigationOverlayPadding
 import com.nuvio.app.core.ui.NuvioClassicNavigationBar
 import com.nuvio.app.core.ui.NuvioNavigationBar
-import com.nuvio.app.core.ui.NuvioScreenHeaderActionsLayout
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.rememberNuvioNavBarScrollState
 import com.nuvio.app.features.profiles.NuvioProfile
@@ -70,7 +69,6 @@ internal fun MainTabsDestination(
     PlatformBackHandler(enabled = true, onBack = onBack)
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val availableWindowWidth = maxWidth
         val isTabletLayout = useTabletFloatingTabBar || maxWidth >= 768.dp
         val useNativeBottomTabs = if (useNativeNavigation) {
             useNativeTabBar
@@ -164,7 +162,6 @@ internal fun MainTabsDestination(
                         onTabSelected = onTabSelected,
                         onProfileSelected = onProfileSelected,
                         onAddProfileRequested = onAddProfileRequested,
-                        presentation = tabletDockPresentationForWidth(availableWindowWidth),
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }
@@ -271,24 +268,18 @@ internal fun rootConnectionStateForTab(
     ReconnectControlState.Hidden
 }
 
-internal fun rootHeaderActionsLayoutForWidth(
-    availableWidth: Dp,
-    state: ReconnectControlState,
-): NuvioScreenHeaderActionsLayout = if (
-    state != ReconnectControlState.Hidden && availableWidth < 360.dp
-) {
-    NuvioScreenHeaderActionsLayout.Stacked
-} else {
-    NuvioScreenHeaderActionsLayout.Inline
-}
-
-internal fun rootConnectionControlShowsStatusGraphic(availableWidth: Dp): Boolean =
-    availableWidth >= 440.dp
-
 internal enum class TabletDockPresentation {
     Labeled,
     Compact,
 }
 
-internal fun tabletDockPresentationForWidth(availableWidth: Dp): TabletDockPresentation =
-    if (availableWidth >= 600.dp) TabletDockPresentation.Labeled else TabletDockPresentation.Compact
+internal fun tabletDockPresentationForMeasuredContent(
+    availableWidthPx: Int,
+    labeledWidthPx: Int,
+): TabletDockPresentation = if (
+    labeledWidthPx <= availableWidthPx
+) {
+    TabletDockPresentation.Labeled
+} else {
+    TabletDockPresentation.Compact
+}

@@ -2,6 +2,8 @@ package com.nuvio.app.features.downloads
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.details.MetaDetailsRepository
+import com.nuvio.app.features.library.LibraryRepository
+import com.nuvio.app.features.library.toLibraryItem
 import com.nuvio.app.features.profiles.ProfileRepository
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
@@ -246,11 +248,25 @@ object DownloadsRepository {
             )
         }
 
+        val parentMeta = MetaDetailsRepository.peek(
+            type = normalizedRequest.parentMetaType,
+            id = normalizedRequest.parentMetaId,
+        )
+        if (shouldSaveDownloadToLocalLibrary(commit.result)) {
+            val libraryItem = parentMeta?.toLibraryItem(savedAtEpochMs = 0L)
+                ?: normalizedRequest.toLocalLibraryItem()
+            libraryItem?.let { item ->
+                runCatching { LibraryRepository.save(item) }
+                    .onFailure { error ->
+                        log.w(error) {
+                            "Failed to save downloaded title to local library item=${item.id} type=${item.type}"
+                        }
+                    }
+            }
+        }
+
         val record = commit.record ?: return commit.result
-        MetaDetailsRepository.peek(
-            type = record.item.parentMetaType,
-            id = record.item.parentMetaId,
-        )?.let { meta ->
+        parentMeta?.let { meta ->
             OfflineLibraryRepository.captureNormalDetails(
                 requestedType = record.item.parentMetaType,
                 requestedId = record.item.parentMetaId,

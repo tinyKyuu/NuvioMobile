@@ -124,8 +124,7 @@ import com.nuvio.app.features.home.components.homeSectionHorizontalPaddingForWid
 import com.nuvio.app.features.home.components.rememberContinueWatchingLayout
 import com.nuvio.app.ReconnectControlState
 import com.nuvio.app.RootConnectionControl
-import com.nuvio.app.rootHeaderActionsLayoutForWidth
-import com.nuvio.app.rootConnectionControlShowsStatusGraphic
+import com.nuvio.app.core.ui.NuvioScreenHeaderActionsLayout
 import kotlinx.coroutines.CancellationException
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -965,7 +964,6 @@ fun HomeScreen(
         }
 
         val heroStretchState = rememberHeroStretchState(homeListState)
-        val headerAvailableWidth = maxWidth
         val heroStretchModifier = if (showHeroSlot) {
             Modifier.nestedScroll(heroStretchState.nestedScrollConnection)
         } else {
@@ -995,18 +993,21 @@ fun HomeScreen(
                             NuvioScreenHeader(
                                 title = stringResource(Res.string.home_offline_mode),
                                 modifier = Modifier.padding(horizontal = 16.dp),
-                                actionsLayout = rootHeaderActionsLayoutForWidth(
-                                    availableWidth = headerAvailableWidth,
-                                    state = reconnectControlState,
-                                ),
+                                actionsLayout = NuvioScreenHeaderActionsLayout.Adaptive,
                                 actions = {
                                     RootConnectionControl(
                                         condition = networkCondition,
                                         state = reconnectControlState,
                                         onRetry = onNetworkRetry,
-                                        showStatusGraphic = rootConnectionControlShowsStatusGraphic(
-                                            headerAvailableWidth,
-                                        ),
+                                        showStatusGraphic = true,
+                                    )
+                                },
+                                compactActions = {
+                                    RootConnectionControl(
+                                        condition = networkCondition,
+                                        state = reconnectControlState,
+                                        onRetry = onNetworkRetry,
+                                        showStatusGraphic = false,
                                     )
                                 },
                             )

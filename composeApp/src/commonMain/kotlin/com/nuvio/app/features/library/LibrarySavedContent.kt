@@ -16,6 +16,7 @@ import com.nuvio.app.core.i18n.localizedMediaTypeLabel
 import com.nuvio.app.core.ui.NuvioDropdownChip
 import com.nuvio.app.core.ui.NuvioDropdownOption
 import com.nuvio.app.core.ui.NuvioPosterSelectionState
+import com.nuvio.app.core.ui.NuvioPosterAvailability
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.components.PosterGridRow
 import com.nuvio.app.features.home.components.PosterGridSkeletonRow
@@ -24,6 +25,10 @@ import nuvio.composeapp.generated.resources.library_filter_all_types
 import nuvio.composeapp.generated.resources.library_filter_list
 import nuvio.composeapp.generated.resources.library_filter_sort
 import nuvio.composeapp.generated.resources.library_filter_type
+import nuvio.composeapp.generated.resources.library_filter_unwatched_only
+import nuvio.composeapp.generated.resources.library_filter_watched
+import nuvio.composeapp.generated.resources.library_filter_watched_all
+import nuvio.composeapp.generated.resources.library_filter_watched_only
 import nuvio.composeapp.generated.resources.library_sort_added_asc
 import nuvio.composeapp.generated.resources.library_sort_added_desc
 import nuvio.composeapp.generated.resources.library_sort_title_asc
@@ -36,10 +41,12 @@ internal fun LibrarySavedControls(
     layoutMode: LibraryLayoutMode,
     sourceMode: LibrarySourceMode,
     sortOption: LibrarySortOption,
+    watchedFilter: LibraryWatchedFilter,
     verticalProjection: LibraryVerticalProjection,
     onSectionSelected: (String) -> Unit,
     onTypeSelected: (String?) -> Unit,
     onSortSelected: (LibrarySortOption) -> Unit,
+    onWatchedFilterSelected: (LibraryWatchedFilter) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val sortOptions = availableLibrarySortOptions(sourceMode)
@@ -49,6 +56,21 @@ internal fun LibrarySavedControls(
         modifier = modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
+        NuvioDropdownChip(
+            title = stringResource(Res.string.library_filter_watched),
+            label = libraryWatchedFilterLabel(watchedFilter),
+            selectedKey = watchedFilter.name,
+            options = LibraryWatchedFilter.entries.map { option ->
+                NuvioDropdownOption(key = option.name, label = libraryWatchedFilterLabel(option))
+            },
+            enabled = true,
+            onSelected = { option ->
+                LibraryWatchedFilter.entries
+                    .firstOrNull { it.name == option.key }
+                    ?.let(onWatchedFilterSelected)
+            },
+        )
+
         if (layoutMode == LibraryLayoutMode.VERTICAL && sourceMode.isRemoteTrackingSource) {
             val selectedSection = verticalProjection.availableSections
                 .firstOrNull { section -> section.type == verticalProjection.selectedSectionKey }
@@ -102,6 +124,13 @@ internal fun LibrarySavedControls(
     }
 }
 
+@Composable
+private fun libraryWatchedFilterLabel(filter: LibraryWatchedFilter): String = when (filter) {
+    LibraryWatchedFilter.ALL -> stringResource(Res.string.library_filter_watched_all)
+    LibraryWatchedFilter.UNWATCHED -> stringResource(Res.string.library_filter_unwatched_only)
+    LibraryWatchedFilter.WATCHED -> stringResource(Res.string.library_filter_watched_only)
+}
+
 internal fun LazyListScope.libraryVerticalContent(
     projection: LibraryVerticalProjection,
     columns: Int,
@@ -109,6 +138,7 @@ internal fun LazyListScope.libraryVerticalContent(
     fullyWatchedSeriesKeys: Set<String>,
     onPosterClick: ((LibraryItem) -> Unit)?,
     onPosterLongClick: ((LibraryItem, LibrarySection) -> Unit)?,
+    availability: (LibraryItem) -> NuvioPosterAvailability = { NuvioPosterAvailability.None },
     posterSelectionState: (LibraryItem) -> NuvioPosterSelectionState = { NuvioPosterSelectionState.None },
     selectionContentDescription: ((LibraryItem) -> String?)? = null,
     menuContentDescription: ((LibraryItem) -> String?)? = null,
@@ -135,6 +165,12 @@ internal fun LazyListScope.libraryVerticalContent(
                 { preview ->
                     rowEntries.findEntry(preview)?.let { entry -> callback(entry.item, entry.section) }
                 }
+            },
+            availability = { preview ->
+                rowEntries.findEntry(preview)
+                    ?.item
+                    ?.let(availability)
+                    ?: NuvioPosterAvailability.None
             },
             selectionState = { preview ->
                 rowEntries.findEntry(preview)

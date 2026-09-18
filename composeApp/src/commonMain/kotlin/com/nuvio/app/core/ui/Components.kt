@@ -58,9 +58,13 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
@@ -74,6 +78,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.nuvio.app.navigation.LocalNativeNavigationBarHidden
 import com.nuvio.app.navigation.LocalUseNativeNavigation
+import kotlin.math.max
 
 @Composable
 fun NuvioScreen(
@@ -143,6 +148,7 @@ fun NuvioScreenHeader(
     onBack: (() -> Unit)? = null,
     actionsLayout: NuvioScreenHeaderActionsLayout = NuvioScreenHeaderActionsLayout.Inline,
     actions: @Composable RowScope.() -> Unit = {},
+    compactActions: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -202,7 +208,109 @@ fun NuvioScreenHeader(
             }
         }
 
-        if (actionsLayout == NuvioScreenHeaderActionsLayout.Stacked) {
+        if (actionsLayout == NuvioScreenHeaderActionsLayout.Adaptive) {
+            val titleStyle = MaterialTheme.typography.displayLarge
+            val textMeasurer = rememberTextMeasurer()
+            val titleNaturalWidth = textMeasurer.measure(
+                text = AnnotatedString(title),
+                style = titleStyle,
+                maxLines = 1,
+            ).size.width
+            val backWidth = if (onBack == null) 0 else with(androidx.compose.ui.platform.LocalDensity.current) {
+                (NuvioTokens.Space.s48 + tokens.spacing.controlGap).roundToPx()
+            }
+            val minimumInlineTitleWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
+                NuvioTokens.Space.s96.roundToPx()
+            }
+            val inlineSpacing = with(androidx.compose.ui.platform.LocalDensity.current) {
+                NuvioTokens.Space.s2.roundToPx()
+            }
+            val stackedSpacing = with(androidx.compose.ui.platform.LocalDensity.current) {
+                NuvioTokens.Space.s4.roundToPx()
+            }
+
+            SubcomposeLayout(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = resolvedTopPadding, bottom = NuvioTokens.Space.s4),
+            ) { constraints ->
+                val looseConstraints = constraints.copy(
+                    minWidth = 0,
+                    minHeight = 0,
+                    maxWidth = Constraints.Infinity,
+                )
+                val fullActionsPlaceable = subcompose(NuvioHeaderSlot.FullActions) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
+                        verticalAlignment = Alignment.CenterVertically,
+                        content = actions,
+                    )
+                }.single().measure(looseConstraints)
+                val compactActionsPlaceable = compactActions?.let { compactContent ->
+                    subcompose(NuvioHeaderSlot.CompactActions) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
+                            verticalAlignment = Alignment.CenterVertically,
+                            content = compactContent,
+                        )
+                    }.single().measure(looseConstraints)
+                }
+                val presentation = resolveAdaptiveHeaderPresentation(
+                    availableWidthPx = constraints.maxWidth,
+                    naturalTitleWidthPx = titleNaturalWidth + backWidth,
+                    fullActionsWidthPx = fullActionsPlaceable.width,
+                    compactActionsWidthPx = compactActionsPlaceable?.width,
+                    minimumInlineTitleWidthPx = minimumInlineTitleWidth,
+                    spacingPx = inlineSpacing,
+                )
+                val selectedActions = when (presentation) {
+                    NuvioAdaptiveHeaderPresentation.FullInline -> fullActionsPlaceable
+                    NuvioAdaptiveHeaderPresentation.CompactInline,
+                    NuvioAdaptiveHeaderPresentation.CompactStacked,
+                    -> compactActionsPlaceable ?: fullActionsPlaceable
+                }
+                val isStacked = presentation == NuvioAdaptiveHeaderPresentation.CompactStacked
+                val actionSpacing = if (selectedActions.width == 0) 0 else inlineSpacing
+                val titleMaxWidth = if (isStacked) {
+                    constraints.maxWidth
+                } else {
+                    (constraints.maxWidth - selectedActions.width - actionSpacing).coerceAtLeast(0)
+                }
+                val titlePlaceable = subcompose(NuvioHeaderSlot.Title) {
+                    HeaderTitle()
+                }.single().measure(
+                    constraints.copy(
+                        minWidth = 0,
+                        minHeight = 0,
+                        maxWidth = titleMaxWidth,
+                    ),
+                )
+                val contentHeight = if (isStacked) {
+                    titlePlaceable.height + stackedSpacing + selectedActions.height
+                } else {
+                    max(titlePlaceable.height, selectedActions.height)
+                }
+
+                layout(constraints.maxWidth, contentHeight) {
+                    if (isStacked) {
+                        titlePlaceable.placeRelative(0, 0)
+                        selectedActions.placeRelative(
+                            x = (constraints.maxWidth - selectedActions.width).coerceAtLeast(0),
+                            y = titlePlaceable.height + stackedSpacing,
+                        )
+                    } else {
+                        titlePlaceable.placeRelative(
+                            x = 0,
+                            y = contentHeight - titlePlaceable.height,
+                        )
+                        selectedActions.placeRelative(
+                            x = (constraints.maxWidth - selectedActions.width).coerceAtLeast(0),
+                            y = contentHeight - selectedActions.height,
+                        )
+                    }
+                }
+            }
+        } else if (actionsLayout == NuvioScreenHeaderActionsLayout.Stacked) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -237,8 +345,43 @@ fun NuvioScreenHeader(
 }
 
 enum class NuvioScreenHeaderActionsLayout {
+    Adaptive,
     Inline,
     Stacked,
+}
+
+internal enum class NuvioAdaptiveHeaderPresentation {
+    FullInline,
+    CompactInline,
+    CompactStacked,
+}
+
+internal fun resolveAdaptiveHeaderPresentation(
+    availableWidthPx: Int,
+    naturalTitleWidthPx: Int,
+    fullActionsWidthPx: Int,
+    compactActionsWidthPx: Int?,
+    minimumInlineTitleWidthPx: Int,
+    spacingPx: Int,
+): NuvioAdaptiveHeaderPresentation {
+    val fullSpacing = if (fullActionsWidthPx == 0) 0 else spacingPx
+    if (naturalTitleWidthPx + fullSpacing + fullActionsWidthPx <= availableWidthPx) {
+        return NuvioAdaptiveHeaderPresentation.FullInline
+    }
+
+    val compactWidth = compactActionsWidthPx ?: fullActionsWidthPx
+    val compactSpacing = if (compactWidth == 0) 0 else spacingPx
+    return if (minimumInlineTitleWidthPx + compactSpacing + compactWidth <= availableWidthPx) {
+        NuvioAdaptiveHeaderPresentation.CompactInline
+    } else {
+        NuvioAdaptiveHeaderPresentation.CompactStacked
+    }
+}
+
+private enum class NuvioHeaderSlot {
+    Title,
+    FullActions,
+    CompactActions,
 }
 
 @Composable

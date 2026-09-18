@@ -1,5 +1,6 @@
 package com.nuvio.app.features.library
 
+import com.nuvio.app.features.watching.application.WatchingState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,9 +23,16 @@ enum class LibrarySortOption {
     TITLE_DESC,
 }
 
+enum class LibraryWatchedFilter {
+    ALL,
+    UNWATCHED,
+    WATCHED,
+}
+
 data class LibraryDisplaySettingsUiState(
     val layoutMode: LibraryLayoutMode = LibraryLayoutMode.HORIZONTAL,
     val sortOption: LibrarySortOption = LibrarySortOption.DEFAULT,
+    val watchedFilter: LibraryWatchedFilter = LibraryWatchedFilter.ALL,
 )
 
 object LibraryDisplaySettingsRepository {
@@ -58,6 +66,13 @@ object LibraryDisplaySettingsRepository {
         ensureLoaded()
         if (_uiState.value.sortOption == sortOption) return
         _uiState.value = _uiState.value.copy(sortOption = sortOption)
+        persist()
+    }
+
+    fun setWatchedFilter(watchedFilter: LibraryWatchedFilter) {
+        ensureLoaded()
+        if (_uiState.value.watchedFilter == watchedFilter) return
+        _uiState.value = _uiState.value.copy(watchedFilter = watchedFilter)
         persist()
     }
 
@@ -142,6 +157,55 @@ internal fun sortLibrarySections(
         section.copy(items = sortLibraryItems(section.items, selected, sourceMode))
     }
 
+internal fun filterLibrarySectionsByWatchedState(
+    sections: List<LibrarySection>,
+    filter: LibraryWatchedFilter,
+    watchedKeys: Set<String>,
+    fullyWatchedSeriesKeys: Set<String>,
+): List<LibrarySection> {
+    if (filter == LibraryWatchedFilter.ALL) return sections
+    val keepWatched = filter == LibraryWatchedFilter.WATCHED
+    return sections.mapNotNull { section ->
+        val items = section.items.filter { item ->
+            val isWatched = WatchingState.isPosterWatched(
+                watchedKeys = watchedKeys,
+                item = item.toMetaPreview(),
+                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+            )
+            isWatched == keepWatched
+        }
+        section.copy(items = items).takeIf { items.isNotEmpty() }
+    }
+}
+
+internal fun mergeLibraryTitleItems(
+    savedItems: List<LibraryItem>,
+    downloadedItems: List<LibraryItem>,
+): List<LibraryItem> {
+    val itemsByKey = linkedMapOf<String, LibraryItem>()
+    savedItems.forEach { item -> itemsByKey[libraryDisplayItemKey(item)] = item }
+    downloadedItems.forEach { downloaded ->
+        val key = libraryDisplayItemKey(downloaded)
+        val saved = itemsByKey[key]
+        itemsByKey[key] = if (saved == null) downloaded else saved.withDownloadFallback(downloaded)
+    }
+    return itemsByKey.values.toList()
+}
+
+private fun LibraryItem.withDownloadFallback(downloaded: LibraryItem): LibraryItem = copy(
+    name = name.ifBlank { downloaded.name },
+    poster = poster ?: downloaded.poster,
+    banner = banner ?: downloaded.banner,
+    logo = logo ?: downloaded.logo,
+    description = description ?: downloaded.description,
+    releaseInfo = releaseInfo ?: downloaded.releaseInfo,
+    imdbRating = imdbRating ?: downloaded.imdbRating,
+    genres = genres.ifEmpty { downloaded.genres },
+    imdbId = imdbId ?: downloaded.imdbId,
+    tmdbId = tmdbId ?: downloaded.tmdbId,
+    traktId = traktId ?: downloaded.traktId,
+)
+
 internal fun buildLibraryVerticalProjection(
     sections: List<LibrarySection>,
     sourceMode: LibrarySourceMode,
@@ -201,6 +265,7 @@ internal fun encodeLibraryDisplaySettings(state: LibraryDisplaySettingsUiState):
         StoredLibraryDisplaySettings(
             layoutMode = state.layoutMode.name,
             sortOption = state.sortOption.name,
+            watchedFilter = state.watchedFilter.name,
         ),
     )
 
@@ -219,6 +284,9 @@ internal fun decodeLibraryDisplaySettings(payload: String?): LibraryDisplaySetti
         sortOption = stored?.sortOption
             ?.let { value -> LibrarySortOption.entries.firstOrNull { it.name == value } }
             ?: LibrarySortOption.DEFAULT,
+        watchedFilter = stored?.watchedFilter
+            ?.let { value -> LibraryWatchedFilter.entries.firstOrNull { it.name == value } }
+            ?: LibraryWatchedFilter.ALL,
     )
 }
 
@@ -239,10 +307,16 @@ private fun libraryTitleTieBreakKey(item: LibraryItem): String =
         .ifBlank { item.id }
         .lowercase()
 
-private fun libraryDisplayItemKey(item: LibraryItem): String =
-    "${item.type.normalizedLibraryType()}:${item.id.trim()}"
+internal fun libraryDisplayItemKey(item: LibraryItem): String =
+    "${item.type.canonicalLibraryContentType()}:${item.id.trim().lowercase()}"
 
 private fun String.normalizedLibraryType(): String = trim().lowercase()
+
+internal fun String.canonicalLibraryContentType(): String = when (normalizedLibraryType()) {
+    "movie", "film" -> "movie"
+    "series", "show", "tv", "tvshow", "anime" -> "series"
+    else -> normalizedLibraryType()
+}
 
 internal val LibrarySourceMode.isRemoteTrackingSource: Boolean
     get() = this != LibrarySourceMode.LOCAL
@@ -251,4 +325,5 @@ internal val LibrarySourceMode.isRemoteTrackingSource: Boolean
 private data class StoredLibraryDisplaySettings(
     @SerialName("layout_mode") val layoutMode: String = LibraryLayoutMode.HORIZONTAL.name,
     @SerialName("sort_option") val sortOption: String = LibrarySortOption.DEFAULT.name,
+    @SerialName("watched_filter") val watchedFilter: String = LibraryWatchedFilter.ALL.name,
 )

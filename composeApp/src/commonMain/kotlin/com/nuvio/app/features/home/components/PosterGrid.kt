@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
+import com.nuvio.app.core.ui.NuvioPosterAvailability
+import com.nuvio.app.core.ui.NuvioPosterAvailabilityOverlay
 import com.nuvio.app.core.ui.NuvioPosterSelectionState
 import com.nuvio.app.core.ui.NuvioPosterSelectionOverlay
 import com.nuvio.app.core.ui.NuvioPosterWatchedOverlay
@@ -69,6 +71,7 @@ internal fun PosterGridRow(
     fullyWatchedSeriesKeys: Set<String> = emptySet(),
     onPosterClick: ((MetaPreview) -> Unit)? = null,
     onPosterLongClick: ((MetaPreview) -> Unit)? = null,
+    availability: (MetaPreview) -> NuvioPosterAvailability = { NuvioPosterAvailability.None },
     selectionState: (MetaPreview) -> NuvioPosterSelectionState = { NuvioPosterSelectionState.None },
     selectionContentDescription: ((MetaPreview) -> String?)? = null,
     menuContentDescription: ((MetaPreview) -> String?)? = null,
@@ -94,6 +97,7 @@ internal fun PosterGridRow(
                 ),
                 onClick = onPosterClick?.let { { it(item) } },
                 onLongClick = onPosterLongClick?.let { { it(item) } },
+                availability = availability(item),
                 selectionState = selectionState(item),
                 selectionContentDescription = selectionContentDescription?.invoke(item),
                 menuContentDescription = menuContentDescription?.invoke(item),
@@ -139,6 +143,7 @@ private fun PosterGridTile(
     isWatched: Boolean = false,
     onClick: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
+    availability: NuvioPosterAvailability = NuvioPosterAvailability.None,
     selectionState: NuvioPosterSelectionState = NuvioPosterSelectionState.None,
     selectionContentDescription: String? = null,
     menuContentDescription: String? = null,
@@ -199,6 +204,7 @@ private fun PosterGridTile(
                 )
             }
             NuvioPosterWatchedOverlay(isWatched = isWatched)
+            NuvioPosterAvailabilityOverlay(availability = availability)
             if (onMenuClick != null) {
                 IconButton(
                     onClick = onMenuClick,

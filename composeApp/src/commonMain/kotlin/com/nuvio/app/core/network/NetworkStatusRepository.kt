@@ -13,8 +13,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import nuvio.composeapp.generated.resources.Res
@@ -77,8 +80,9 @@ object NetworkStatusRepository {
     private const val PUBLIC_PROBE_PRIMARY = "https://www.gstatic.com/generate_204"
     private const val PUBLIC_PROBE_FALLBACK = "https://cloudflare.com/cdn-cgi/trace"
 
+    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val controller = NetworkStatusController(
-        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+        scope = repositoryScope,
         probeCondition = ::probeCondition,
         onProbeResult = { generation, condition ->
             log.d { "Probe generation=$generation condition=$condition" }
@@ -88,7 +92,20 @@ object NetworkStatusRepository {
         reconnectTimeoutMs = RECONNECT_TIMEOUT_MS,
         reconnectMaxAttempts = RECONNECT_MAX_ATTEMPTS,
     )
-    val uiState: StateFlow<NetworkStatusUiState> = controller.uiState
+    private val _offlineSimulationEnabled = MutableStateFlow(false)
+    val offlineSimulationEnabled: StateFlow<Boolean> = _offlineSimulationEnabled.asStateFlow()
+    val uiState: StateFlow<NetworkStatusUiState> = combine(
+        controller.uiState,
+        _offlineSimulationEnabled,
+        ::networkStatusWithOfflineSimulation,
+    ).stateIn(
+        scope = repositoryScope,
+        started = SharingStarted.Eagerly,
+        initialValue = networkStatusWithOfflineSimulation(
+            controller.uiState.value,
+            _offlineSimulationEnabled.value,
+        ),
+    )
 
     fun ensureStarted() = controller.ensureStarted()
 
@@ -99,7 +116,14 @@ object NetworkStatusRepository {
     fun requestRefresh(force: Boolean = false, confirmFailures: Boolean = false): Long =
         controller.requestRefresh(force = force, confirmFailures = confirmFailures)
 
-    internal fun requestReconnect(): Long = controller.requestReconnect()
+    internal fun requestReconnect(): Long {
+        _offlineSimulationEnabled.value = false
+        return controller.requestReconnect()
+    }
+
+    fun setOfflineSimulationEnabled(enabled: Boolean) {
+        _offlineSimulationEnabled.value = enabled
+    }
 
     internal fun cancelReconnect() = controller.cancelReconnect()
 
@@ -147,6 +171,19 @@ object NetworkStatusRepository {
         return response.status in 100..599
     }
 
+}
+
+internal fun networkStatusWithOfflineSimulation(
+    actual: NetworkStatusUiState,
+    simulationEnabled: Boolean,
+): NetworkStatusUiState = if (simulationEnabled) {
+    actual.copy(
+        condition = NetworkCondition.NoInternet,
+        isProbing = false,
+        keepOfflinePresentation = false,
+    )
+} else {
+    actual
 }
 
 private val networkStatusTimeOrigin = TimeSource.Monotonic.markNow()

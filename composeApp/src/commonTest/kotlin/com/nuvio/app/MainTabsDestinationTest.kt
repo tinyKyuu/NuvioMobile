@@ -7,6 +7,7 @@ import com.nuvio.app.core.network.NetworkRecoveryUiState
 import com.nuvio.app.core.network.NetworkStatusUiState
 import com.nuvio.app.features.home.shouldShowOfflineHomeConnectionCard
 import com.nuvio.app.features.settings.NavBarStyle
+import com.nuvio.app.core.ui.NuvioScreenHeaderActionsLayout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -61,18 +62,6 @@ class MainTabsDestinationTest {
     }
 
     @Test
-    fun `offline status appears on root routes for connection failures`() {
-        assertTrue(shouldShowRootOfflineStatus(true, ReconnectControlState.Offline))
-        assertTrue(shouldShowRootOfflineStatus(true, ReconnectControlState.Failed))
-    }
-
-    @Test
-    fun `offline status stays hidden outside root routes and while checking`() {
-        assertFalse(shouldShowRootOfflineStatus(false, ReconnectControlState.Offline))
-        assertFalse(shouldShowRootOfflineStatus(true, ReconnectControlState.Hidden))
-    }
-
-    @Test
     fun `reconnect control exposes probing restoring failure and completion states`() {
         assertEquals(
             ReconnectControlState.Probing,
@@ -112,7 +101,7 @@ class MainTabsDestinationTest {
     }
 
     @Test
-    fun `offline phone with playable local content keeps compact retry reachable`() {
+    fun `offline phone with playable local content keeps header retry reachable`() {
         assertFalse(
             shouldShowOfflineHomeConnectionCard(
                 isOfflineLike = true,
@@ -121,25 +110,71 @@ class MainTabsDestinationTest {
             ),
         )
         assertEquals(
-            RootOfflineStatusPresentation.CompactIcon,
-            rootOfflineStatusPresentation(
+            ReconnectControlState.Offline,
+            rootConnectionStateForTab(
+                selectedTab = AppScreenTab.Home,
                 rootRouteActive = true,
                 state = ReconnectControlState.Offline,
-                isTabletLayout = false,
-                showRetryLabel = false,
             ),
         )
     }
 
     @Test
-    fun `wide tablet keeps labeled retry pill on root routes`() {
+    fun `Home Search and Library receive the header control while Settings does not`() {
+        listOf(AppScreenTab.Home, AppScreenTab.Search, AppScreenTab.Library).forEach { tab ->
+            assertEquals(
+                ReconnectControlState.Restoring,
+                rootConnectionStateForTab(
+                    selectedTab = tab,
+                    rootRouteActive = true,
+                    state = ReconnectControlState.Restoring,
+                ),
+            )
+        }
         assertEquals(
-            RootOfflineStatusPresentation.RetryPill,
-            rootOfflineStatusPresentation(
+            ReconnectControlState.Hidden,
+            rootConnectionStateForTab(
+                selectedTab = AppScreenTab.Settings,
                 rootRouteActive = true,
                 state = ReconnectControlState.Restoring,
-                isTabletLayout = true,
-                showRetryLabel = true,
+            ),
+        )
+        assertEquals(
+            ReconnectControlState.Hidden,
+            rootConnectionStateForTab(
+                selectedTab = AppScreenTab.Home,
+                rootRouteActive = false,
+                state = ReconnectControlState.Offline,
+            ),
+        )
+    }
+
+    @Test
+    fun `root headers stack a visible connection control at narrow widths`() {
+        assertEquals(
+            NuvioScreenHeaderActionsLayout.Stacked,
+            rootHeaderActionsLayoutForWidth(390.dp, ReconnectControlState.Probing),
+        )
+        assertEquals(
+            NuvioScreenHeaderActionsLayout.Inline,
+            rootHeaderActionsLayoutForWidth(768.dp, ReconnectControlState.Restoring),
+        )
+        assertEquals(
+            NuvioScreenHeaderActionsLayout.Inline,
+            rootHeaderActionsLayoutForWidth(320.dp, ReconnectControlState.Hidden),
+        )
+    }
+
+    @Test
+    fun `confirmed connectivity holds the restoring control until recovery publishes`() {
+        assertEquals(
+            ReconnectControlState.Restoring,
+            reconnectControlState(
+                NetworkStatusUiState(
+                    condition = NetworkCondition.Online,
+                    keepOfflinePresentation = true,
+                ),
+                NetworkRecoveryUiState(),
             ),
         )
     }

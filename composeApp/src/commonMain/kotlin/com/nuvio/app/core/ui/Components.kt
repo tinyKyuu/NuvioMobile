@@ -141,6 +141,7 @@ fun NuvioScreenHeader(
     includeStatusBarPadding: Boolean = true,
     topPadding: Dp? = null,
     onBack: (() -> Unit)? = null,
+    actionsLayout: NuvioScreenHeaderActionsLayout = NuvioScreenHeaderActionsLayout.Inline,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     val tokens = MaterialTheme.nuvio
@@ -169,14 +170,10 @@ fun NuvioScreenHeader(
                 .background(tokens.colors.background)
                 .nuvioConsumePointerEvents(),
         ) {}
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = resolvedTopPadding, bottom = NuvioTokens.Space.s4),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom,
-        ) {
+        @Composable
+        fun HeaderTitle(modifier: Modifier = Modifier) {
             Row(
+                modifier = modifier,
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
             ) {
@@ -201,13 +198,45 @@ fun NuvioScreenHeader(
                     )
                 }
             }
+        }
+
+        if (actionsLayout == NuvioScreenHeaderActionsLayout.Stacked) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = resolvedTopPadding, bottom = NuvioTokens.Space.s4),
+                verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
+            ) {
+                HeaderTitle()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = actions,
+                )
+            }
+        } else {
             Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = resolvedTopPadding, bottom = NuvioTokens.Space.s4),
                 horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
-                verticalAlignment = Alignment.CenterVertically,
-                content = actions,
-            )
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                HeaderTitle(modifier = Modifier.weight(1f, fill = false))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = actions,
+                )
+            }
         }
     }
+}
+
+enum class NuvioScreenHeaderActionsLayout {
+    Inline,
+    Stacked,
 }
 
 @Composable

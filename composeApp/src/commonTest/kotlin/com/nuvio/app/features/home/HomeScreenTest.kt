@@ -1,6 +1,9 @@
 package com.nuvio.app.features.home
 
 import com.nuvio.app.core.network.NetworkCondition
+import com.nuvio.app.core.network.NetworkRecoveryPhase
+import com.nuvio.app.core.network.NetworkRecoveryTrigger
+import com.nuvio.app.core.network.NetworkRecoveryUiState
 import com.nuvio.app.core.network.NetworkStatusUiState
 import com.nuvio.app.features.cloud.CloudLibraryFile
 import com.nuvio.app.features.cloud.CloudLibraryItem
@@ -109,6 +112,54 @@ class HomeScreenTest {
 
         assertEquals(HomePresentationMode.Online, onlineProbe.mode)
         assertEquals(HomePresentationMode.Offline, offlineProbe.mode)
+    }
+
+    @Test
+    fun `offline Home stays local-only after probing succeeds until reconciliation completes`() {
+        val connectivityConfirmed = homePresentationFor(
+            networkStatus = NetworkStatusUiState(
+                condition = NetworkCondition.Online,
+                keepOfflinePresentation = true,
+            ),
+            recovery = NetworkRecoveryUiState(),
+        )
+        val restoring = homePresentationFor(
+            networkStatus = NetworkStatusUiState(
+                condition = NetworkCondition.Online,
+                keepOfflinePresentation = true,
+            ),
+            recovery = NetworkRecoveryUiState(
+                phase = NetworkRecoveryPhase.RefreshingCatalogs,
+                trigger = NetworkRecoveryTrigger.Retry,
+            ),
+        )
+        val restored = homePresentationFor(
+            networkStatus = NetworkStatusUiState(NetworkCondition.Online),
+            recovery = NetworkRecoveryUiState(
+                phase = NetworkRecoveryPhase.Completed,
+                trigger = NetworkRecoveryTrigger.Retry,
+            ),
+        )
+
+        assertEquals(HomePresentationMode.Offline, connectivityConfirmed.mode)
+        assertEquals(HomePresentationMode.Offline, restoring.mode)
+        assertFalse(restoring.showRemoteContent)
+        assertTrue(restoring.showDownloadedContent)
+        assertEquals(HomePresentationMode.Online, restored.mode)
+    }
+
+    @Test
+    fun `online manual force-all refresh keeps the normal Home presentation`() {
+        val presentation = homePresentationFor(
+            networkStatus = NetworkStatusUiState(NetworkCondition.Online),
+            recovery = NetworkRecoveryUiState(
+                phase = NetworkRecoveryPhase.RestoringAddons,
+                trigger = NetworkRecoveryTrigger.ManualRefresh,
+            ),
+        )
+
+        assertEquals(HomePresentationMode.Online, presentation.mode)
+        assertTrue(presentation.showRemoteContent)
     }
 
     @Test

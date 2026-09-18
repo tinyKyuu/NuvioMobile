@@ -47,6 +47,9 @@ import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.NuvioScreenHeader
+import com.nuvio.app.ReconnectControlState
+import com.nuvio.app.RootConnectionControl
+import com.nuvio.app.rootHeaderActionsLayoutForWidth
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.features.addons.AddonRepository
@@ -94,6 +97,9 @@ fun SearchScreen(
     onPosterLongClick: ((MetaPreview) -> Unit)? = null,
     searchFocusRequestCount: Int = 0,
     scrollToTopRequests: Flow<Unit> = emptyFlow(),
+    networkCondition: NetworkCondition = NetworkCondition.Unknown,
+    reconnectControlState: ReconnectControlState = ReconnectControlState.Hidden,
+    onNetworkRetry: () -> Unit = {},
 ) {
     val focusRequester = remember { FocusRequester() }
 
@@ -197,6 +203,7 @@ fun SearchScreen(
         val homeSectionPadding = remember(maxWidth) {
             homeSectionHorizontalPaddingForWidth(maxWidth.value)
         }
+        val headerAvailableWidth = maxWidth
         val headerTitle = when {
             query.isNotBlank() -> stringResource(Res.string.compose_nav_search)
             discoverInFocus -> stringResource(Res.string.compose_search_discover_title)
@@ -223,6 +230,17 @@ fun SearchScreen(
                     NuvioScreenHeader(
                         title = headerTitle,
                         modifier = Modifier.padding(horizontal = 16.dp),
+                        actionsLayout = rootHeaderActionsLayoutForWidth(
+                            availableWidth = headerAvailableWidth,
+                            state = reconnectControlState,
+                        ),
+                        actions = {
+                            RootConnectionControl(
+                                condition = networkCondition,
+                                state = reconnectControlState,
+                                onRetry = onNetworkRetry,
+                            )
+                        },
                     )
                     androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(6.dp))
                     androidx.compose.foundation.layout.Box(modifier = Modifier.padding(horizontal = 16.dp)) {

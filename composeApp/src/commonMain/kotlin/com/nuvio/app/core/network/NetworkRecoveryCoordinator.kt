@@ -307,7 +307,12 @@ object NetworkRecoveryCoordinator {
         scope = scope,
         operations = operations,
         activeProfileId = { ProfileRepository.activeProfileId },
-        requestFreshProbe = { NetworkStatusRepository.requestRefresh(force = true) },
+        requestFreshProbe = NetworkStatusRepository::requestReconnect,
+        onRecoveryCompleted = NetworkStatusRepository::onRecoveryCompleted,
+        cancelConnectivitySession = {
+            NetworkStatusRepository.cancelReconnect()
+            NetworkStatusRepository.clearOfflinePresentationHold()
+        },
     )
     val uiState: StateFlow<NetworkRecoveryUiState> = controller.uiState
 
@@ -332,7 +337,9 @@ object NetworkRecoveryCoordinator {
         controller.retry(forceAllManifests = true)
     }
 
-    fun onProfileChanged(profileId: Int) = controller.onProfileChanged(profileId)
+    fun onProfileChanged(profileId: Int) {
+        controller.onProfileChanged(profileId)
+    }
 
     fun onProfileDeleted(profileId: Int) {
         if (uiState.value.profileId == profileId) onProfileChanged(ProfileRepository.activeProfileId)
@@ -347,6 +354,8 @@ internal class NetworkRecoveryController(
     private val operations: NetworkRecoveryOperations,
     private val activeProfileId: () -> Int,
     private val requestFreshProbe: () -> Long,
+    private val onRecoveryCompleted: () -> Unit = {},
+    private val cancelConnectivitySession: () -> Unit = {},
 ) {
     private val log = Logger.withTag("NetworkRecovery")
     private val requestGate = NetworkRecoveryRequestGate()
@@ -367,6 +376,7 @@ internal class NetworkRecoveryController(
     }
 
     fun onProfileChanged(profileId: Int) {
+        cancelConnectivitySession()
         val generation = requestGate.invalidate()
         synchronized(transitionLock) {
             retryProbeGeneration = null
@@ -460,6 +470,9 @@ internal class NetworkRecoveryController(
                                 trigger = trigger,
                                 failedManifestCount = manifestOutcome?.failedUrls?.size ?: 0,
                             )
+                            if (phase == NetworkRecoveryPhase.Completed) {
+                                onRecoveryCompleted()
+                            }
                         }
                     },
                 )

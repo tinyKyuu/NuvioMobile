@@ -7,6 +7,7 @@ import com.nuvio.app.features.addons.httpRequestRaw
 import kotlinx.atomicfu.locks.SynchronizedObject
 import kotlinx.atomicfu.locks.synchronized
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -24,6 +25,7 @@ import nuvio.composeapp.generated.resources.network_connection_issue
 import nuvio.composeapp.generated.resources.network_no_internet_connection
 import nuvio.composeapp.generated.resources.network_please_check_connection
 import org.jetbrains.compose.resources.stringResource
+import kotlin.time.TimeSource
 
 enum class NetworkCondition {
     Unknown,
@@ -37,12 +39,16 @@ data class NetworkStatusUiState(
     val condition: NetworkCondition = NetworkCondition.Unknown,
     val probeGeneration: Long = 0L,
     val isProbing: Boolean = false,
+    val keepOfflinePresentation: Boolean = false,
 ) {
     val isOnline: Boolean
         get() = condition == NetworkCondition.Online
 
     val isOfflineLike: Boolean
         get() = condition == NetworkCondition.NoInternet || condition == NetworkCondition.ServersUnreachable
+
+    val usesOfflinePresentation: Boolean
+        get() = isOfflineLike || keepOfflinePresentation
 }
 
 @Composable
@@ -66,6 +72,8 @@ object NetworkStatusRepository {
     private const val REQUEST_TIMEOUT_MS = 4_500L
     private const val FOREGROUND_REFRESH_DELAY_MS = 6_000L
     private const val FOREGROUND_FAILURE_CONFIRM_DELAY_MS = 2_000L
+    private const val RECONNECT_TIMEOUT_MS = 15_000L
+    private const val RECONNECT_MAX_ATTEMPTS = 3
     private const val PUBLIC_PROBE_PRIMARY = "https://www.gstatic.com/generate_204"
     private const val PUBLIC_PROBE_FALLBACK = "https://cloudflare.com/cdn-cgi/trace"
 
@@ -77,6 +85,8 @@ object NetworkStatusRepository {
         },
         foregroundRefreshDelayMs = FOREGROUND_REFRESH_DELAY_MS,
         failureConfirmDelayMs = FOREGROUND_FAILURE_CONFIRM_DELAY_MS,
+        reconnectTimeoutMs = RECONNECT_TIMEOUT_MS,
+        reconnectMaxAttempts = RECONNECT_MAX_ATTEMPTS,
     )
     val uiState: StateFlow<NetworkStatusUiState> = controller.uiState
 
@@ -88,6 +98,14 @@ object NetworkStatusRepository {
 
     fun requestRefresh(force: Boolean = false, confirmFailures: Boolean = false): Long =
         controller.requestRefresh(force = force, confirmFailures = confirmFailures)
+
+    internal fun requestReconnect(): Long = controller.requestReconnect()
+
+    internal fun cancelReconnect() = controller.cancelReconnect()
+
+    internal fun onRecoveryCompleted() = controller.onRecoveryCompleted()
+
+    internal fun clearOfflinePresentationHold() = controller.clearOfflinePresentationHold()
 
     private suspend fun probeCondition(): NetworkCondition {
         val internetReachable = probePublicInternet()
@@ -131,19 +149,37 @@ object NetworkStatusRepository {
 
 }
 
+private val networkStatusTimeOrigin = TimeSource.Monotonic.markNow()
+
+private fun networkStatusMonotonicMs(): Long =
+    networkStatusTimeOrigin.elapsedNow().inWholeMilliseconds
+
 internal class NetworkStatusController(
     private val scope: CoroutineScope,
     private val probeCondition: suspend () -> NetworkCondition,
     private val onProbeResult: (Long, NetworkCondition) -> Unit = { _, _ -> },
     private val delayFor: suspend (Long) -> Unit = { delay(it) },
+    private val probeWithinTimeout: suspend (Long) -> NetworkCondition? = { timeoutMs ->
+        withTimeoutOrNull(timeoutMs) { probeCondition() }
+    },
+    private val nowMs: () -> Long = ::networkStatusMonotonicMs,
     private val foregroundRefreshDelayMs: Long = 6_000L,
     private val failureConfirmDelayMs: Long = 2_000L,
     private val pathLossDebounceMs: Long = 1_000L,
     private val serverRetryDelaysMs: List<Long> = listOf(5_000L, 15_000L, 30_000L),
+    private val reconnectRetryDelaysMs: List<Long> = listOf(2_000L, 4_000L),
+    private val reconnectTimeoutMs: Long = 15_000L,
+    private val reconnectMaxAttempts: Int = 3,
 ) {
+    private enum class ProbeKind {
+        Standard,
+        Reconnect,
+    }
+
     private data class ProbeRequest(
         val generation: Long,
         val confirmFailures: Boolean,
+        val kind: ProbeKind = ProbeKind.Standard,
     )
 
     private val lock = SynchronizedObject()
@@ -154,8 +190,9 @@ internal class NetworkStatusController(
     private var foreground = true
     private var lastNetworkPathEvent: NetworkPathEvent? = null
     private var latestProbeGeneration = 0L
-    private var activeProbeGeneration: Long? = null
+    private var activeProbeRequest: ProbeRequest? = null
     private var pendingProbeRequest: ProbeRequest? = null
+    private var activeProbeJob: Job? = null
     private var foregroundRefreshJob: Job? = null
     private var pathLossJob: Job? = null
     private var serverRetryJob: Job? = null
@@ -175,6 +212,7 @@ internal class NetworkStatusController(
         pathLossJob?.cancel()
         if (!isForeground) {
             serverRetryJob?.cancel()
+            cancelReconnect()
             return
         }
         ensureStarted()
@@ -198,7 +236,9 @@ internal class NetworkStatusController(
         when (event) {
             NetworkPathEvent.Available -> {
                 pathLossJob?.cancel()
-                if (_uiState.value.isOfflineLike) requestRefresh(force = true)
+                if (_uiState.value.isOfflineLike && !hasReconnectRequest()) {
+                    requestRefresh(force = true)
+                }
             }
             NetworkPathEvent.Unavailable -> {
                 if (_uiState.value.condition != NetworkCondition.Online) return
@@ -217,9 +257,10 @@ internal class NetworkStatusController(
         ensureMarkedStarted()
         var shouldLaunch = false
         val request = synchronized(lock) {
-            activeProbeGeneration?.let { activeGeneration ->
-                if (!force) return activeGeneration
+            activeProbeRequest?.let { active ->
+                if (active.kind == ProbeKind.Reconnect || !force) return active.generation
                 pendingProbeRequest?.let { pending ->
+                    if (pending.kind == ProbeKind.Reconnect) return pending.generation
                     if (confirmFailures && !pending.confirmFailures) {
                         pendingProbeRequest = pending.copy(confirmFailures = true)
                     }
@@ -236,12 +277,77 @@ internal class NetworkStatusController(
                 generation = latestProbeGeneration,
                 confirmFailures = confirmFailures,
             ).also {
-                activeProbeGeneration = it.generation
+                activeProbeRequest = it
                 shouldLaunch = true
             }
         }
         if (shouldLaunch) launchProbe(request)
         return request.generation
+    }
+
+    fun requestReconnect(): Long {
+        ensureMarkedStarted()
+        var shouldLaunch = false
+        val request = synchronized(lock) {
+            activeProbeRequest?.takeIf { it.kind == ProbeKind.Reconnect }?.let { return it.generation }
+            pendingProbeRequest?.let { pending ->
+                if (pending.kind == ProbeKind.Reconnect) return pending.generation
+                return@synchronized pending.copy(
+                    confirmFailures = false,
+                    kind = ProbeKind.Reconnect,
+                ).also { pendingProbeRequest = it }
+            }
+
+            latestProbeGeneration += 1L
+            ProbeRequest(
+                generation = latestProbeGeneration,
+                confirmFailures = false,
+                kind = ProbeKind.Reconnect,
+            ).also { reconnect ->
+                if (activeProbeRequest == null) {
+                    activeProbeRequest = reconnect
+                    shouldLaunch = true
+                } else {
+                    pendingProbeRequest = reconnect
+                }
+            }
+        }
+        if (shouldLaunch) launchProbe(request)
+        return request.generation
+    }
+
+    fun cancelReconnect() {
+        var jobToCancel: Job? = null
+        var cancelledGeneration: Long? = null
+        synchronized(lock) {
+            if (pendingProbeRequest?.kind == ProbeKind.Reconnect) {
+                pendingProbeRequest = null
+            }
+            val active = activeProbeRequest
+            if (active?.kind == ProbeKind.Reconnect) {
+                cancelledGeneration = active.generation
+                activeProbeRequest = null
+                jobToCancel = activeProbeJob
+                activeProbeJob = null
+            }
+        }
+        jobToCancel?.cancel()
+        cancelledGeneration?.let { generation ->
+            _uiState.value = _uiState.value.copy(
+                probeGeneration = generation,
+                isProbing = false,
+            )
+        }
+    }
+
+    fun onRecoveryCompleted() {
+        if (_uiState.value.condition == NetworkCondition.Online) {
+            _uiState.value = _uiState.value.copy(keepOfflinePresentation = false)
+        }
+    }
+
+    fun clearOfflinePresentationHold() {
+        _uiState.value = _uiState.value.copy(keepOfflinePresentation = false)
     }
 
     private fun launchProbe(request: ProbeRequest) {
@@ -255,30 +361,31 @@ internal class NetworkStatusController(
             },
             isProbing = true,
         )
-        scope.launch {
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             var result: NetworkCondition? = null
             try {
-                val previous = _uiState.value.condition
-                var next = probeCondition()
-                if (request.confirmFailures && previous == NetworkCondition.Online && next.isOfflineLike()) {
-                    delayFor(failureConfirmDelayMs)
-                    next = probeCondition()
+                result = when (request.kind) {
+                    ProbeKind.Standard -> runStandardProbe(request)
+                    ProbeKind.Reconnect -> runReconnectSession()
                 }
-                result = next
+                val next = requireNotNull(result)
                 _uiState.value = NetworkStatusUiState(
                     condition = next,
                     probeGeneration = generation,
                     isProbing = false,
+                    keepOfflinePresentation = next.isOfflineLike() ||
+                        (next == NetworkCondition.Online && _uiState.value.keepOfflinePresentation),
                 )
                 onProbeResult(generation, next)
             } finally {
                 val nextRequest = synchronized(lock) {
-                    if (activeProbeGeneration != generation) {
+                    if (activeProbeRequest?.generation != generation) {
                         null
                     } else {
                         pendingProbeRequest.also { pending ->
                             pendingProbeRequest = null
-                            activeProbeGeneration = pending?.generation
+                            activeProbeRequest = pending
+                            activeProbeJob = null
                         }
                     }
                 }
@@ -301,10 +408,58 @@ internal class NetworkStatusController(
                 }
             }
         }
+        val shouldStart = synchronized(lock) {
+            if (activeProbeRequest?.generation == generation) {
+                activeProbeJob = job
+                true
+            } else {
+                false
+            }
+        }
+        if (shouldStart) job.start() else job.cancel()
+    }
+
+    private suspend fun runStandardProbe(request: ProbeRequest): NetworkCondition {
+        val previous = _uiState.value.condition
+        var next = probeCondition()
+        if (request.confirmFailures && previous == NetworkCondition.Online && next.isOfflineLike()) {
+            delayFor(failureConfirmDelayMs)
+            next = probeCondition()
+        }
+        return next
+    }
+
+    private suspend fun runReconnectSession(): NetworkCondition {
+        val startedAtMs = nowMs()
+        var attempts = 0
+        var lastFailure: NetworkCondition? = null
+
+        while (attempts < reconnectMaxAttempts) {
+            val remainingMs = reconnectTimeoutMs - (nowMs() - startedAtMs)
+            if (remainingMs <= 0L) break
+
+            val next = probeWithinTimeout(remainingMs) ?: break
+            attempts += 1
+            if (next == NetworkCondition.Online) return next
+            lastFailure = next
+
+            val retryDelayMs = reconnectRetryDelaysMs.getOrNull(attempts - 1) ?: break
+            val remainingAfterProbeMs = reconnectTimeoutMs - (nowMs() - startedAtMs)
+            if (remainingAfterProbeMs <= 0L) break
+            delayFor(minOf(retryDelayMs, remainingAfterProbeMs))
+        }
+
+        return lastFailure
+            ?: _uiState.value.condition.takeIf { it.isOfflineLike() }
+            ?: NetworkCondition.NoInternet
     }
 
     private fun ensureMarkedStarted() {
         synchronized(lock) { started = true }
+    }
+
+    private fun hasReconnectRequest(): Boolean = synchronized(lock) {
+        activeProbeRequest?.kind == ProbeKind.Reconnect || pendingProbeRequest?.kind == ProbeKind.Reconnect
     }
 
     private fun scheduleServerRetry() {

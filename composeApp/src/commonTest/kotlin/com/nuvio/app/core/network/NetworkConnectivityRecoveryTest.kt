@@ -89,6 +89,226 @@ class NetworkConnectivityRecoveryTest {
     }
 
     @Test
+    fun `Reconnect succeeds on its first real probe without a minimum delay`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val results = mutableListOf(NetworkCondition.NoInternet, NetworkCondition.Online)
+        val delays = mutableListOf<Long>()
+        var probeCount = 0
+        val controller = NetworkStatusController(
+            scope = scope,
+            probeCondition = {
+                probeCount += 1
+                results.removeFirst()
+            },
+            delayFor = { delays += it },
+        )
+        try {
+            controller.ensureStarted()
+            withTimeout(1_000) { controller.uiState.first { it.condition == NetworkCondition.NoInternet } }
+
+            controller.requestReconnect()
+            val restored = withTimeout(1_000) {
+                controller.uiState.first { it.condition == NetworkCondition.Online && !it.isProbing }
+            }
+
+            assertEquals(2, probeCount)
+            assertTrue(delays.isEmpty())
+            assertTrue(restored.keepOfflinePresentation)
+            controller.onRecoveryCompleted()
+            assertFalse(controller.uiState.value.keepOfflinePresentation)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `Reconnect retries a failed real probe and stops on the first success`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val results = mutableListOf(
+            NetworkCondition.NoInternet,
+            NetworkCondition.NoInternet,
+            NetworkCondition.Online,
+        )
+        val delays = mutableListOf<Long>()
+        var probeCount = 0
+        val controller = NetworkStatusController(
+            scope = scope,
+            probeCondition = {
+                probeCount += 1
+                results.removeFirst()
+            },
+            delayFor = { delays += it },
+            reconnectRetryDelaysMs = listOf(2L, 4L),
+        )
+        try {
+            controller.ensureStarted()
+            withTimeout(1_000) { controller.uiState.first { it.condition == NetworkCondition.NoInternet } }
+
+            controller.requestReconnect()
+            withTimeout(1_000) {
+                controller.uiState.first { it.condition == NetworkCondition.Online && !it.isProbing }
+            }
+
+            assertEquals(3, probeCount)
+            assertEquals(listOf(2L), delays)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `Reconnect stops after three failed probes and returns to offline idle`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var probeCount = 0
+        val delays = mutableListOf<Long>()
+        val controller = NetworkStatusController(
+            scope = scope,
+            probeCondition = {
+                probeCount += 1
+                NetworkCondition.NoInternet
+            },
+            delayFor = { delays += it },
+            reconnectRetryDelaysMs = listOf(2L, 4L),
+        )
+        try {
+            controller.ensureStarted()
+            withTimeout(1_000) { controller.uiState.first { it.condition == NetworkCondition.NoInternet } }
+            val reconnectGeneration = controller.requestReconnect()
+            val failed = withTimeout(1_000) {
+                controller.uiState.first {
+                    it.probeGeneration == reconnectGeneration && !it.isProbing
+                }
+            }
+
+            assertEquals(4, probeCount)
+            assertEquals(listOf(2L, 4L), delays)
+            assertEquals(NetworkCondition.NoInternet, failed.condition)
+            assertTrue(failed.usesOfflinePresentation)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `Reconnect enforces its overall deadline before the attempt cap`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var elapsedMs = 0L
+        var reconnectProbeCount = 0
+        val delays = mutableListOf<Long>()
+        val controller = NetworkStatusController(
+            scope = scope,
+            probeCondition = { NetworkCondition.NoInternet },
+            probeWithinTimeout = {
+                reconnectProbeCount += 1
+                elapsedMs += 6_000L
+                NetworkCondition.NoInternet
+            },
+            nowMs = { elapsedMs },
+            delayFor = { delayMs ->
+                delays += delayMs
+                elapsedMs += delayMs
+            },
+            reconnectRetryDelaysMs = listOf(2_000L, 4_000L),
+            reconnectTimeoutMs = 15_000L,
+            reconnectMaxAttempts = 3,
+        )
+        try {
+            controller.ensureStarted()
+            withTimeout(1_000) { controller.uiState.first { it.condition == NetworkCondition.NoInternet } }
+            val reconnectGeneration = controller.requestReconnect()
+            withTimeout(1_000) {
+                controller.uiState.first {
+                    it.probeGeneration == reconnectGeneration && !it.isProbing
+                }
+            }
+
+            assertEquals(2, reconnectProbeCount)
+            assertEquals(listOf(2_000L, 1_000L), delays)
+            assertEquals(15_000L, elapsedMs)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `repeated Reconnect presses and path availability share one retry session`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val manualProbe = CompletableDeferred<NetworkCondition>()
+        val transitions = NetworkRecoveryTransitionTracker()
+        var reconnectProbeCount = 0
+        var recoveryCount = 0
+        val controller = NetworkStatusController(
+            scope = scope,
+            probeCondition = { NetworkCondition.NoInternet },
+            probeWithinTimeout = {
+                reconnectProbeCount += 1
+                manualProbe.await()
+            },
+            onProbeResult = { _, condition ->
+                if (transitions.onCondition(condition)) recoveryCount += 1
+            },
+        )
+        try {
+            controller.ensureStarted()
+            withTimeout(1_000) { controller.uiState.first { it.condition == NetworkCondition.NoInternet } }
+            val generations = listOf(
+                controller.requestReconnect(),
+                controller.requestReconnect(),
+                controller.requestReconnect(),
+            )
+            controller.onNetworkPathEvent(NetworkPathEvent.Available)
+
+            assertEquals(1, generations.distinct().size)
+            assertEquals(1, reconnectProbeCount)
+            assertTrue(controller.uiState.value.isProbing)
+
+            manualProbe.complete(NetworkCondition.Online)
+            withTimeout(1_000) {
+                controller.uiState.first { it.condition == NetworkCondition.Online && !it.isProbing }
+            }
+            assertEquals(1, reconnectProbeCount)
+            assertEquals(1, recoveryCount)
+        } finally {
+            manualProbe.complete(NetworkCondition.NoInternet)
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun `backgrounding cancels pending Reconnect backoff`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val delayStarted = CompletableDeferred<Unit>()
+        val holdDelay = CompletableDeferred<Unit>()
+        var reconnectProbeCount = 0
+        val controller = NetworkStatusController(
+            scope = scope,
+            probeCondition = { NetworkCondition.NoInternet },
+            probeWithinTimeout = {
+                reconnectProbeCount += 1
+                NetworkCondition.NoInternet
+            },
+            delayFor = {
+                delayStarted.complete(Unit)
+                holdDelay.await()
+            },
+        )
+        try {
+            controller.ensureStarted()
+            withTimeout(1_000) { controller.uiState.first { it.condition == NetworkCondition.NoInternet } }
+            controller.requestReconnect()
+            withTimeout(1_000) { delayStarted.await() }
+
+            controller.onAppVisibility(AppVisibility.Background)
+
+            assertFalse(controller.uiState.value.isProbing)
+            assertEquals(1, reconnectProbeCount)
+        } finally {
+            holdDelay.complete(Unit)
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `availability during an active offline probe queues one fresh probe and one recovery`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val probes = List(3) { CompletableDeferred<NetworkCondition>() }

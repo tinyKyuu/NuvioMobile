@@ -1,6 +1,9 @@
 package com.nuvio.app.features.home
 
 import com.nuvio.app.core.network.NetworkStatusUiState
+import com.nuvio.app.core.network.NetworkRecoveryPhase
+import com.nuvio.app.core.network.NetworkRecoveryTrigger
+import com.nuvio.app.core.network.NetworkRecoveryUiState
 import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.catalog.CatalogTarget
 
@@ -15,8 +18,17 @@ internal data class HomePresentation(
     val showDownloadedContent: Boolean,
 )
 
-internal fun homePresentationFor(networkStatus: NetworkStatusUiState): HomePresentation =
-    if (networkStatus.isOfflineLike) {
+internal fun homePresentationFor(
+    networkStatus: NetworkStatusUiState,
+    recovery: NetworkRecoveryUiState = NetworkRecoveryUiState(),
+): HomePresentation {
+    val reconnectRecoveryIncomplete = recovery.trigger != NetworkRecoveryTrigger.ManualRefresh &&
+        recovery.phase in setOf(
+            NetworkRecoveryPhase.RestoringAddons,
+            NetworkRecoveryPhase.RefreshingCatalogs,
+            NetworkRecoveryPhase.Failed,
+        )
+    return if (networkStatus.usesOfflinePresentation || reconnectRecoveryIncomplete) {
         HomePresentation(
             mode = HomePresentationMode.Offline,
             showRemoteContent = false,
@@ -29,6 +41,7 @@ internal fun homePresentationFor(networkStatus: NetworkStatusUiState): HomePrese
             showDownloadedContent = false,
         )
     }
+}
 
 internal fun shouldResetHomeScroll(
     previous: HomePresentationMode?,

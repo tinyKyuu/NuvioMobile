@@ -28,6 +28,7 @@ import com.nuvio.app.core.ui.LocalNuvioNavBarScrollState
 import com.nuvio.app.core.ui.LocalNuvioTopNavigationOverlayPadding
 import com.nuvio.app.core.ui.NuvioClassicNavigationBar
 import com.nuvio.app.core.ui.NuvioNavigationBar
+import com.nuvio.app.core.ui.NuvioScreenHeaderActionsLayout
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.rememberNuvioNavBarScrollState
 import com.nuvio.app.features.profiles.NuvioProfile
@@ -77,11 +78,10 @@ internal fun MainTabsDestination(
         }
         val tabsRouteActive = rootRouteActive
         val reconnectControlState = reconnectControlState(networkStatus, networkRecovery)
-        val offlineStatusPresentation = rootOfflineStatusPresentation(
+        val tabConnectionState = rootConnectionStateForTab(
+            selectedTab = selectedTab,
             rootRouteActive = tabsRouteActive,
             state = reconnectControlState,
-            isTabletLayout = isTabletLayout,
-            showRetryLabel = maxWidth >= 900.dp,
         )
         val navBarScrollState = rememberNuvioNavBarScrollState()
         val navBarHazeState = rememberHazeState()
@@ -146,6 +146,9 @@ internal fun MainTabsDestination(
                         requests = requests,
                         state = state,
                         actions = actions(isTabletLayout),
+                        networkCondition = networkStatus.condition,
+                        reconnectControlState = tabConnectionState,
+                        onNetworkRetry = onNetworkRetry,
                         modifier = Modifier
                             .fillMaxSize()
                             .then(if (navBarStyleSetting != NavBarStyle.CLASSIC) Modifier.hazeSource(state = navBarHazeState) else Modifier)
@@ -161,16 +164,6 @@ internal fun MainTabsDestination(
                         onProfileSelected = onProfileSelected,
                         onAddProfileRequested = onAddProfileRequested,
                         modifier = Modifier.align(Alignment.BottomCenter),
-                    )
-                }
-
-                if (offlineStatusPresentation != RootOfflineStatusPresentation.Hidden) {
-                    RootOfflineStatusPill(
-                        condition = networkStatus.condition,
-                        state = reconnectControlState,
-                        showRetryLabel = offlineStatusPresentation == RootOfflineStatusPresentation.RetryPill,
-                        onRetry = onNetworkRetry,
-                        modifier = Modifier.align(Alignment.TopEnd),
                     )
                 }
 
@@ -241,12 +234,7 @@ internal fun rootNavigationOverlayPadding(
     else -> RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp)
 }
 
-internal fun shouldShowRootOfflineStatus(
-    rootRouteActive: Boolean,
-    state: ReconnectControlState,
-): Boolean = rootRouteActive && state != ReconnectControlState.Hidden
-
-internal enum class ReconnectControlState {
+enum class ReconnectControlState {
     Hidden,
     Offline,
     Probing,
@@ -259,27 +247,35 @@ internal fun reconnectControlState(
     recovery: NetworkRecoveryUiState,
 ): ReconnectControlState = when {
     networkStatus.isProbing &&
-        (networkStatus.isOfflineLike || recovery.phase == NetworkRecoveryPhase.Failed) ->
+        (networkStatus.usesOfflinePresentation || recovery.phase == NetworkRecoveryPhase.Failed) ->
         ReconnectControlState.Probing
     recovery.phase == NetworkRecoveryPhase.Failed -> ReconnectControlState.Failed
-    recovery.isRecovering -> ReconnectControlState.Restoring
+    recovery.isRecovering ||
+        (networkStatus.isOnline && networkStatus.keepOfflinePresentation) ->
+        ReconnectControlState.Restoring
     networkStatus.isOfflineLike -> ReconnectControlState.Offline
     else -> ReconnectControlState.Hidden
 }
 
-internal enum class RootOfflineStatusPresentation {
-    Hidden,
-    CompactIcon,
-    RetryPill,
-}
-
-internal fun rootOfflineStatusPresentation(
+internal fun rootConnectionStateForTab(
+    selectedTab: AppScreenTab,
     rootRouteActive: Boolean,
     state: ReconnectControlState,
-    isTabletLayout: Boolean,
-    showRetryLabel: Boolean,
-): RootOfflineStatusPresentation = when {
-    !shouldShowRootOfflineStatus(rootRouteActive, state) -> RootOfflineStatusPresentation.Hidden
-    isTabletLayout && showRetryLabel -> RootOfflineStatusPresentation.RetryPill
-    else -> RootOfflineStatusPresentation.CompactIcon
+): ReconnectControlState = if (
+    rootRouteActive && selectedTab != AppScreenTab.Settings
+) {
+    state
+} else {
+    ReconnectControlState.Hidden
+}
+
+internal fun rootHeaderActionsLayoutForWidth(
+    availableWidth: Dp,
+    state: ReconnectControlState,
+): NuvioScreenHeaderActionsLayout = if (
+    state != ReconnectControlState.Hidden && availableWidth < 520.dp
+) {
+    NuvioScreenHeaderActionsLayout.Stacked
+} else {
+    NuvioScreenHeaderActionsLayout.Inline
 }

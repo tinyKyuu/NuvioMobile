@@ -528,7 +528,7 @@ internal fun MainAppContent(
 
     LaunchedEffect(networkStatusUiState.condition, homePresentationResetState) {
         homePresentationResetGeneration = homePresentationResetState.onMode(
-            homePresentationFor(networkStatusUiState).mode,
+            homePresentationFor(networkStatusUiState, networkRecoveryUiState).mode,
         )
     }
 

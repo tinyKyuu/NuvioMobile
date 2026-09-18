@@ -6,14 +6,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
@@ -39,6 +36,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -78,6 +76,7 @@ import nuvio.composeapp.generated.resources.compose_nav_search
 import nuvio.composeapp.generated.resources.compose_settings_page_root
 import nuvio.composeapp.generated.resources.network_reconnect
 import nuvio.composeapp.generated.resources.network_reconnecting
+import nuvio.composeapp.generated.resources.network_online
 import nuvio.composeapp.generated.resources.network_restore_failed_reconnect
 import nuvio.composeapp.generated.resources.network_restoring_content
 import nuvio.composeapp.generated.resources.sidebar_library
@@ -164,6 +163,9 @@ internal fun AppTabHost(
     requests: AppTabRequests,
     state: AppTabState,
     actions: AppTabActions,
+    networkCondition: NetworkCondition,
+    reconnectControlState: ReconnectControlState,
+    onNetworkRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tabStateHolder = rememberSaveableStateHolder()
@@ -179,6 +181,10 @@ internal fun AppTabHost(
                     key(state.homeContentGeneration) {
                         HomeScreen(
                             modifier = Modifier.fillMaxSize(),
+                            topPadding = stickyHeaderListTopPadding,
+                            networkCondition = networkCondition,
+                            reconnectControlState = reconnectControlState,
+                            onNetworkRetry = onNetworkRetry,
                             animateCollectionGifs = state.animateHomeCollectionGifs,
                             scrollToTopRequests = requests.homeScrollToTopRequests,
                             presentationResetGeneration = state.homePresentationResetGeneration,
@@ -204,6 +210,9 @@ internal fun AppTabHost(
                         onPosterLongClick = actions.onPosterLongClick,
                         searchFocusRequestCount = state.searchFocusRequestCount,
                         scrollToTopRequests = requests.searchScrollToTopRequests,
+                        networkCondition = networkCondition,
+                        reconnectControlState = reconnectControlState,
+                        onNetworkRetry = onNetworkRetry,
                     )
                 }
 
@@ -221,6 +230,9 @@ internal fun AppTabHost(
                         onPlayDownloaded = actions.onPlayDownloaded,
                         openDownloadsRequest = state.openLibraryDownloadsRequest,
                         disintegrationRequest = state.libraryDisintegrationRequest,
+                        networkCondition = networkCondition,
+                        reconnectControlState = reconnectControlState,
+                        onNetworkRetry = onNetworkRetry,
                     )
                 }
 
@@ -373,86 +385,82 @@ internal fun TabletFloatingBottomDock(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun RootOfflineStatusPill(
+internal fun RootConnectionControl(
     condition: NetworkCondition,
     state: ReconnectControlState,
-    showRetryLabel: Boolean,
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (state == ReconnectControlState.Hidden) return
     val tokens = MaterialTheme.nuvio
-    val statusBarPadding = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val reconnectText = stringResource(Res.string.network_reconnect)
-    val tooltipText = when (state) {
+    val statusText = when (state) {
         ReconnectControlState.Probing -> stringResource(Res.string.network_reconnecting)
         ReconnectControlState.Restoring -> stringResource(Res.string.network_restoring_content)
         ReconnectControlState.Failed -> stringResource(Res.string.network_restore_failed_reconnect)
-        ReconnectControlState.Offline -> "${condition.titleForEmptyState()} · $reconnectText"
-        ReconnectControlState.Hidden -> condition.titleForEmptyState()
+        ReconnectControlState.Offline -> reconnectText
+        ReconnectControlState.Hidden -> return
     }
+    val conditionText = if (condition == NetworkCondition.Online) {
+        stringResource(Res.string.network_online)
+    } else {
+        condition.titleForEmptyState()
+    }
+    val tooltipText = "$conditionText · $statusText"
     val actionEnabled = state == ReconnectControlState.Offline || state == ReconnectControlState.Failed
 
-    Box(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(
-                top = statusBarPadding + NuvioTokens.Space.s10,
-                end = NuvioTokens.Space.s16,
-            ),
-        contentAlignment = Alignment.TopEnd,
+    TooltipBox(
+        modifier = modifier,
+        positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
+        tooltip = {
+            PlainTooltip {
+                Text(tooltipText)
+            }
+        },
+        state = rememberTooltipState(),
     ) {
-        TooltipBox(
-            positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Below),
-            tooltip = {
-                PlainTooltip {
-                    Text(tooltipText)
-                }
-            },
-            state = rememberTooltipState(),
+        Surface(
+            color = tokens.colors.surface.copy(alpha = tokens.opacity.visible - tokens.opacity.subtle),
+            shape = tokens.shapes.chip,
+            tonalElevation = tokens.elevation.playerControls,
+            shadowElevation = tokens.elevation.overlay,
+            modifier = Modifier
+                .semantics { contentDescription = tooltipText }
+                .clickable(
+                    enabled = actionEnabled,
+                    onClickLabel = reconnectText,
+                    role = Role.Button,
+                    onClick = onRetry,
+                ),
         ) {
-            Surface(
-                color = tokens.colors.surface.copy(alpha = tokens.opacity.visible - tokens.opacity.subtle),
-                shape = tokens.shapes.chip,
-                tonalElevation = tokens.elevation.playerControls,
-                shadowElevation = tokens.elevation.overlay,
+            Row(
                 modifier = Modifier
-                    .semantics { contentDescription = tooltipText }
-                    .clickable(
-                        enabled = actionEnabled,
-                        onClickLabel = reconnectText,
-                        onClick = onRetry,
-                    ),
-            ) {
-                Row(
-                    modifier = Modifier.padding(
-                        horizontal = if (showRetryLabel) tokens.components.chipHorizontalPadding else NuvioTokens.Space.s12,
+                    .padding(
+                        horizontal = tokens.components.chipHorizontalPadding,
                         vertical = NuvioTokens.Space.s10,
                     ),
-                    horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (showRetryLabel) {
-                        Text(
-                            text = tooltipText,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = tokens.colors.textMuted,
-                        )
-                    }
-                    if (state == ReconnectControlState.Probing || state == ReconnectControlState.Restoring) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(NuvioTokens.Space.s18),
-                            color = tokens.colors.textMuted,
-                            strokeWidth = 2.dp,
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Rounded.PublicOff,
-                            contentDescription = tooltipText,
-                            modifier = Modifier.size(NuvioTokens.Space.s18),
-                            tint = tokens.colors.textMuted,
-                        )
-                    }
+                horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (state == ReconnectControlState.Probing || state == ReconnectControlState.Restoring) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(NuvioTokens.Space.s18),
+                        color = tokens.colors.textMuted,
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.PublicOff,
+                        contentDescription = null,
+                        modifier = Modifier.size(NuvioTokens.Space.s18),
+                        tint = tokens.colors.textMuted,
+                    )
                 }
+                Text(
+                    text = statusText,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = tokens.colors.textMuted,
+                )
             }
         }
     }

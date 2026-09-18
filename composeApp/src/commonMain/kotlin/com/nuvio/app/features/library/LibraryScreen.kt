@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -42,6 +43,7 @@ import androidx.compose.material.icons.rounded.ViewAgenda
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -82,6 +84,9 @@ import com.nuvio.app.core.ui.NuvioViewAllPillSize
 import com.nuvio.app.core.ui.NuvioShelfSection
 import com.nuvio.app.core.ui.ScopedDisintegrationTracker
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
+import com.nuvio.app.ReconnectControlState
+import com.nuvio.app.RootConnectionControl
+import com.nuvio.app.rootHeaderActionsLayoutForWidth
 import com.nuvio.app.features.cloud.CloudLibraryFile
 import com.nuvio.app.features.cloud.CloudLibraryItem
 import com.nuvio.app.features.cloud.CloudLibraryItemType
@@ -97,7 +102,6 @@ import com.nuvio.app.features.downloads.DownloadLibraryManagementHost
 import com.nuvio.app.features.downloads.DownloadLibraryManagementState
 import com.nuvio.app.features.downloads.DownloadLibraryManagementStateSaver
 import com.nuvio.app.features.downloads.DownloadLibraryMenuTarget
-import com.nuvio.app.features.downloads.DownloadManagerToolbarSlotWidth
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.buildCompletedDownloadLibrary
 import com.nuvio.app.features.downloads.canonicalOfflineMetaType
@@ -135,6 +139,9 @@ fun LibraryScreen(
     onPlayDownloaded: ((DownloadItem) -> Unit)? = null,
     openDownloadsRequest: Int = 0,
     disintegrationRequest: DisintegrationRequest<String>? = null,
+    networkCondition: NetworkCondition = NetworkCondition.Unknown,
+    reconnectControlState: ReconnectControlState = ReconnectControlState.Hidden,
+    onNetworkRetry: () -> Unit = {},
 ) {
     val uiState by remember {
         LibraryRepository.ensureLoaded()
@@ -389,6 +396,8 @@ fun LibraryScreen(
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val gridColumns = remember(maxWidth) { posterGridColumnCountForWidth(maxWidth) }
+        val headerAvailableWidth = maxWidth
+        val headerLayout = libraryHeaderLayoutForWidth(maxWidth)
         val managerContainer = remember(maxWidth, maxHeight) {
             resolveDownloadManagerContainer(maxWidth, maxHeight)
         }
@@ -425,87 +434,58 @@ fun LibraryScreen(
                                 }
                             },
                             modifier = Modifier.padding(horizontal = 16.dp),
+                            actionsLayout = rootHeaderActionsLayoutForWidth(
+                                availableWidth = headerAvailableWidth,
+                                state = reconnectControlState,
+                            ),
                             actions = {
-                                if (onDownloadsClick != null) {
-                                    IconButton(onClick = onDownloadsClick) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Download,
-                                            contentDescription = stringResource(
-                                                Res.string.downloads_activity_title,
-                                            ),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                                if (sourceMode == LibraryViewMode.Downloaded) {
-                                    Box(modifier = Modifier.width(DownloadManagerToolbarSlotWidth)) {
-                                        TextButton(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            enabled = downloadedItems.isNotEmpty() || downloadManagementState.isManaging,
-                                            contentPadding = PaddingValues(horizontal = 4.dp),
-                                            onClick = {
-                                                downloadManagementState = reduceDownloadLibraryManagement(
-                                                    downloadManagementState,
-                                                    if (downloadManagementState.isManaging) {
-                                                        DownloadLibraryManagementEvent.Done
-                                                    } else {
-                                                        DownloadLibraryManagementEvent.EnterManage
-                                                    },
-                                                )
-                                            },
-                                        ) {
-                                            Text(
-                                                if (downloadManagementState.isManaging) {
-                                                    stringResource(Res.string.action_done)
-                                                } else {
-                                                    stringResource(Res.string.downloads_manage)
-                                                },
-                                                maxLines = 1,
-                                            )
-                                        }
-                                    }
-                                }
-                                if (sourceMode != LibraryViewMode.Cloud) {
-                                    val targetLayout = if (displaySettings.layoutMode == LibraryLayoutMode.HORIZONTAL) {
-                                        LibraryLayoutMode.VERTICAL
-                                    } else {
-                                        LibraryLayoutMode.HORIZONTAL
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            LibraryDisplaySettingsRepository.setLayoutMode(targetLayout)
-                                        },
-                                    ) {
-                                        Crossfade(
-                                            targetState = targetLayout,
-                                            animationSpec = tween(durationMillis = 140),
-                                            label = "libraryLayoutAction",
-                                        ) { animatedTargetLayout ->
-                                            Icon(
-                                                imageVector = if (animatedTargetLayout == LibraryLayoutMode.VERTICAL) {
-                                                    Icons.Rounded.GridView
-                                                } else {
-                                                    Icons.Rounded.ViewAgenda
-                                                },
-                                                contentDescription = if (animatedTargetLayout == LibraryLayoutMode.VERTICAL) {
-                                                    stringResource(Res.string.library_layout_show_vertical)
-                                                } else {
-                                                    stringResource(Res.string.library_layout_show_horizontal)
-                                                },
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                    }
-                                }
+                                RootConnectionControl(
+                                    condition = networkCondition,
+                                    state = reconnectControlState,
+                                    onRetry = onNetworkRetry,
+                                )
                             },
                         )
-                        LibrarySourceSwitch(
-                            selectedMode = sourceMode,
-                            onModeSelected = { mode ->
-                                sourceModeName = mode.name
-                            },
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
+                        if (headerLayout.arrangement == LibraryHeaderArrangement.Wide) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                LibrarySourceSwitch(
+                                    selectedMode = sourceMode,
+                                    onModeSelected = { mode -> sourceModeName = mode.name },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                LibraryHeaderActions(
+                                    sourceMode = sourceMode,
+                                    layoutMode = displaySettings.layoutMode,
+                                    hasDownloadedItems = downloadedItems.isNotEmpty(),
+                                    managementState = downloadManagementState,
+                                    onManagementStateChange = { downloadManagementState = it },
+                                    onDownloadsClick = onDownloadsClick,
+                                )
+                            }
+                        } else {
+                            LibrarySourceSwitch(
+                                selectedMode = sourceMode,
+                                onModeSelected = { mode -> sourceModeName = mode.name },
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                            LibraryHeaderActions(
+                                sourceMode = sourceMode,
+                                layoutMode = displaySettings.layoutMode,
+                                hasDownloadedItems = downloadedItems.isNotEmpty(),
+                                managementState = downloadManagementState,
+                                onManagementStateChange = { downloadManagementState = it },
+                                onDownloadsClick = onDownloadsClick,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp),
+                            )
+                        }
                         Spacer(modifier = Modifier.height(6.dp))
                     }
                 }
@@ -970,6 +950,179 @@ private fun LibrarySourceSwitch(
             selected = selectedMode == LibraryViewMode.Cloud,
             onClick = { onModeSelected(LibraryViewMode.Cloud) },
         )
+    }
+}
+
+internal enum class LibraryHeaderArrangement {
+    Wide,
+    Narrow,
+}
+
+internal enum class LibraryHeaderRow {
+    Title,
+    Secondary,
+    Tertiary,
+}
+
+internal data class LibraryHeaderLayout(
+    val arrangement: LibraryHeaderArrangement,
+    val connectionRow: LibraryHeaderRow = LibraryHeaderRow.Title,
+    val sourcesRow: LibraryHeaderRow = LibraryHeaderRow.Secondary,
+    val actionsRow: LibraryHeaderRow,
+)
+
+internal fun libraryHeaderLayoutForWidth(availableWidth: Dp): LibraryHeaderLayout =
+    if (availableWidth >= 720.dp) {
+        LibraryHeaderLayout(
+            arrangement = LibraryHeaderArrangement.Wide,
+            actionsRow = LibraryHeaderRow.Secondary,
+        )
+    } else {
+        LibraryHeaderLayout(
+            arrangement = LibraryHeaderArrangement.Narrow,
+            actionsRow = LibraryHeaderRow.Tertiary,
+        )
+    }
+
+internal enum class LibraryHeaderAction {
+    ManageDownloads,
+    DownloadActivity,
+    ViewMode,
+}
+
+internal fun libraryHeaderActionOrder(
+    sourceMode: LibraryViewMode,
+    hasDownloadActivity: Boolean,
+): List<LibraryHeaderAction> = buildList {
+    if (sourceMode == LibraryViewMode.Downloaded) add(LibraryHeaderAction.ManageDownloads)
+    if (hasDownloadActivity) add(LibraryHeaderAction.DownloadActivity)
+    if (sourceMode != LibraryViewMode.Cloud) add(LibraryHeaderAction.ViewMode)
+}
+
+internal enum class LibraryManageActionLabel {
+    ManageDownloads,
+    Done,
+}
+
+internal enum class LibraryHeaderActionColorFamily {
+    Muted,
+}
+
+internal data class LibraryManageActionPresentation(
+    val label: LibraryManageActionLabel,
+    val enabled: Boolean,
+    val colorFamily: LibraryHeaderActionColorFamily = LibraryHeaderActionColorFamily.Muted,
+)
+
+internal fun libraryManageActionPresentation(
+    isManaging: Boolean,
+    hasDownloadedItems: Boolean,
+): LibraryManageActionPresentation = LibraryManageActionPresentation(
+    label = if (isManaging) LibraryManageActionLabel.Done else LibraryManageActionLabel.ManageDownloads,
+    enabled = hasDownloadedItems || isManaging,
+)
+
+@Composable
+private fun LibraryHeaderActions(
+    sourceMode: LibraryViewMode,
+    layoutMode: LibraryLayoutMode,
+    hasDownloadedItems: Boolean,
+    managementState: DownloadLibraryManagementState,
+    onManagementStateChange: (DownloadLibraryManagementState) -> Unit,
+    onDownloadsClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val actions = libraryHeaderActionOrder(
+        sourceMode = sourceMode,
+        hasDownloadActivity = onDownloadsClick != null,
+    )
+    Row(
+        modifier = modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        actions.forEach { action ->
+            when (action) {
+                LibraryHeaderAction.ManageDownloads -> {
+                    val presentation = libraryManageActionPresentation(
+                        isManaging = managementState.isManaging,
+                        hasDownloadedItems = hasDownloadedItems,
+                    )
+                    val label = when (presentation.label) {
+                        LibraryManageActionLabel.ManageDownloads ->
+                            stringResource(Res.string.downloads_manage_completed)
+                        LibraryManageActionLabel.Done -> stringResource(Res.string.action_done)
+                    }
+                    Box(modifier = Modifier.widthIn(min = 156.dp)) {
+                        TextButton(
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = presentation.enabled,
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = mutedColor,
+                                disabledContentColor = mutedColor.copy(alpha = 0.38f),
+                            ),
+                            onClick = {
+                                onManagementStateChange(
+                                    reduceDownloadLibraryManagement(
+                                        managementState,
+                                        if (managementState.isManaging) {
+                                            DownloadLibraryManagementEvent.Done
+                                        } else {
+                                            DownloadLibraryManagementEvent.EnterManage
+                                        },
+                                    ),
+                                )
+                            },
+                        ) {
+                            Text(label)
+                        }
+                    }
+                }
+
+                LibraryHeaderAction.DownloadActivity -> {
+                    IconButton(onClick = requireNotNull(onDownloadsClick)) {
+                        Icon(
+                            imageVector = Icons.Rounded.Download,
+                            contentDescription = stringResource(Res.string.downloads_activity_title),
+                            tint = mutedColor,
+                        )
+                    }
+                }
+
+                LibraryHeaderAction.ViewMode -> {
+                    val targetLayout = if (layoutMode == LibraryLayoutMode.HORIZONTAL) {
+                        LibraryLayoutMode.VERTICAL
+                    } else {
+                        LibraryLayoutMode.HORIZONTAL
+                    }
+                    IconButton(
+                        onClick = { LibraryDisplaySettingsRepository.setLayoutMode(targetLayout) },
+                    ) {
+                        Crossfade(
+                            targetState = targetLayout,
+                            animationSpec = tween(durationMillis = 140),
+                            label = "libraryLayoutAction",
+                        ) { animatedTargetLayout ->
+                            Icon(
+                                imageVector = if (animatedTargetLayout == LibraryLayoutMode.VERTICAL) {
+                                    Icons.Rounded.GridView
+                                } else {
+                                    Icons.Rounded.ViewAgenda
+                                },
+                                contentDescription = if (animatedTargetLayout == LibraryLayoutMode.VERTICAL) {
+                                    stringResource(Res.string.library_layout_show_vertical)
+                                } else {
+                                    stringResource(Res.string.library_layout_show_horizontal)
+                                },
+                                tint = mutedColor,
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1487,7 +1640,7 @@ private fun CloudSkeletonBlock(
     )
 }
 
-private enum class LibraryViewMode {
+internal enum class LibraryViewMode {
     Saved,
     Downloaded,
     Cloud,

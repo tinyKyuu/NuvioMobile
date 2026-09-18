@@ -105,11 +105,17 @@ enum class NuvioPosterAvailability {
     InternetRequired,
 }
 
+enum class NuvioPosterAvailabilityPlacement {
+    BottomStart,
+    BottomEnd,
+}
+
 @Composable
 fun BoxScope.NuvioPosterAvailabilityOverlay(
     availability: NuvioPosterAvailability,
     modifier: Modifier = Modifier,
     scale: NuvioPosterOverlayScale = NuvioPosterOverlayScale.Regular,
+    placement: NuvioPosterAvailabilityPlacement = NuvioPosterAvailabilityPlacement.BottomStart,
 ) {
     if (availability == NuvioPosterAvailability.None) return
     val isDownloaded = availability == NuvioPosterAvailability.Downloaded
@@ -123,10 +129,24 @@ fun BoxScope.NuvioPosterAvailabilityOverlay(
             },
         ),
         modifier = modifier
-            .align(Alignment.BottomStart)
+            .align(
+                when (placement) {
+                    NuvioPosterAvailabilityPlacement.BottomStart -> Alignment.BottomStart
+                    NuvioPosterAvailabilityPlacement.BottomEnd -> Alignment.BottomEnd
+                },
+            )
             .padding(scale.overlayPadding),
         size = scale.statusBadgeSize,
     )
+}
+
+internal fun posterAvailabilityPlacement(
+    isLandscape: Boolean,
+    hasBottomStartContent: Boolean,
+): NuvioPosterAvailabilityPlacement = if (isLandscape && hasBottomStartContent) {
+    NuvioPosterAvailabilityPlacement.BottomEnd
+} else {
+    NuvioPosterAvailabilityPlacement.BottomStart
 }
 
 /**

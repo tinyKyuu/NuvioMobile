@@ -95,6 +95,33 @@ class DownloadLibraryManagementTest {
     }
 
     @Test
+    fun `restored management survives same-profile composition and clears on a real profile switch`() {
+        val restored = DownloadLibraryManagementState(
+            isManaging = true,
+            selectedIds = setOf("movie"),
+            isExpanded = true,
+            route = DownloadManagerRoute.Root,
+        )
+        var state = restored
+        var rememberedProfileId = 4
+
+        assertFalse(shouldResetDownloadManagementForProfile(rememberedProfileId, activeProfileId = null))
+        if (shouldResetDownloadManagementForProfile(rememberedProfileId, activeProfileId = 4)) {
+            state = reduceDownloadLibraryManagement(state, DownloadLibraryManagementEvent.ProfileChanged)
+        }
+        assertEquals(restored, state)
+
+        val nextProfileId = 5
+        if (shouldResetDownloadManagementForProfile(rememberedProfileId, nextProfileId)) {
+            state = reduceDownloadLibraryManagement(state, DownloadLibraryManagementEvent.ProfileChanged)
+            rememberedProfileId = nextProfileId
+        }
+
+        assertEquals(DownloadLibraryManagementState(), state)
+        assertEquals(5, rememberedProfileId)
+    }
+
+    @Test
     fun `adaptive manager uses panels only when both dimensions can preserve context`() {
         assertEquals(
             DownloadManagerContainer.BottomSheet,

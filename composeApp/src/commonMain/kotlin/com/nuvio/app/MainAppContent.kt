@@ -527,9 +527,13 @@ internal fun MainAppContent(
         lastNetworkToastCondition = condition.name
     }
 
-    LaunchedEffect(networkStatusUiState.condition, homePresentationResetState) {
+    val homePresentationMode = homePresentationFor(
+        networkStatusUiState,
+        networkRecoveryUiState,
+    ).mode
+    LaunchedEffect(homePresentationMode, homePresentationResetState) {
         homePresentationResetGeneration = homePresentationResetState.onMode(
-            homePresentationFor(networkStatusUiState, networkRecoveryUiState).mode,
+            homePresentationMode,
         )
     }
 
@@ -1133,6 +1137,12 @@ internal fun MainAppContent(
                     target = CatalogTarget.Library(
                         contentType = section.items.firstOrNull()?.type ?: "movie",
                         sectionType = section.type,
+                        membershipListKey = libraryMembershipListKey(
+                            sourceMode = libraryUiState.sourceMode,
+                            displaySectionKey = section.type,
+                            providerSectionKeys = libraryUiState.sections
+                                .mapTo(mutableSetOf(), LibrarySection::type),
+                        ),
                         sortOption = sortOption,
                     ),
                 ),
@@ -1330,10 +1340,9 @@ internal fun MainAppContent(
                                 },
                                 onLibraryPosterLongClick = { item, section ->
                                     openPosterActions(
-                                        PosterActionTarget(
-                                            preview = item.toMetaPreview(),
-                                            libraryItem = item,
-                                            libraryListKey = section.type,
+                                        libraryPosterActionTarget(
+                                            item = item,
+                                            displaySectionKey = section.type,
                                         ),
                                     )
                                 },
@@ -1677,8 +1686,14 @@ internal fun MainAppContent(
                         item = preview,
                         fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                     )
-                    val removesFromLibrary = isSaved &&
-                        (posterActionTarget.libraryItem != null || !isRemoteLibrarySource)
+                    val membershipAction = posterLibraryMembershipAction(
+                        isSaved = isSaved,
+                        isRemoteLibrarySource = isRemoteLibrarySource,
+                        membershipListKey = posterActionTarget.libraryMembershipListKey,
+                    )
+                    val removesFromLibrary = isSaved
+                    val removesFromLocalLibrary =
+                        membershipAction == PosterLibraryMembershipAction.RemoveLocal
                     NuvioPosterZoomActionOverlay(
                         imageUrl = selectedPosterAnchor?.imageUrl ?: preview.poster,
                         title = preview.name,
@@ -1699,7 +1714,7 @@ internal fun MainAppContent(
                                     stringResource(Res.string.hero_add_to_library)
                                 },
                                 isDestructive = removesFromLibrary,
-                                exitAnimation = if (removesFromLibrary && !isRemoteLibrarySource) {
+                                exitAnimation = if (removesFromLocalLibrary) {
                                     PosterZoomOverlayExitAnimation.DISINTEGRATE
                                 } else {
                                     PosterZoomOverlayExitAnimation.COLLAPSE
@@ -1707,25 +1722,28 @@ internal fun MainAppContent(
                                 onSelected = {
                                     val libraryItem = posterActionTarget.libraryItem
                                         ?: preview.toLibraryItem(savedAtEpochMs = 0L)
-                                    if (posterActionTarget.libraryItem != null) {
-                                        val animationKey = posterActionTarget.libraryListKey
-                                            ?.let { listKey -> librarySectionItemKey(listKey, libraryItem) }
-                                        if (isRemoteLibrarySource) {
+                                    val animationKey = posterActionTarget.libraryDisplaySectionKey
+                                        ?.let { listKey -> librarySectionItemKey(listKey, libraryItem) }
+                                    when (membershipAction) {
+                                        PosterLibraryMembershipAction.RemoveRemoteList,
+                                        PosterLibraryMembershipAction.RemoveRemoteSource,
+                                        -> {
                                             coroutineScope.launch {
-                                                val listKey = posterActionTarget.libraryListKey
+                                                val listKey = posterActionTarget.libraryMembershipListKey
                                                 val removeMembership: suspend (Set<TrackingProviderId>) ->
                                                     TrackingMembershipApplyResult = { confirmedProviders ->
-                                                    if (listKey.isNullOrBlank()) {
-                                                        val currentMembership = LibraryRepository.getMembershipSnapshot(libraryItem)
-                                                        LibraryRepository.applyMembershipChanges(
+                                                    if (
+                                                        membershipAction ==
+                                                        PosterLibraryMembershipAction.RemoveRemoteSource
+                                                    ) {
+                                                        LibraryRepository.removeFromActiveLibrarySource(
                                                             item = libraryItem,
-                                                            desiredMembership = currentMembership.mapValues { false },
                                                             confirmedRemovalProviders = confirmedProviders,
                                                         )
                                                     } else {
                                                         LibraryRepository.removeFromList(
                                                             item = libraryItem,
-                                                            listKey = listKey,
+                                                            listKey = requireNotNull(listKey),
                                                             confirmedRemovalProviders = confirmedProviders,
                                                         )
                                                     }
@@ -1774,16 +1792,18 @@ internal fun MainAppContent(
                                                     },
                                                 )
                                             }
-                                        } else {
-                                            if (removesFromLibrary) {
-                                                animationKey?.let(libraryDisintegrationRequests::arm)
-                                            }
+                                        }
+
+                                        PosterLibraryMembershipAction.RemoveLocal -> {
+                                            animationKey?.let(libraryDisintegrationRequests::arm)
                                             LibraryRepository.remove(libraryItem.id)
                                         }
-                                    } else {
-                                        if (!isRemoteLibrarySource) {
+
+                                        PosterLibraryMembershipAction.AddLocal -> {
                                             LibraryRepository.toggleLocalSaved(libraryItem)
-                                        } else {
+                                        }
+
+                                        PosterLibraryMembershipAction.AddRemote -> {
                                             pickerItem = libraryItem
                                             pickerTitle = preview.name
                                             pickerTabs = LibraryRepository.libraryListTabs(libraryItem)

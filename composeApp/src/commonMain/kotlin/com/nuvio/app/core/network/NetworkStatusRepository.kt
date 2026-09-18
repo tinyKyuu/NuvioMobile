@@ -406,14 +406,27 @@ internal class NetworkStatusController(
                     ProbeKind.Reconnect -> runReconnectSession()
                 }
                 val next = requireNotNull(result)
+                val completionGeneration = synchronized(lock) {
+                    val pending = pendingProbeRequest
+                    if (
+                        request.kind == ProbeKind.Standard &&
+                        next == NetworkCondition.Online &&
+                        pending?.kind == ProbeKind.Reconnect
+                    ) {
+                        pendingProbeRequest = null
+                        pending.generation
+                    } else {
+                        generation
+                    }
+                }
                 _uiState.value = NetworkStatusUiState(
                     condition = next,
-                    probeGeneration = generation,
+                    probeGeneration = completionGeneration,
                     isProbing = false,
                     keepOfflinePresentation = next.isOfflineLike() ||
                         (next == NetworkCondition.Online && _uiState.value.keepOfflinePresentation),
                 )
-                onProbeResult(generation, next)
+                onProbeResult(completionGeneration, next)
             } finally {
                 val nextRequest = synchronized(lock) {
                     if (activeProbeRequest?.generation != generation) {

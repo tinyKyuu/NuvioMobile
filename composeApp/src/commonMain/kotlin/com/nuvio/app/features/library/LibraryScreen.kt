@@ -116,6 +116,7 @@ import com.nuvio.app.features.downloads.downloadManagerGridBottomClearance
 import com.nuvio.app.features.downloads.formatDownloadBytes
 import com.nuvio.app.features.downloads.reduceDownloadLibraryManagement
 import com.nuvio.app.features.downloads.resolveDownloadManagerContainer
+import com.nuvio.app.features.downloads.shouldResetDownloadManagementForProfile
 import com.nuvio.app.features.downloads.toLibraryArtworkFallback
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.components.HomePosterCard
@@ -197,6 +198,9 @@ fun LibraryScreen(
     var downloadManagementState by rememberSaveable(
         stateSaver = DownloadLibraryManagementStateSaver,
     ) { mutableStateOf(DownloadLibraryManagementState()) }
+    var downloadManagementProfileId by rememberSaveable {
+        mutableIntStateOf(profileState.activeProfile?.profileIndex ?: ProfileRepository.activeProfileId)
+    }
     var downloadMenuTarget by remember { mutableStateOf<DownloadLibraryMenuTarget?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -397,12 +401,16 @@ fun LibraryScreen(
         }
     }
 
-    LaunchedEffect(profileState.activeProfile?.profileIndex) {
-        downloadManagementState = reduceDownloadLibraryManagement(
-            downloadManagementState,
-            DownloadLibraryManagementEvent.ProfileChanged,
-        )
-        downloadMenuTarget = null
+    val activeProfileId = profileState.activeProfile?.profileIndex
+    LaunchedEffect(activeProfileId) {
+        if (shouldResetDownloadManagementForProfile(downloadManagementProfileId, activeProfileId)) {
+            downloadManagementState = reduceDownloadLibraryManagement(
+                downloadManagementState,
+                DownloadLibraryManagementEvent.ProfileChanged,
+            )
+            downloadMenuTarget = null
+        }
+        activeProfileId?.let { downloadManagementProfileId = it }
     }
 
     LaunchedEffect(downloadsUiState.completedItems) {

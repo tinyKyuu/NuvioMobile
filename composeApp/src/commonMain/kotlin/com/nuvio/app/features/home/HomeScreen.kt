@@ -499,25 +499,17 @@ fun HomeScreen(
     val locallyPlayableContinueWatchingItems = remember(
         activeProfileId,
         allContinueWatchingItems,
-        networkStatusUiState.condition,
+        homePresentation.mode,
         downloadsUiState.completedItems,
         offlineLibraryUiState.titles,
     ) {
-        if (homePresentation.mode == HomePresentationMode.Online) {
-            resolveHomeContinueWatchingArtwork(
-                items = allContinueWatchingItems,
-                offlineTitles = offlineLibraryUiState.titles,
-                profileId = activeProfileId,
-                allowRemote = true,
-            )
-        } else {
-            resolveHomeContinueWatchingForOffline(
-                items = allContinueWatchingItems,
-                downloads = downloadsUiState.completedItems,
-                offlineTitles = offlineLibraryUiState.titles,
-                profileId = activeProfileId,
-            )
-        }
+        resolveHomeContinueWatchingForPresentation(
+            mode = homePresentation.mode,
+            items = allContinueWatchingItems,
+            downloads = downloadsUiState.completedItems,
+            offlineTitles = offlineLibraryUiState.titles,
+            profileId = activeProfileId,
+        )
     }
     val (continueWatchingItems, upcomingItems) = remember(
         locallyPlayableContinueWatchingItems,
@@ -1746,6 +1738,27 @@ internal fun resolveHomeContinueWatchingArtwork(
             episodeNumber = item.episodeNumber,
         ),
         allowRemote = allowRemote,
+    )
+}
+
+internal fun resolveHomeContinueWatchingForPresentation(
+    mode: HomePresentationMode,
+    items: List<ContinueWatchingItem>,
+    downloads: List<DownloadItem>,
+    offlineTitles: List<OfflineTitle>,
+    profileId: Int,
+): List<ContinueWatchingItem> = when (mode) {
+    HomePresentationMode.Online -> resolveHomeContinueWatchingArtwork(
+        items = items,
+        offlineTitles = offlineTitles,
+        profileId = profileId,
+        allowRemote = true,
+    )
+    HomePresentationMode.Offline -> resolveHomeContinueWatchingForOffline(
+        items = items,
+        downloads = downloads,
+        offlineTitles = offlineTitles,
+        profileId = profileId,
     )
 }
 

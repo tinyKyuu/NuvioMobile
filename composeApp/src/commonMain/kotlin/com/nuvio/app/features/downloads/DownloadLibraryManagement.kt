@@ -26,6 +26,11 @@ internal val DownloadLibraryManagementStateSaver = listSaver<DownloadLibraryMana
     restore = ::restoreDownloadLibraryManagementState,
 )
 
+internal fun shouldResetDownloadManagementForProfile(
+    restoredProfileId: Int,
+    activeProfileId: Int?,
+): Boolean = activeProfileId != null && restoredProfileId != activeProfileId
+
 internal fun DownloadLibraryManagementState.toSavePayload(): List<Any?> {
     val routeKind: String
     val showId: String?

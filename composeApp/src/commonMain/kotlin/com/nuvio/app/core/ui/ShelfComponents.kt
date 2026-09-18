@@ -239,7 +239,15 @@ fun NuvioPosterCard(
             }
 
             NuvioPosterWatchedOverlay(isWatched = isWatched, scale = overlayScale)
-            NuvioPosterAvailabilityOverlay(availability = availability, scale = overlayScale)
+            NuvioPosterAvailabilityOverlay(
+                availability = availability,
+                scale = overlayScale,
+                placement = posterAvailabilityPlacement(
+                    isLandscape = shape == NuvioPosterShape.Landscape,
+                    hasBottomStartContent = !bottomLeftLogoUrl.isNullOrBlank() ||
+                        !bottomLeftText.isNullOrBlank(),
+                ),
+            )
 
             if (onMenuClick != null) {
                 NuvioPosterMenuOverlay(

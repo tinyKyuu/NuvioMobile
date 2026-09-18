@@ -514,6 +514,26 @@ object LibraryRepository {
         )
     }
 
+    internal suspend fun removeFromActiveLibrarySource(
+        item: LibraryItem,
+        confirmedRemovalProviders: Set<TrackingProviderId> = emptySet(),
+    ): TrackingMembershipApplyResult {
+        ensureLoaded()
+        val provider = activeLibraryProvider()
+        if (provider == null) {
+            remove(item.id, item.type)
+            return TrackingMembershipApplyResult()
+        }
+        val currentMembership = provider.membership(item)
+        return applyMembershipChanges(
+            item = item,
+            desiredMembership = currentMembership.mapValues { false },
+            confirmedRemovalProviders = confirmedRemovalProviders,
+            targetProviderIds = setOf(provider.providerId),
+            updateLocal = false,
+        )
+    }
+
     private fun pushToServer(
         snapshot: LibraryLocalSnapshot,
         delayMs: Long = pushDebounceMs,

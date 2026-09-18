@@ -149,6 +149,61 @@ class HomeScreenTest {
     }
 
     @Test
+    fun `completed recovery restores full Continue Watching without a network condition change`() {
+        val item = continueWatchingItem(
+            videoId = "remote-show:1:4",
+            subtitle = "S1E4 • Remote",
+            imageUrl = "https://example.test/remote.jpg",
+        )
+        val network = NetworkStatusUiState(
+            condition = NetworkCondition.Online,
+            keepOfflinePresentation = true,
+        )
+        val restoringMode = homePresentationFor(
+            networkStatus = network,
+            recovery = NetworkRecoveryUiState(
+                phase = NetworkRecoveryPhase.RefreshingCatalogs,
+                trigger = NetworkRecoveryTrigger.Retry,
+            ),
+        ).mode
+        val completedMode = homePresentationFor(
+            networkStatus = network.copy(keepOfflinePresentation = false),
+            recovery = NetworkRecoveryUiState(
+                phase = NetworkRecoveryPhase.Completed,
+                trigger = NetworkRecoveryTrigger.Retry,
+            ),
+        ).mode
+
+        assertEquals(
+            emptyList(),
+            resolveHomeContinueWatchingForPresentation(
+                mode = restoringMode,
+                items = listOf(item),
+                downloads = emptyList(),
+                offlineTitles = emptyList(),
+                profileId = 0,
+            ),
+        )
+        assertEquals(
+            listOf(item),
+            resolveHomeContinueWatchingForPresentation(
+                mode = completedMode,
+                items = listOf(item),
+                downloads = emptyList(),
+                offlineTitles = emptyList(),
+                profileId = 0,
+            ),
+        )
+
+        val resetState = HomePresentationResetState()
+        assertEquals(0L, resetState.onMode(restoringMode))
+        val resetGeneration = resetState.onMode(completedMode)
+        assertEquals(1L, resetGeneration)
+        assertTrue(resetState.consume(resetGeneration))
+        assertFalse(resetState.consume(resetGeneration))
+    }
+
+    @Test
     fun `online manual force-all refresh keeps the normal Home presentation`() {
         val presentation = homePresentationFor(
             networkStatus = NetworkStatusUiState(NetworkCondition.Online),

@@ -275,6 +275,50 @@ class NetworkConnectivityRecoveryTest {
     }
 
     @Test
+    fun `Reconnect adopts an active standard probe that restores connectivity`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        val standardRefresh = CompletableDeferred<NetworkCondition>()
+        val transitions = NetworkRecoveryTransitionTracker()
+        val completedGenerations = mutableListOf<Long>()
+        var probeCount = 0
+        var recoveryCount = 0
+        val controller = NetworkStatusController(
+            scope = scope,
+            probeCondition = {
+                probeCount += 1
+                if (probeCount == 1) NetworkCondition.NoInternet else standardRefresh.await()
+            },
+            onProbeResult = { generation, condition ->
+                completedGenerations += generation
+                if (transitions.onCondition(condition)) recoveryCount += 1
+            },
+        )
+        try {
+            controller.ensureStarted()
+            withTimeout(1_000) { controller.uiState.first { it.condition == NetworkCondition.NoInternet } }
+
+            controller.requestRefresh(force = true)
+            val reconnectGeneration = controller.requestReconnect()
+            assertEquals(2, probeCount)
+            assertTrue(controller.uiState.value.isProbing)
+
+            standardRefresh.complete(NetworkCondition.Online)
+            val restored = withTimeout(1_000) {
+                controller.uiState.first { it.condition == NetworkCondition.Online && !it.isProbing }
+            }
+            yield()
+
+            assertEquals(2, probeCount)
+            assertEquals(reconnectGeneration, restored.probeGeneration)
+            assertEquals(listOf(1L, reconnectGeneration), completedGenerations)
+            assertEquals(1, recoveryCount)
+        } finally {
+            standardRefresh.complete(NetworkCondition.NoInternet)
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `backgrounding cancels pending Reconnect backoff`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val delayStarted = CompletableDeferred<Unit>()

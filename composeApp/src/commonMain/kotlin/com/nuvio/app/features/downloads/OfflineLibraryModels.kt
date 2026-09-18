@@ -9,6 +9,9 @@ import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.PosterShape
 import com.nuvio.app.features.library.LibraryArtworkFallback
 import com.nuvio.app.features.library.LibraryItem
+import com.nuvio.app.features.watchprogress.ContinueWatchingArtworkResolution
+import com.nuvio.app.features.watchprogress.ContinueWatchingArtworkSet
+import com.nuvio.app.features.watchprogress.durableArtworkUrlOrNull
 import kotlinx.serialization.Serializable
 
 internal const val OfflineTitleRecordVersion = 1
@@ -179,19 +182,121 @@ internal data class OfflinePlaybackArtwork(
     val episodeThumbnail: String?,
 )
 
+internal fun List<OfflineTitle>.resolveContinueWatchingArtwork(
+    profileId: Int,
+    parentMetaId: String,
+    parentMetaType: String,
+    mediaTitle: String,
+    seasonNumber: Int?,
+    episodeNumber: Int?,
+    resolveLocalArtwork: (String) -> String? = OfflineArtworkPlatform::localUri,
+): ContinueWatchingArtworkResolution? {
+    val expectedOwner = downloadOwnerProfileKey(profileId)
+    val normalizedType = canonicalOfflineMetaType(parentMetaType)
+    val normalizedTitle = mediaTitle.normalizedArtworkTitle()
+    if (parentMetaId.isBlank() || normalizedTitle.isBlank()) return null
+
+    val title = firstOrNull { offlineTitle ->
+        val record = offlineTitle.record
+        if (record.ownerProfileKey != expectedOwner) return@firstOrNull false
+        if (canonicalOfflineMetaType(record.metaType) != normalizedType) return@firstOrNull false
+        if (parentMetaId !in record.artworkIdentityIds()) return@firstOrNull false
+        if (normalizedTitle !in record.artworkIdentityTitles(offlineTitle.downloads)) return@firstOrNull false
+        offlineTitle.hasExactPlayableArtworkIdentity(
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+        )
+    } ?: return null
+
+    val episodeRole = offlineEpisodeThumbnailRole(seasonNumber, episodeNumber)
+    val episodeMetadata = title.record.metadata.videos.firstOrNull { video ->
+        video.season == seasonNumber && video.episode == episodeNumber
+    }
+    return ContinueWatchingArtworkResolution(
+        local = title.localPlaybackArtwork(
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            resolveLocalArtwork = resolveLocalArtwork,
+        ).toContinueWatchingArtworkSet(),
+        remote = ContinueWatchingArtworkSet(
+            poster = title.record.remoteArtwork(offlinePosterRole, title.record.metadata.poster),
+            background = title.record.remoteArtwork(
+                offlineBackgroundRole,
+                title.record.metadata.background,
+            ),
+            logo = title.record.remoteArtwork(offlineLogoRole, title.record.metadata.logo),
+            episodeThumbnail = if (seasonNumber != null && episodeNumber != null) {
+                title.record.remoteArtwork(episodeRole, episodeMetadata?.thumbnail)
+            } else {
+                null
+            },
+        ),
+    )
+}
+
 internal fun OfflineTitle.localPlaybackArtwork(
     seasonNumber: Int?,
     episodeNumber: Int?,
+    resolveLocalArtwork: (String) -> String? = OfflineArtworkPlatform::localUri,
 ): OfflinePlaybackArtwork = OfflinePlaybackArtwork(
-    poster = record.artwork.localArtwork(offlinePosterRole),
-    background = record.artwork.localArtwork(offlineBackgroundRole),
-    logo = record.artwork.localArtwork(offlineLogoRole),
+    poster = record.artwork.localArtwork(offlinePosterRole, resolveLocalArtwork),
+    background = record.artwork.localArtwork(offlineBackgroundRole, resolveLocalArtwork),
+    logo = record.artwork.localArtwork(offlineLogoRole, resolveLocalArtwork),
     episodeThumbnail = if (seasonNumber != null || episodeNumber != null) {
-        record.artwork.localArtwork(offlineEpisodeThumbnailRole(seasonNumber, episodeNumber))
+        record.artwork.localArtwork(
+            offlineEpisodeThumbnailRole(seasonNumber, episodeNumber),
+            resolveLocalArtwork,
+        )
     } else {
         null
     },
 )
+
+private fun OfflinePlaybackArtwork.toContinueWatchingArtworkSet(): ContinueWatchingArtworkSet =
+    ContinueWatchingArtworkSet(
+        poster = poster,
+        background = background,
+        logo = logo,
+        episodeThumbnail = episodeThumbnail,
+    )
+
+private fun OfflineTitleRecord.artworkIdentityIds(): Set<String> = buildSet {
+    add(metaId)
+    add(metadata.id)
+    addAll(providerMetaIds)
+}
+
+private fun OfflineTitleRecord.artworkIdentityTitles(downloads: List<DownloadItem>): Set<String> =
+    buildSet {
+        add(metadata.name.normalizedArtworkTitle())
+        downloads.forEach { download -> add(download.title.normalizedArtworkTitle()) }
+    }.filterTo(mutableSetOf(), String::isNotBlank)
+
+private fun OfflineTitle.hasExactPlayableArtworkIdentity(
+    seasonNumber: Int?,
+    episodeNumber: Int?,
+): Boolean {
+    val playable = playableDownloads
+    if (seasonNumber == null && episodeNumber == null) {
+        return playable.any { download -> !download.isEpisode }
+    }
+    if (seasonNumber == null || episodeNumber == null) return false
+    val exactDownload = playable.any { download ->
+        download.seasonNumber == seasonNumber &&
+            download.episodeNumber == episodeNumber
+    }
+    val exactMetadata = record.metadata.videos.any { video ->
+        video.season == seasonNumber && video.episode == episodeNumber
+    }
+    return exactDownload && exactMetadata
+}
+
+private fun OfflineTitleRecord.remoteArtwork(role: String, metadataUrl: String?): String? =
+    artwork[role]?.remoteUrl.durableArtworkUrlOrNull()
+        ?: metadataUrl.durableArtworkUrlOrNull()
+
+private fun String.normalizedArtworkTitle(): String =
+    trim().lowercase().split(Regex("\\s+")).filter(String::isNotBlank).joinToString(" ")
 
 internal data class OfflineLibraryUiState(
     val titles: List<OfflineTitle> = emptyList(),
@@ -329,8 +434,10 @@ internal fun OfflineMetaSnapshot.toMetaDetails(artwork: Map<String, OfflineArtwo
         isOfflineSnapshot = true,
     )
 
-private fun Map<String, OfflineArtworkRef>.localArtwork(role: String): String? =
-    get(role)?.assetKey?.let(OfflineArtworkPlatform::localUri)
+private fun Map<String, OfflineArtworkRef>.localArtwork(
+    role: String,
+    resolveLocalArtwork: (String) -> String? = OfflineArtworkPlatform::localUri,
+): String? = get(role)?.assetKey?.let(resolveLocalArtwork)
 
 internal const val offlinePosterRole = "poster"
 internal const val offlineBackgroundRole = "background"

@@ -1,5 +1,6 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.features.watchprogress.ContinueWatchingArtworkSet
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import kotlin.test.Test
 import kotlin.test.assertFalse
@@ -41,6 +42,24 @@ class HomeContinueWatchingArtworkTest {
                 blurUnwatchedEpisodes = true,
                 useEpisodeThumbnails = true,
                 artworkUrl = "backdrop.jpg",
+            ),
+        )
+    }
+
+    @Test
+    fun recoveredLocalEpisodeThumbnailRemainsBlurredUntilWatched() {
+        val item = item(progressFraction = 0.5f).copy(
+            episodeThumbnail = "https://images.test/episode.jpg",
+            localArtwork = ContinueWatchingArtworkSet(
+                episodeThumbnail = "file:///current-container/episode.jpg",
+            ),
+        )
+
+        assertTrue(
+            item.shouldBlurContinueWatchingArtwork(
+                blurUnwatchedEpisodes = true,
+                useEpisodeThumbnails = true,
+                artworkUrl = "file:///current-container/episode.jpg",
             ),
         )
     }

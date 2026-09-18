@@ -86,6 +86,7 @@ import com.nuvio.app.features.watchprogress.buildContinueWatchingEpisodeSubtitle
 import com.nuvio.app.features.watchprogress.continueWatchingEntries
 import com.nuvio.app.features.watchprogress.toContinueWatchingItem
 import com.nuvio.app.features.watchprogress.toUpNextContinueWatchingItem
+import com.nuvio.app.features.watchprogress.withResolvedArtwork
 import com.nuvio.app.core.ui.DisintegrationRequest
 import com.nuvio.app.features.watching.application.WatchingState
 import com.nuvio.app.features.watching.domain.WatchingContentRef
@@ -95,10 +96,9 @@ import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.OfflineLibraryRepository
-import com.nuvio.app.features.downloads.OfflinePlaybackArtwork
 import com.nuvio.app.features.downloads.OfflineTitle
 import com.nuvio.app.features.downloads.canonicalOfflineMetaType
-import com.nuvio.app.features.downloads.localPlaybackArtwork
+import com.nuvio.app.features.downloads.resolveContinueWatchingArtwork
 import com.nuvio.app.features.home.components.HomeCollectionRowSection
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
@@ -481,18 +481,25 @@ fun HomeScreen(
         )
     }
     val locallyPlayableContinueWatchingItems = remember(
+        activeProfileId,
         allContinueWatchingItems,
         networkStatusUiState.condition,
         downloadsUiState.completedItems,
         offlineLibraryUiState.titles,
     ) {
         if (homePresentation.mode == HomePresentationMode.Online) {
-            allContinueWatchingItems
+            resolveHomeContinueWatchingArtwork(
+                items = allContinueWatchingItems,
+                offlineTitles = offlineLibraryUiState.titles,
+                profileId = activeProfileId,
+                allowRemote = true,
+            )
         } else {
             resolveHomeContinueWatchingForOffline(
                 items = allContinueWatchingItems,
                 downloads = downloadsUiState.completedItems,
                 offlineTitles = offlineLibraryUiState.titles,
+                profileId = activeProfileId,
             )
         }
     }
@@ -1576,7 +1583,9 @@ internal fun buildHomeContinueWatchingItems(
     val candidates = buildList {
         addAll(
             visibleEntries.map { entry ->
-                val liveItem = entry.toContinueWatchingItem()
+                val liveItem = entry
+                    .toContinueWatchingItem()
+                    .withResolvedArtwork(resolution = null, allowRemote = true)
                 HomeContinueWatchingCandidate(
                     lastUpdatedEpochMs = entry.lastUpdatedEpochMs,
                     item = liveItem
@@ -1625,50 +1634,63 @@ internal fun buildHomeContinueWatchingItems(
 internal fun filterHomeContinueWatchingForOffline(
     items: List<ContinueWatchingItem>,
     downloads: List<DownloadItem>,
-): List<ContinueWatchingItem> = items.filter { item ->
+): List<ContinueWatchingItem> = items.filter { item -> item.hasPlayableDownload(downloads) }
+
+private fun ContinueWatchingItem.hasPlayableDownload(downloads: List<DownloadItem>): Boolean =
     downloads.any { download ->
         download.isPlayable &&
-            download.parentMetaId == item.parentMetaId &&
-            canonicalOfflineMetaType(download.parentMetaType) == canonicalOfflineMetaType(item.parentMetaType) &&
+            download.parentMetaId == parentMetaId &&
+            canonicalOfflineMetaType(download.parentMetaType) == canonicalOfflineMetaType(parentMetaType) &&
             (
-                download.videoId == item.videoId ||
-                    download.seasonNumber == item.seasonNumber &&
-                    download.episodeNumber == item.episodeNumber
+                download.videoId == videoId ||
+                    download.seasonNumber == seasonNumber &&
+                    download.episodeNumber == episodeNumber
                 )
     }
-}
 
 internal fun resolveHomeContinueWatchingForOffline(
     items: List<ContinueWatchingItem>,
     downloads: List<DownloadItem>,
     offlineTitles: List<OfflineTitle>,
-): List<ContinueWatchingItem> = filterHomeContinueWatchingForOffline(items, downloads).map { item ->
-    val title = offlineTitles.firstOrNull { offlineTitle ->
-        canonicalOfflineMetaType(offlineTitle.record.metaType) == canonicalOfflineMetaType(item.parentMetaType) &&
-            item.parentMetaId in buildSet {
-                add(offlineTitle.record.metaId)
-                add(offlineTitle.record.metadata.id)
-                addAll(offlineTitle.record.providerMetaIds)
-            }
-    } ?: return@map item
+    profileId: Int,
+): List<ContinueWatchingItem> = items.mapNotNull { item ->
+    val resolution = offlineTitles.resolveContinueWatchingArtwork(
+        profileId = profileId,
+        parentMetaId = item.parentMetaId,
+        parentMetaType = item.parentMetaType,
+        mediaTitle = item.title,
+        seasonNumber = item.seasonNumber,
+        episodeNumber = item.episodeNumber,
+    )
+    val hasDirectPlayableDownload = item.hasPlayableDownload(downloads)
+    if (resolution == null && !hasDirectPlayableDownload) {
+        null
+    } else {
+        item.withResolvedArtwork(
+            resolution = resolution,
+            allowRemote = false,
+        )
+    }
+}
 
-    item.withOfflinePlaybackArtwork(
-        title.localPlaybackArtwork(
+internal fun resolveHomeContinueWatchingArtwork(
+    items: List<ContinueWatchingItem>,
+    offlineTitles: List<OfflineTitle>,
+    profileId: Int,
+    allowRemote: Boolean,
+): List<ContinueWatchingItem> = items.map { item ->
+    item.withResolvedArtwork(
+        resolution = offlineTitles.resolveContinueWatchingArtwork(
+            profileId = profileId,
+            parentMetaId = item.parentMetaId,
+            parentMetaType = item.parentMetaType,
+            mediaTitle = item.title,
             seasonNumber = item.seasonNumber,
             episodeNumber = item.episodeNumber,
         ),
+        allowRemote = allowRemote,
     )
 }
-
-internal fun ContinueWatchingItem.withOfflinePlaybackArtwork(
-    artwork: OfflinePlaybackArtwork,
-): ContinueWatchingItem = copy(
-    imageUrl = artwork.episodeThumbnail ?: artwork.background ?: artwork.poster,
-    logo = artwork.logo,
-    poster = artwork.poster,
-    background = artwork.background,
-    episodeThumbnail = artwork.episodeThumbnail,
-)
 
 /**
  * Splits unaired next-up episodes into a dedicated row when [ContinueWatchingSortMode.SPLIT_UPCOMING]
@@ -1793,8 +1815,20 @@ private fun saveContinueWatchingSnapshots(
     todayIsoDate: String,
     seedLastWatchedMap: Map<String, Long>,
 ) {
+    val offlineTitles = OfflineLibraryRepository.uiState.value.titles
     val nextUpCache = nextUpItemsBySeries.mapNotNull { (contentId, pair) ->
-        val item = pair.second
+        val rawItem = pair.second
+        val item = rawItem.withResolvedArtwork(
+            resolution = offlineTitles.resolveContinueWatchingArtwork(
+                profileId = profileId,
+                parentMetaId = rawItem.parentMetaId,
+                parentMetaType = rawItem.parentMetaType,
+                mediaTitle = rawItem.title,
+                seasonNumber = rawItem.seasonNumber,
+                episodeNumber = rawItem.episodeNumber,
+            ),
+            allowRemote = true,
+        )
         CachedNextUpItem(
             contentId = contentId,
             contentType = item.parentMetaType,
@@ -1826,6 +1860,8 @@ private fun saveContinueWatchingSnapshots(
             profileId = profileId,
             source = source,
         ),
+        profileId = profileId,
+        offlineTitles = offlineTitles,
     )
     ContinueWatchingEnrichmentCache.saveSnapshots(
         profileId = profileId,
@@ -1839,15 +1875,31 @@ private fun saveContinueWatchingSnapshots(
 internal fun buildHomeInProgressCacheSnapshot(
     visibleEntries: List<WatchProgressEntry>,
     cachedEntries: List<CachedInProgressItem>,
+    profileId: Int? = null,
+    offlineTitles: List<OfflineTitle> = emptyList(),
 ): List<CachedInProgressItem> {
     val cachedByProgressKey = cachedEntries.associateBy(CachedInProgressItem::resolvedProgressKey)
     return visibleEntries.map { entry ->
-        val item = entry
+        val unresolvedItem = entry
             .toContinueWatchingItem()
+            .withResolvedArtwork(resolution = null, allowRemote = true)
             .withFallbackMetadata(
                 fallback = cachedByProgressKey[entry.resolvedProgressKey()]?.toContinueWatchingItem(),
                 preserveFallbackPlaybackIdentity = true,
             )
+        val item = unresolvedItem.withResolvedArtwork(
+            resolution = profileId?.let { id ->
+                offlineTitles.resolveContinueWatchingArtwork(
+                    profileId = id,
+                    parentMetaId = unresolvedItem.parentMetaId,
+                    parentMetaType = unresolvedItem.parentMetaType,
+                    mediaTitle = unresolvedItem.title,
+                    seasonNumber = unresolvedItem.seasonNumber,
+                    episodeNumber = unresolvedItem.episodeNumber,
+                )
+            },
+            allowRemote = true,
+        )
         CachedInProgressItem(
             contentId = entry.parentMetaId,
             contentType = entry.contentType,

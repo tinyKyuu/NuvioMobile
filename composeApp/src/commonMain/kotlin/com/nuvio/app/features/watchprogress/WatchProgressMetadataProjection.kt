@@ -33,11 +33,13 @@ internal fun enrichWatchProgressEntry(
             current.videoId
         },
         title = meta.name.takeIf(String::isNotBlank) ?: current.title,
-        poster = meta.poster?.takeIf(String::isNotBlank) ?: current.poster,
-        background = meta.background?.takeIf(String::isNotBlank) ?: current.background,
-        logo = meta.logo?.takeIf(String::isNotBlank) ?: current.logo,
+        poster = meta.poster.durableArtworkUrlOrNull() ?: current.poster.durableArtworkUrlOrNull(),
+        background = meta.background.durableArtworkUrlOrNull()
+            ?: current.background.durableArtworkUrlOrNull(),
+        logo = meta.logo.durableArtworkUrlOrNull() ?: current.logo.durableArtworkUrlOrNull(),
         episodeTitle = episodeVideo?.title?.takeIf(String::isNotBlank) ?: current.episodeTitle,
-        episodeThumbnail = episodeVideo?.thumbnail?.takeIf(String::isNotBlank) ?: current.episodeThumbnail,
+        episodeThumbnail = episodeVideo?.thumbnail.durableArtworkUrlOrNull()
+            ?: current.episodeThumbnail.durableArtworkUrlOrNull(),
         pauseDescription = episodeVideo?.overview?.takeIf(String::isNotBlank)
             ?: meta.description?.takeIf(String::isNotBlank)
             ?: current.pauseDescription,
@@ -47,8 +49,8 @@ internal fun enrichWatchProgressEntry(
 internal fun WatchProgressEntry.needsRemoteMetadataEnrichment(): Boolean =
     title.isBlank() ||
         title.equals(parentMetaId, ignoreCase = true) ||
-        poster.isNullOrBlank() ||
-        background.isNullOrBlank()
+        poster.durableArtworkUrlOrNull() == null ||
+        background.durableArtworkUrlOrNull() == null
 
 internal class ProviderProgressMetadataOverlay {
     private val lock = SynchronizedObject()

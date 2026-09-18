@@ -11,9 +11,10 @@ import com.nuvio.app.features.cloud.playbackVideoId
 import com.nuvio.app.features.debrid.DebridProviders
 import com.nuvio.app.features.downloads.DownloadItem
 import com.nuvio.app.features.downloads.DownloadStatus
-import com.nuvio.app.features.downloads.OfflinePlaybackArtwork
 import com.nuvio.app.features.watchprogress.CachedInProgressItem
 import com.nuvio.app.features.watchprogress.CachedNextUpItem
+import com.nuvio.app.features.watchprogress.ContinueWatchingArtworkResolution
+import com.nuvio.app.features.watchprogress.ContinueWatchingArtworkSet
 import com.nuvio.app.features.watchprogress.ContinueWatchingItem
 import com.nuvio.app.features.watchprogress.ContinueWatchingSortMode
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
@@ -22,6 +23,7 @@ import com.nuvio.app.features.watchprogress.nextUpDismissKey
 import com.nuvio.app.features.watchprogress.parseReleaseDateToEpochMs
 import com.nuvio.app.features.watchprogress.resolvedProgressKey
 import com.nuvio.app.features.watchprogress.toContinueWatchingItem
+import com.nuvio.app.features.watchprogress.withResolvedArtwork
 import com.nuvio.app.features.watched.WatchedItem
 import com.nuvio.app.features.watching.domain.WatchingContentRef
 import kotlinx.serialization.json.Json
@@ -188,20 +190,27 @@ class HomeScreenTest {
             progressFraction = 0.4f,
         )
 
-        val result = item.withOfflinePlaybackArtwork(
-            OfflinePlaybackArtwork(
-                poster = "file:///offline/poster.jpg",
-                background = "file:///offline/background.jpg",
-                logo = "file:///offline/logo.png",
-                episodeThumbnail = "file:///offline/episode.jpg",
+        val result = item.withResolvedArtwork(
+            resolution = ContinueWatchingArtworkResolution(
+                local = ContinueWatchingArtworkSet(
+                    poster = "file:///offline/poster.jpg",
+                    background = "file:///offline/background.jpg",
+                    logo = "file:///offline/logo.png",
+                    episodeThumbnail = "file:///offline/episode.jpg",
+                ),
             ),
+            allowRemote = false,
         )
 
-        assertEquals("file:///offline/episode.jpg", result.imageUrl)
-        assertEquals("file:///offline/poster.jpg", result.poster)
-        assertEquals("file:///offline/background.jpg", result.background)
-        assertEquals("file:///offline/logo.png", result.logo)
-        assertEquals("file:///offline/episode.jpg", result.episodeThumbnail)
+        assertNull(result.imageUrl)
+        assertNull(result.poster)
+        assertNull(result.background)
+        assertNull(result.logo)
+        assertNull(result.episodeThumbnail)
+        assertEquals("file:///offline/poster.jpg", result.localArtwork?.poster)
+        assertEquals("file:///offline/background.jpg", result.localArtwork?.background)
+        assertEquals("file:///offline/logo.png", result.localArtwork?.logo)
+        assertEquals("file:///offline/episode.jpg", result.localArtwork?.episodeThumbnail)
         assertEquals(item.resumePositionMs, result.resumePositionMs)
         assertEquals(item.progressFraction, result.progressFraction)
     }
@@ -215,20 +224,23 @@ class HomeScreenTest {
             episodeThumbnail = "https://example.test/remote-thumbnail.jpg",
         )
 
-        val result = item.withOfflinePlaybackArtwork(
-            OfflinePlaybackArtwork(
-                poster = "file:///offline/poster.jpg",
-                background = "file:///offline/background.jpg",
-                logo = null,
-                episodeThumbnail = null,
+        val result = item.withResolvedArtwork(
+            resolution = ContinueWatchingArtworkResolution(
+                local = ContinueWatchingArtworkSet(
+                    poster = "file:///offline/poster.jpg",
+                    background = "file:///offline/background.jpg",
+                ),
             ),
+            allowRemote = false,
         )
 
-        assertEquals("file:///offline/background.jpg", result.imageUrl)
-        assertEquals("file:///offline/poster.jpg", result.poster)
-        assertEquals("file:///offline/background.jpg", result.background)
+        assertNull(result.imageUrl)
+        assertNull(result.poster)
+        assertNull(result.background)
         assertNull(result.logo)
         assertNull(result.episodeThumbnail)
+        assertEquals("file:///offline/poster.jpg", result.localArtwork?.poster)
+        assertEquals("file:///offline/background.jpg", result.localArtwork?.background)
     }
 
     @Test
@@ -585,6 +597,50 @@ class HomeScreenTest {
         assertEquals(progress.lastUpdatedEpochMs, restored.lastWatched)
         assertEquals("opaque-progress-key", restored.progressKey)
         assertNull(restored.progressPercent)
+    }
+
+    @Test
+    fun `home cache repairs stale local artwork without changing progress history`() {
+        val progress = progressEntry(
+            videoId = "show:1:4",
+            title = "Show",
+            lastUpdatedEpochMs = 500L,
+        ).copy(
+            progressKey = "stable-progress-key",
+            poster = "file:///stale-container/poster.jpg",
+            episodeThumbnail = "content://stale-container/episode",
+        )
+        val cached = CachedInProgressItem(
+            contentId = "show",
+            contentType = "series",
+            name = "Show",
+            poster = "https://example.test/poster.jpg",
+            backdrop = null,
+            logo = null,
+            videoId = "show:1:4",
+            season = 1,
+            episode = 4,
+            episodeTitle = "Episode",
+            episodeThumbnail = "https://example.test/episode.jpg",
+            pauseDescription = null,
+            position = 1L,
+            duration = 2L,
+            lastWatched = 3L,
+            progressPercent = null,
+            progressKey = "stable-progress-key",
+        )
+
+        val repaired = buildHomeInProgressCacheSnapshot(
+            visibleEntries = listOf(progress),
+            cachedEntries = listOf(cached),
+        ).single()
+
+        assertEquals("https://example.test/poster.jpg", repaired.poster)
+        assertEquals("https://example.test/episode.jpg", repaired.episodeThumbnail)
+        assertEquals(progress.lastPositionMs, repaired.position)
+        assertEquals(progress.durationMs, repaired.duration)
+        assertEquals(progress.lastUpdatedEpochMs, repaired.lastWatched)
+        assertEquals(progress.progressKey, repaired.progressKey)
     }
 
     @Test

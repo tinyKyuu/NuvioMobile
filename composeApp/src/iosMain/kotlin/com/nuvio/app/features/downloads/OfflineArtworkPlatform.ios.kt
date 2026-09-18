@@ -77,7 +77,11 @@ internal actual object OfflineArtworkPlatform {
 
     actual fun localUri(assetKey: String): String? {
         val path = "$directory/$assetKey"
-        return if (NSFileManager.defaultManager.fileExistsAtPath(path)) {
+        val fileSize = NSFileManager.defaultManager
+            .attributesOfItemAtPath(path, error = null)
+            ?.get("NSFileSize")
+            ?.let { value -> (value as? Number)?.toLong() }
+        return if (fileSize != null && fileSize > 0L) {
             NSURL.fileURLWithPath(path).absoluteString ?: "file://$path"
         } else {
             null

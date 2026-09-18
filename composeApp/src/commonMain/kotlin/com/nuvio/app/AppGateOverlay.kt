@@ -40,6 +40,7 @@ internal fun AppGateOverlay(
             onTabTitles = null,
             nativeProfileSwitcherController = nativeProfileSwitcherController,
             appGateController = appGateController,
+            onRootNavigationSuppressedChange = null,
         )
     }
 }

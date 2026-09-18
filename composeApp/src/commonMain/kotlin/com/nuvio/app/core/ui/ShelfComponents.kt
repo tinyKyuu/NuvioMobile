@@ -149,6 +149,7 @@ fun NuvioPosterCard(
     val posterCardStyle = rememberPosterCardStyleUiState()
     val tokens = MaterialTheme.nuvio
     val cardWidth = shape.cardWidth(basePosterWidthDp = posterCardStyle.widthDp)
+    val overlayScale = posterOverlayScaleForWidth(cardWidth)
     val cardShape = RoundedCornerShape(posterCardStyle.cornerRadiusDp.dp)
     val catalogLogoOverlaySize = catalogLogoOverlaySize(
         basePosterWidthDp = posterCardStyle.widthDp,
@@ -237,17 +238,18 @@ fun NuvioPosterCard(
                 }
             }
 
-            NuvioPosterWatchedOverlay(isWatched = isWatched)
-            NuvioPosterAvailabilityOverlay(availability = availability)
+            NuvioPosterWatchedOverlay(isWatched = isWatched, scale = overlayScale)
+            NuvioPosterAvailabilityOverlay(availability = availability, scale = overlayScale)
 
             if (onMenuClick != null) {
                 NuvioPosterMenuOverlay(
                     onClick = onMenuClick,
                     contentDescription = menuContentDescription,
+                    scale = overlayScale,
                 )
             }
 
-            NuvioPosterSelectionOverlay(state = selectionState)
+            NuvioPosterSelectionOverlay(state = selectionState, scale = overlayScale)
         }
         if (shouldShowTitleBelow) {
             Text(

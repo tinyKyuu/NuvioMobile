@@ -72,6 +72,7 @@ internal fun AppGate(
     onTabTitles: ((home: String, search: String, library: String, settings: String, switchProfile: String, addProfile: String) -> Unit)?,
     nativeProfileSwitcherController: NativeProfileSwitcherController?,
     appGateController: AppGateController?,
+    onRootNavigationSuppressedChange: ((Boolean) -> Unit)?,
 ) {
     if (bypassAppGate) {
         MainAppContent(
@@ -87,6 +88,7 @@ internal fun AppGate(
             onReplace = onReplace,
             onActivate = onActivate,
             onTabTitles = onTabTitles,
+            onRootNavigationSuppressedChange = onRootNavigationSuppressedChange,
             appGateController = appGateController,
             onRootContentReady = appGateController?.let { controller ->
                 controller::reportMainContentReady
@@ -464,6 +466,7 @@ internal fun AppGate(
                             onReplace = onReplace,
                             onActivate = onActivate,
                             onTabTitles = onTabTitles,
+                            onRootNavigationSuppressedChange = onRootNavigationSuppressedChange,
                             appGateController = appGateController,
                             onRootContentReady = { ready ->
                                 if (ready) {

@@ -56,6 +56,19 @@ class MainTabsDestinationTest {
     }
 
     @Test
+    fun `suppressed root navigation releases its overlay clearance`() {
+        assertEquals(
+            RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp),
+            rootNavigationOverlayPadding(
+                isTabletLayout = true,
+                useNativeBottomTabs = false,
+                navBarStyle = NavBarStyle.ADAPTIVE,
+                navigationVisible = false,
+            ),
+        )
+    }
+
+    @Test
     fun `tablet sticky root headers avoid a second status bar inset`() {
         assertEquals(10.dp, rootListTopPaddingForStickyHeader(true, 10.dp))
         assertEquals(null, rootListTopPaddingForStickyHeader(false, 10.dp))

@@ -189,6 +189,7 @@ internal fun LazyListScope.libraryVerticalContent(
             onPosterMenuClick = onPosterMenuClick?.let { callback ->
                 { preview -> rowEntries.findEntry(preview)?.item?.let(callback) }
             },
+            showMediaTypeInDetail = true,
         )
     }
 }

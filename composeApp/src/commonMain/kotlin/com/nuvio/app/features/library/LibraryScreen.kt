@@ -50,6 +50,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -145,6 +146,7 @@ fun LibraryScreen(
     networkCondition: NetworkCondition = NetworkCondition.Unknown,
     reconnectControlState: ReconnectControlState = ReconnectControlState.Hidden,
     onNetworkRetry: () -> Unit = {},
+    onDownloadManagementActiveChange: (Boolean) -> Unit = {},
 ) {
     val uiState by remember {
         LibraryRepository.ensureLoaded()
@@ -392,6 +394,14 @@ fun LibraryScreen(
         )
     }
 
+    LaunchedEffect(downloadManagementState.isManaging) {
+        onDownloadManagementActiveChange(downloadManagementState.isManaging)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { onDownloadManagementActiveChange(false) }
+    }
+
     val disintegration = remember { LibraryDisintegrationHolder() }
     val librarySectionsDisplay = if (
         sourceMode == LibraryViewMode.All &&
@@ -422,7 +432,11 @@ fun LibraryScreen(
         val managerContainer = remember(maxWidth, maxHeight) {
             resolveDownloadManagerContainer(maxWidth, maxHeight)
         }
-        val managerClearance = downloadManagerGridBottomClearance()
+        val managerClearance = if (downloadManagementState.isManaging) {
+            downloadManagerGridBottomClearance()
+        } else {
+            0.dp
+        }
 
         NuvioScreen(
             modifier = Modifier.fillMaxSize(),

@@ -1,11 +1,19 @@
 package com.nuvio.app.core.ui
 
+import androidx.compose.ui.unit.dp
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
 class PosterCardStyleTest {
+    @Test
+    fun `poster overlays grow only when rendered cards are genuinely large`() {
+        assertEquals(NuvioPosterOverlayScale.Regular, posterOverlayScaleForWidth(149.dp))
+        assertEquals(NuvioPosterOverlayScale.Large, posterOverlayScaleForWidth(150.dp))
+        assertEquals(NuvioPosterOverlayScale.Large, posterOverlayScaleForWidth(220.dp))
+    }
+
     @Test
     fun `automatic uses balanced on phones regardless of window width`() {
         val narrow = resolvePosterCardDimensions(PosterSizePreference(), false, 390f)

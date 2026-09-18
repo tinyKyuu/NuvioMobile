@@ -42,8 +42,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.WifiOff
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -70,12 +72,14 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
-import com.nuvio.app.core.ui.NuvioAnimatedWatchedBadge
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
 import com.nuvio.app.core.ui.NuvioMediaBadge
+import com.nuvio.app.core.ui.NuvioMediaStatusGroup
+import com.nuvio.app.core.ui.NuvioMediaStatusItem
 import com.nuvio.app.core.ui.NuvioProgressBar
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.nuvioCardDepth
+import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.posterCardClickable
 import com.nuvio.app.features.details.MetaDetails
@@ -182,6 +186,28 @@ fun DetailSeriesContent(
         }
     }
 
+    var downloadedOnly by rememberSaveable(meta.id) { mutableStateOf(false) }
+    LaunchedEffect(offlineOnly) {
+        if (!offlineOnly) downloadedOnly = false
+    }
+
+    val downloadedGroupedEpisodes = remember(groupedEpisodes, downloadedEpisodeKeys) {
+        downloadedEpisodeGroups(groupedEpisodes, downloadedEpisodeKeys)
+    }
+    val showDownloadedOnlyFilter = shouldOfferDownloadedOnlyFilter(
+        offlineOnly = offlineOnly,
+        allEpisodes = groupedEpisodes,
+        downloadedEpisodes = downloadedGroupedEpisodes,
+    )
+    LaunchedEffect(showDownloadedOnlyFilter) {
+        if (!showDownloadedOnlyFilter) downloadedOnly = false
+    }
+    val visibleGroupedEpisodes = if (downloadedOnly && showDownloadedOnlyFilter) {
+        downloadedGroupedEpisodes
+    } else {
+        groupedEpisodes
+    }
+
     if (groupedEpisodes.isEmpty()) {
         if (meta.type == "series") {
             DetailSection(
@@ -199,14 +225,20 @@ fun DetailSeriesContent(
         return
     }
 
-    val seasons = groupedEpisodes.keys.sortedBy(::seasonSortKey)
+    val seasons = visibleGroupedEpisodes.keys.sortedBy(::seasonSortKey)
     val defaultSeason = preferredSeasonNumber
-        ?.takeIf { it in groupedEpisodes }
+        ?.takeIf { it in visibleGroupedEpisodes }
         ?: seasons.first()
     var selectedSeasonOverride by rememberSaveable(meta.id) { mutableStateOf<Int?>(null) }
     val currentSeason = selectedSeasonOverride
-        ?.takeIf { it in groupedEpisodes }
+        ?.takeIf { it in visibleGroupedEpisodes }
         ?: defaultSeason
+
+    LaunchedEffect(downloadedOnly, seasons) {
+        if (selectedSeasonOverride !in seasons) {
+            selectedSeasonOverride = seasons.firstOrNull()
+        }
+    }
 
     var seasonViewMode by remember {
         mutableStateOf(seasonViewModeOrDefault(SeasonViewModeStorage.load()))
@@ -219,11 +251,25 @@ fun DetailSeriesContent(
         Column(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            if (showDownloadedOnlyFilter) {
+                OfflineDownloadedOnlyControl(
+                    checked = downloadedOnly,
+                    message = offlineEpisodesMessage,
+                    onCheckedChange = { checked ->
+                        downloadedOnly = checked
+                        if (checked && currentSeason !in downloadedGroupedEpisodes) {
+                            selectedSeasonOverride = downloadedGroupedEpisodes.keys
+                                .sortedBy(::seasonSortKey)
+                                .firstOrNull()
+                        }
+                    },
+                )
+            }
             if (seasons.size > 1) {
                 val hasSeasonPosters = seasons.any { season ->
                     resolveSeasonPoster(
                         season = season,
-                        groupedEpisodes = groupedEpisodes,
+                        groupedEpisodes = visibleGroupedEpisodes,
                         meta = meta,
                     ) != null
                 }
@@ -266,7 +312,7 @@ fun DetailSeriesContent(
                             when (mode) {
                                 SeasonViewMode.Posters -> SeasonPosterScrollRow(
                                     seasons = seasons,
-                                    groupedEpisodes = groupedEpisodes,
+                                    groupedEpisodes = visibleGroupedEpisodes,
                                     meta = meta,
                                     currentSeason = currentSeason,
                                     sizing = sizing,
@@ -322,11 +368,11 @@ fun DetailSeriesContent(
                             },
                         )
                     }
-                    val seasonEpisodes = groupedEpisodes.getValue(seasonForContent)
+                    val seasonEpisodes = visibleGroupedEpisodes.getValue(seasonForContent)
                     val hasUnavailableEpisodes = offlineOnly && seasonEpisodes.any { episode ->
                         episode.seasonEpisodeKey()?.let(downloadedEpisodeKeys::contains) != true
                     }
-                    if (hasUnavailableEpisodes) {
+                    if (hasUnavailableEpisodes && !showDownloadedOnlyFilter) {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -410,6 +456,59 @@ fun DetailSeriesContent(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun OfflineDownloadedOnlyControl(
+    checked: Boolean,
+    message: String,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    val tokens = MaterialTheme.nuvio
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            NuvioMediaBadge(
+                imageVector = Icons.Rounded.WifiOff,
+                contentDescription = null,
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodySmall,
+                color = tokens.colors.textMuted,
+            )
+        }
+        Surface(
+            onClick = { onCheckedChange(!checked) },
+            shape = tokens.shapes.compactCard,
+            color = if (checked) {
+                tokens.colors.accent.copy(alpha = tokens.opacity.selected)
+            } else {
+                tokens.colors.surface
+            },
+            contentColor = if (checked) tokens.colors.accent else tokens.colors.textSecondary,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (checked) {
+                    androidx.compose.material3.Icon(
+                        imageVector = Icons.Rounded.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                Text(
+                    text = stringResource(Res.string.offline_filter_downloaded_only),
+                    style = MaterialTheme.typography.labelLarge,
+                )
             }
         }
     }
@@ -762,23 +861,35 @@ private fun EpisodeMediaStatusBadges(
     requiresInternet: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        NuvioAnimatedWatchedBadge(isVisible = isWatched)
-        when {
-            isDownloaded -> NuvioMediaBadge(
-                imageVector = Icons.Rounded.Download,
-                contentDescription = stringResource(Res.string.compose_player_downloaded),
+    val watchedDescription = stringResource(Res.string.episodes_cd_watched)
+    val downloadedDescription = stringResource(Res.string.compose_player_downloaded)
+    val internetDescription = stringResource(Res.string.offline_episode_requires_internet)
+    val items = buildList {
+        if (isWatched) {
+            add(
+                NuvioMediaStatusItem(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = watchedDescription,
+                    accent = true,
+                ),
             )
-            requiresInternet -> NuvioMediaBadge(
-                imageVector = Icons.Rounded.WifiOff,
-                contentDescription = stringResource(Res.string.offline_episode_requires_internet),
+        }
+        when {
+            isDownloaded -> add(
+                NuvioMediaStatusItem(
+                    imageVector = Icons.Rounded.Download,
+                    contentDescription = downloadedDescription,
+                ),
+            )
+            requiresInternet -> add(
+                NuvioMediaStatusItem(
+                    imageVector = Icons.Rounded.WifiOff,
+                    contentDescription = internetDescription,
+                ),
             )
         }
     }
+    NuvioMediaStatusGroup(items = items, modifier = modifier)
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -1512,7 +1623,25 @@ private fun MetaVideo.episodeBadge(): String =
         else -> runBlocking { getString(Res.string.details_episode_badge_file) }
     }
 
-private fun MetaVideo.seasonEpisodeKey(): Pair<Int, Int>? {
+internal fun downloadedEpisodeGroups(
+    groupedEpisodes: Map<Int, List<MetaVideo>>,
+    downloadedEpisodeKeys: Set<Pair<Int, Int>>,
+): Map<Int, List<MetaVideo>> = groupedEpisodes.mapValues { (_, episodes) ->
+    episodes.filter { episode ->
+        episode.seasonEpisodeKey()?.let(downloadedEpisodeKeys::contains) == true
+    }
+}.filterValues(List<MetaVideo>::isNotEmpty)
+
+internal fun shouldOfferDownloadedOnlyFilter(
+    offlineOnly: Boolean,
+    allEpisodes: Map<Int, List<MetaVideo>>,
+    downloadedEpisodes: Map<Int, List<MetaVideo>>,
+): Boolean = offlineOnly &&
+    downloadedEpisodes.isNotEmpty() &&
+    downloadedEpisodes.values.sumOf(List<MetaVideo>::size) <
+    allEpisodes.values.sumOf(List<MetaVideo>::size)
+
+internal fun MetaVideo.seasonEpisodeKey(): Pair<Int, Int>? {
     val seasonNumber = season ?: return null
     val episodeNumber = episode ?: return null
     return seasonNumber to episodeNumber

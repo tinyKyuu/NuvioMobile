@@ -34,7 +34,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.BasicAlertDialog
@@ -73,6 +73,7 @@ import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioTokens
+import com.nuvio.app.core.ui.ThemeColors
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
@@ -395,7 +396,7 @@ private fun DownloadManagerBarActions(
         TextButton(
             enabled = enabled,
             onClick = onRemove,
-            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.nuvio.colors.danger),
+            colors = ButtonDefaults.textButtonColors(contentColor = ThemeColors.Crimson.secondary),
         ) {
             Text(stringResource(Res.string.downloads_remove_download), maxLines = 1)
         }
@@ -698,9 +699,9 @@ private fun DownloadManagerRemoveButton(
         onClick = onRemove,
         modifier = modifier,
         colors = ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.nuvio.colors.danger,
+            containerColor = ThemeColors.Crimson.secondary,
             contentColor = MaterialTheme.colorScheme.onError,
-            disabledContainerColor = MaterialTheme.nuvio.colors.danger.copy(
+            disabledContainerColor = ThemeColors.Crimson.secondary.copy(
                 alpha = MaterialTheme.nuvio.opacity.disabled,
             ),
             disabledContentColor = MaterialTheme.colorScheme.onError.copy(
@@ -866,7 +867,7 @@ private fun DownloadManagerRow(
         }
         if (onMenu != null) {
             IconButton(onClick = onMenu) {
-                Icon(Icons.Default.MoreVert, contentDescription = stringResource(Res.string.downloads_menu, title))
+                Icon(Icons.Default.MoreHoriz, contentDescription = stringResource(Res.string.downloads_menu, title))
             }
         }
     }
@@ -948,6 +949,7 @@ private fun DownloadLibraryActionSheet(
                         icon = Icons.Default.DeleteOutline,
                         title = stringResource(Res.string.downloads_remove_download),
                         destructive = true,
+                        actionColor = ThemeColors.Crimson.secondary,
                         onClick = { dismissAfter { onRemove(setOf(target.movie.item.id)) } },
                     )
                     NuvioBottomSheetDivider(modifier = Modifier.padding(top = 8.dp))
@@ -986,6 +988,7 @@ private fun DownloadLibraryActionSheet(
                             target.show.episodes.size,
                         ),
                         destructive = true,
+                        actionColor = ThemeColors.Crimson.secondary,
                         onClick = { dismissAfter { onRemove(target.show.downloadIds) } },
                     )
                 }
@@ -1007,6 +1010,7 @@ private fun DownloadLibraryActionSheet(
                         icon = Icons.Default.DeleteOutline,
                         title = stringResource(Res.string.downloads_remove_download),
                         destructive = true,
+                        actionColor = ThemeColors.Crimson.secondary,
                         onClick = { dismissAfter { onRemove(setOf(target.episode.id)) } },
                     )
                     NuvioBottomSheetDivider(modifier = Modifier.padding(top = 8.dp))

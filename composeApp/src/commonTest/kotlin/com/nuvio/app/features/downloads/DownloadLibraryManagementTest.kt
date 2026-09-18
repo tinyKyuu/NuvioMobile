@@ -63,6 +63,21 @@ class DownloadLibraryManagementTest {
     }
 
     @Test
+    fun `clear exits management and restores the root navigation`() {
+        val state = DownloadLibraryManagementState(
+            isManaging = true,
+            selectedIds = setOf("movie"),
+            isExpanded = true,
+            route = DownloadManagerRoute.Show("show"),
+        )
+
+        assertEquals(
+            DownloadLibraryManagementState(),
+            reduceDownloadLibraryManagement(state, DownloadLibraryManagementEvent.Clear),
+        )
+    }
+
+    @Test
     fun `management state restores expanded chooser and selection after recreation`() {
         val state = DownloadLibraryManagementState(
             isManaging = true,

@@ -39,6 +39,7 @@ fun App(
     onActivate: ((AppScreenTab) -> Unit)? = null,
     onAppReady: ((Boolean) -> Unit)? = null,
     onTabTitles: ((home: String, search: String, library: String, settings: String, switchProfile: String, addProfile: String) -> Unit)? = null,
+    onRootNavigationSuppressedChange: ((Boolean) -> Unit)? = null,
     nativeProfileSwitcherController: NativeProfileSwitcherController? = null,
     appGateController: AppGateController? = null,
 ) {
@@ -62,6 +63,7 @@ fun App(
             onTabTitles = onTabTitles,
             nativeProfileSwitcherController = nativeProfileSwitcherController,
             appGateController = appGateController,
+            onRootNavigationSuppressedChange = onRootNavigationSuppressedChange,
         )
     }
 }

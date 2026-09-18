@@ -193,6 +193,7 @@ internal fun MainAppContent(
     onReplace: ((AppRoute) -> Unit)? = null,
     onActivate: ((AppScreenTab) -> Unit)? = null,
     onTabTitles: ((home: String, search: String, library: String, settings: String, switchProfile: String, addProfile: String) -> Unit)? = null,
+    onRootNavigationSuppressedChange: ((Boolean) -> Unit)? = null,
     appGateController: AppGateController? = null,
     onRootContentReady: ((Boolean) -> Unit)? = null,
     onSwitchProfile: () -> Unit = {},
@@ -1463,6 +1464,7 @@ internal fun MainAppContent(
                         onNetworkRetry = {
                             NetworkRecoveryCoordinator.retry()
                         },
+                        onRootNavigationSuppressedChange = onRootNavigationSuppressedChange,
                     )
                 }
                 entry<DetailRoute> { route ->

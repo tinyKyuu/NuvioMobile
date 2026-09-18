@@ -185,6 +185,7 @@ internal fun AppTabHost(
     networkCondition: NetworkCondition,
     reconnectControlState: ReconnectControlState,
     onNetworkRetry: () -> Unit,
+    onLibraryDownloadManagementActiveChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val tabStateHolder = rememberSaveableStateHolder()
@@ -252,6 +253,7 @@ internal fun AppTabHost(
                         networkCondition = networkCondition,
                         reconnectControlState = reconnectControlState,
                         onNetworkRetry = onNetworkRetry,
+                        onDownloadManagementActiveChange = onLibraryDownloadManagementActiveChange,
                     )
                 }
 

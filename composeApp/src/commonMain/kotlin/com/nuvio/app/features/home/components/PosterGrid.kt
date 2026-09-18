@@ -4,6 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -45,10 +46,15 @@ import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.core.ui.nuvioPosterStateOutline
 import com.nuvio.app.core.ui.posterCardClickable
+import com.nuvio.app.core.ui.posterOverlayScaleForWidth
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.PosterShape
 import com.nuvio.app.features.watching.application.WatchingState
+import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.media_movie
+import nuvio.composeapp.generated.resources.media_series
+import org.jetbrains.compose.resources.stringResource
 
 internal fun posterGridColumnCountForWidth(screenWidth: Dp): Int =
     when {
@@ -73,6 +79,7 @@ internal fun PosterGridRow(
     selectionContentDescription: ((MetaPreview) -> String?)? = null,
     menuContentDescription: ((MetaPreview) -> String?)? = null,
     onPosterMenuClick: ((MetaPreview) -> Unit)? = null,
+    showMediaTypeInDetail: Boolean = false,
 ) {
     val posterCardStyle = rememberPosterCardStyleUiState()
 
@@ -99,6 +106,7 @@ internal fun PosterGridRow(
                 selectionContentDescription = selectionContentDescription?.invoke(item),
                 menuContentDescription = menuContentDescription?.invoke(item),
                 onMenuClick = onPosterMenuClick?.let { { it(item) } },
+                showMediaTypeInDetail = showMediaTypeInDetail,
             )
         }
         repeat(columns - items.size) {
@@ -145,6 +153,7 @@ private fun PosterGridTile(
     selectionContentDescription: String? = null,
     menuContentDescription: String? = null,
     onMenuClick: (() -> Unit)? = null,
+    showMediaTypeInDetail: Boolean = false,
 ) {
     val focused = remember { mutableStateOf(false) }
     val posterShape = RoundedCornerShape(cornerRadiusDp.dp)
@@ -152,7 +161,7 @@ private fun PosterGridTile(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(item.posterShape.posterGridAspectRatio())
@@ -180,6 +189,7 @@ private fun PosterGridTile(
                     zoomCornerRadius = cornerRadiusDp.dp,
                 ),
         ) {
+            val overlayScale = posterOverlayScaleForWidth(maxWidth)
             if (item.poster != null) {
                 AsyncImage(
                     model = item.poster,
@@ -200,15 +210,16 @@ private fun PosterGridTile(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            NuvioPosterWatchedOverlay(isWatched = isWatched)
-            NuvioPosterAvailabilityOverlay(availability = availability)
+            NuvioPosterWatchedOverlay(isWatched = isWatched, scale = overlayScale)
+            NuvioPosterAvailabilityOverlay(availability = availability, scale = overlayScale)
             if (onMenuClick != null) {
                 NuvioPosterMenuOverlay(
                     onClick = onMenuClick,
                     contentDescription = menuContentDescription,
+                    scale = overlayScale,
                 )
             }
-            NuvioPosterSelectionOverlay(state = selectionState)
+            NuvioPosterSelectionOverlay(state = selectionState, scale = overlayScale)
         }
         if (!hideLabels) {
             Text(
@@ -218,7 +229,17 @@ private fun PosterGridTile(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            val detail = item.releaseInfo?.let { formatReleaseDateForDisplay(it) }
+            val releaseDetail = item.releaseInfo?.let { formatReleaseDateForDisplay(it) }
+            val detail = if (showMediaTypeInDetail) {
+                posterGridMediaDetail(
+                    type = item.type,
+                    releaseDetail = releaseDetail,
+                    movieLabel = stringResource(Res.string.media_movie),
+                    seriesLabel = stringResource(Res.string.media_series),
+                )
+            } else {
+                releaseDetail
+            }
             if (detail != null) {
                 Text(
                     text = detail,
@@ -231,6 +252,24 @@ private fun PosterGridTile(
                 Spacer(modifier = Modifier.height(8.dp))
             }
         }
+    }
+}
+
+internal fun posterGridMediaDetail(
+    type: String,
+    releaseDetail: String?,
+    movieLabel: String,
+    seriesLabel: String,
+): String? {
+    val typeLabel = when (type.lowercase()) {
+        "movie" -> movieLabel
+        "series", "show", "tv" -> seriesLabel
+        else -> null
+    }
+    return when {
+        typeLabel != null && !releaseDetail.isNullOrBlank() -> "$typeLabel: $releaseDetail"
+        typeLabel != null -> typeLabel
+        else -> releaseDetail
     }
 }
 

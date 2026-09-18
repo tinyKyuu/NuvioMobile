@@ -191,7 +191,7 @@ internal fun reduceDownloadLibraryManagement(
     DownloadLibraryManagementEvent.ProfileChanged,
     -> DownloadLibraryManagementState()
 
-    DownloadLibraryManagementEvent.Clear -> state.copy(selectedIds = emptySet())
+    DownloadLibraryManagementEvent.Clear -> DownloadLibraryManagementState()
     DownloadLibraryManagementEvent.Collapse -> state.copy(isExpanded = false)
     DownloadLibraryManagementEvent.ExpandRoot -> state.copy(
         isManaging = true,

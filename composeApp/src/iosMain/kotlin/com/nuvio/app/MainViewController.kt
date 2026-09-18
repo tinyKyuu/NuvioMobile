@@ -25,6 +25,7 @@ fun MainViewController(
     onReplace: (AppRoute) -> Unit,
     onActivate: (String) -> Unit,
     onTabTitles: (String, String, String, String, String, String) -> Unit,
+    onRootNavigationSuppressedChange: (Boolean) -> Unit,
     appGateController: AppGateController,
 ): UIViewController {
     val initialTab = AppScreenTab.fromName(initialTabName)
@@ -41,6 +42,7 @@ fun MainViewController(
             onReplace = onReplace,
             onActivate = { tab -> onActivate(tab.name) },
             onTabTitles = onTabTitles,
+            onRootNavigationSuppressedChange = onRootNavigationSuppressedChange,
             appGateController = appGateController,
         )
     }

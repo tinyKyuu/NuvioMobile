@@ -24,7 +24,7 @@ class MainTabsDestinationTest {
         )
 
         assertEquals(0.dp, padding.top)
-        assertEquals(64.dp, padding.bottom)
+        assertEquals(72.dp, padding.bottom)
     }
 
     @Test

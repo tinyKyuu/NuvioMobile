@@ -475,6 +475,7 @@
     <string name="offline_library_empty_title">No downloaded titles</string>
     <string name="offline_library_empty_message">Completed downloads will appear here for offline browsing.</string>
     <string name="offline_episode_requires_internet">Internet required</string>
+    <string name="offline_season_downloaded_only">Only downloaded episodes are available offline</string>
     <string name="compose_player_airs_prefix">Airs</string>
     <string name="compose_player_tba">TBA</string>
     <string name="compose_player_tap_to_unlock">Tap to unlock</string>

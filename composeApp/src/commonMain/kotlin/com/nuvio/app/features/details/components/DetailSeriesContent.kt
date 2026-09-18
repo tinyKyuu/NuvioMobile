@@ -41,6 +41,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -69,7 +72,9 @@ import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.ui.NuvioAnimatedWatchedBadge
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
+import com.nuvio.app.core.ui.NuvioMediaBadge
 import com.nuvio.app.core.ui.NuvioProgressBar
+import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.core.ui.nuvioHorizontalScrollBleed
 import com.nuvio.app.core.ui.posterCardClickable
@@ -125,6 +130,7 @@ fun DetailSeriesContent(
     }.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
     val offlineOnly = meta.isOfflineSnapshot && networkStatusUiState.isOfflineLike
+    val offlineEpisodesMessage = stringResource(Res.string.offline_season_downloaded_only)
     val downloadedEpisodeKeys = remember(downloadsUiState.completedItems, meta.id) {
         downloadsUiState.completedItems
             .asSequence()
@@ -317,6 +323,25 @@ fun DetailSeriesContent(
                         )
                     }
                     val seasonEpisodes = groupedEpisodes.getValue(seasonForContent)
+                    val hasUnavailableEpisodes = offlineOnly && seasonEpisodes.any { episode ->
+                        episode.seasonEpisodeKey()?.let(downloadedEpisodeKeys::contains) != true
+                    }
+                    if (hasUnavailableEpisodes) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            NuvioMediaBadge(
+                                imageVector = Icons.Rounded.WifiOff,
+                                contentDescription = null,
+                            )
+                            Text(
+                                text = offlineEpisodesMessage,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                     if (episodeCardStyle == MetaEpisodeCardStyle.Horizontal) {
                         EpisodeHorizontalRow(
                             episodes = seasonEpisodes,
@@ -336,6 +361,7 @@ fun DetailSeriesContent(
                                 preferredSeasonNumber = preferredSeasonNumber,
                                 preferredEpisodeNumber = preferredEpisodeNumber,
                             ),
+                            offlineEpisodesMessage = offlineEpisodesMessage,
                             onEpisodeClick = onEpisodeClick,
                             onEpisodeLongPress = onEpisodeLongPress,
                         )
@@ -373,7 +399,11 @@ fun DetailSeriesContent(
                                     isDownloaded = isDownloaded,
                                     requiresInternet = requiresInternet,
                                     sizing = sizing,
-                                    onClick = if (requiresInternet) null else ({ onEpisodeClick?.invoke(episode) }),
+                                    onClick = if (requiresInternet) {
+                                        ({ NuvioToastController.show(offlineEpisodesMessage) })
+                                    } else {
+                                        onEpisodeClick?.let { click -> { click(episode) } }
+                                    },
                                     onLongPress = if (requiresInternet) null else ({ onEpisodeLongPress?.invoke(episode) }),
                                 )
                             }
@@ -650,6 +680,7 @@ private fun EpisodeHorizontalRow(
     offlineOnly: Boolean,
     blurUnwatchedEpisodes: Boolean,
     preferredEpisodeNumber: Int? = null,
+    offlineEpisodesMessage: String,
     onEpisodeClick: ((MetaVideo) -> Unit)?,
     onEpisodeLongPress: ((MetaVideo) -> Unit)?,
 ) {
@@ -713,8 +744,38 @@ private fun EpisodeHorizontalRow(
                 isDownloaded = isDownloaded,
                 requiresInternet = requiresInternet,
                 metrics = rowMetrics,
-                onClick = if (requiresInternet) null else ({ onEpisodeClick?.invoke(episode) }),
+                onClick = if (requiresInternet) {
+                    ({ NuvioToastController.show(offlineEpisodesMessage) })
+                } else {
+                    onEpisodeClick?.let { click -> { click(episode) } }
+                },
                 onLongPress = if (requiresInternet) null else ({ onEpisodeLongPress?.invoke(episode) }),
+            )
+        }
+    }
+}
+
+@Composable
+private fun EpisodeMediaStatusBadges(
+    isWatched: Boolean,
+    isDownloaded: Boolean,
+    requiresInternet: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        NuvioAnimatedWatchedBadge(isVisible = isWatched)
+        when {
+            isDownloaded -> NuvioMediaBadge(
+                imageVector = Icons.Rounded.Download,
+                contentDescription = stringResource(Res.string.compose_player_downloaded),
+            )
+            requiresInternet -> NuvioMediaBadge(
+                imageVector = Icons.Rounded.WifiOff,
+                contentDescription = stringResource(Res.string.offline_episode_requires_internet),
             )
         }
     }
@@ -796,34 +857,14 @@ private fun EpisodeHorizontalCard(
                 ),
         )
 
-        Column(
+        EpisodeMediaStatusBadges(
+            isWatched = isWatched,
+            isDownloaded = isDownloaded,
+            requiresInternet = requiresInternet,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(metrics.contentPadding),
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            NuvioAnimatedWatchedBadge(isVisible = isWatched)
-            if (isDownloaded) {
-                EpisodeCodeBadge(
-                    text = stringResource(Res.string.compose_player_downloaded),
-                    textSize = metrics.badgeTextSize,
-                    radius = metrics.badgeRadius,
-                    horizontalPadding = metrics.badgeHorizontalPadding,
-                    verticalPadding = metrics.badgeVerticalPadding,
-                    backgroundAlpha = 0.85f,
-                )
-            } else if (requiresInternet) {
-                EpisodeCodeBadge(
-                    text = stringResource(Res.string.offline_episode_requires_internet),
-                    textSize = metrics.badgeTextSize,
-                    radius = metrics.badgeRadius,
-                    horizontalPadding = metrics.badgeHorizontalPadding,
-                    verticalPadding = metrics.badgeVerticalPadding,
-                    backgroundAlpha = 0.85f,
-                )
-            }
-        }
+        )
 
         Column(
             modifier = Modifier
@@ -1207,34 +1248,14 @@ private fun EpisodeListCard(
                         .padding(start = 8.dp, top = 8.dp),
                 )
 
-                Column(
+                EpisodeMediaStatusBadges(
+                    isWatched = isWatched,
+                    isDownloaded = isDownloaded,
+                    requiresInternet = requiresInternet,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    NuvioAnimatedWatchedBadge(isVisible = isWatched)
-                    if (isDownloaded) {
-                        EpisodeCodeBadge(
-                            text = stringResource(Res.string.compose_player_downloaded),
-                            textSize = sizing.badgeTextSize,
-                            radius = sizing.badgeRadius,
-                            horizontalPadding = sizing.badgeHorizontalPadding,
-                            verticalPadding = sizing.badgeVerticalPadding,
-                            backgroundAlpha = 0.85f,
-                        )
-                    } else if (requiresInternet) {
-                        EpisodeCodeBadge(
-                            text = stringResource(Res.string.offline_episode_requires_internet),
-                            textSize = sizing.badgeTextSize,
-                            radius = sizing.badgeRadius,
-                            horizontalPadding = sizing.badgeHorizontalPadding,
-                            verticalPadding = sizing.badgeVerticalPadding,
-                            backgroundAlpha = 0.85f,
-                        )
-                    }
-                }
+                )
             }
 
             Column(

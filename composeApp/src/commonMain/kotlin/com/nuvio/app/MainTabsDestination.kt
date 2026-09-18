@@ -228,7 +228,7 @@ internal fun rootNavigationOverlayPadding(
     navBarStyle: NavBarStyle,
 ): RootNavigationOverlayPadding = when {
     useNativeBottomTabs -> RootNavigationOverlayPadding(top = 0.dp, bottom = 49.dp)
-    isTabletLayout -> RootNavigationOverlayPadding(top = 0.dp, bottom = 64.dp)
+    isTabletLayout -> RootNavigationOverlayPadding(top = 0.dp, bottom = 72.dp)
     navBarStyle != NavBarStyle.CLASSIC -> RootNavigationOverlayPadding(top = 0.dp, bottom = 72.dp)
     else -> RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp)
 }

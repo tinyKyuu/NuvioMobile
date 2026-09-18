@@ -93,7 +93,7 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Feature | Where | Platforms | Status |
 | --- | --- | --- | --- |
 | Offline Home keeps Continue Watching and Downloaded content available while remote catalog rows stay hidden | Home | Shared mobile source, iOS tested | Merged |
-| Header-integrated connection status keeps one finite Reconnect session trailing on Home, Search, and Library, removes its Wi-Fi-off graphic before stacking, and includes a transient offline test switch | Home, Search, Library, and Advanced settings | Shared mobile source; iPhone and iPad simulators tested | [In review](https://github.com/tinyKyuu/NuvioMobile/pull/32) |
+| Header-integrated connection status keeps one finite Reconnect session trailing on Home, Search, and Library, uses a quiet idle action with a stronger restoring state, removes its Wi-Fi-off graphic before stacking, and includes a transient offline test switch | Home, Search, Library, and Advanced settings | Shared mobile source; iPhone and iPad simulators tested | [In review](https://github.com/tinyKyuu/NuvioMobile/pull/32) |
 | Continue Watching can reuse verified local artwork for downloaded titles | Home | Shared mobile source, iOS tested | Merged |
 | Foreground network restoration revalidates connectivity, restores affected add-ons and catalogs, preserves local offline Home, and coalesces manual reconnect work | Home, Search, Discover, Details, and add-on Settings | iOS, iPadOS, and Android shared source; Android emulator and cross-platform builds tested | [Merged](https://github.com/tinyKyuu/NuvioMobile/pull/26) |
 
@@ -102,7 +102,7 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Feature | Where | Platforms | Status |
 | --- | --- | --- | --- |
 | Catalog and Continue Watching posters share one size setting. Automatic is stored on the device and chooses a phone or tablet size, Extra Large is available, and Continue Watching defaults to Poster. | Home, catalogs, and Settings | iOS, iPadOS, and Android | Merged |
-| Tablet root navigation uses a measured bottom dock: every destination is labeled when it fits, Settings becomes a circular avatar before the remaining labels disappear, and each reduction happens only when required | App navigation | iPadOS and Android tablets | [In review](https://github.com/tinyKyuu/NuvioMobile/pull/32) |
+| Tablet root navigation uses one measured floating dock with a shared selected indicator: labels sit below icons when they fit, Settings drops its label first, and all labels disappear only when required | App navigation | iPadOS and Android tablets | [In review](https://github.com/tinyKyuu/NuvioMobile/pull/32) |
 
 ### Library
 
@@ -111,8 +111,8 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Downloaded movies and series appear in the Library with horizontal shelves or a vertical poster grid | Library | Shared mobile source, iOS tested | Merged |
 | Download posters support Browse and Manage modes, partial/full show selection, exact size totals, contextual play/remove/share actions, and a shared phone/tablet manager | Library > Downloads | iOS, iPadOS, and Android shared source | [Merged](https://github.com/tinyKyuu/NuvioMobile/pull/27) |
 | Local metadata, title artwork, episode artwork, and principal cast images remain available offline | Library and Details | Shared mobile source, iOS tested | Merged |
-| Adaptive All titles, Downloads, and eligible Cloud files views share measured controls; All titles deduplicates local saves, the selected tracking library, and playable downloads without changing membership, watch status is filterable, and offline posters explain whether playback is available | Library | iOS, iPadOS, and Android shared source | [In review](https://github.com/tinyKyuu/NuvioMobile/pull/32) |
-| Downloaded episodes remain playable from the normal series details screen, expose an exact-episode removal shortcut, and show `Internet required` when unavailable | Details | Shared mobile source, iOS tested | [Merged](https://github.com/tinyKyuu/NuvioMobile/pull/27) |
+| Adaptive All titles, Downloads, and eligible Cloud files views share measured controls; All titles deduplicates local saves, the selected tracking library, and playable downloads without changing membership, watch status is filterable, and poster status and overflow controls share one reusable badge treatment | Library | iOS, iPadOS, and Android shared source | [In review](https://github.com/tinyKyuu/NuvioMobile/pull/32) |
+| Downloaded episodes remain playable from the normal series details screen and expose an exact-episode removal shortcut; shared watched, downloaded, and internet-required badges replace repeated labels, while an offline season explains limited availability once | Details | iOS, iPadOS, and Android shared source | [In review](https://github.com/tinyKyuu/NuvioMobile/pull/32) |
 
 ### Player
 

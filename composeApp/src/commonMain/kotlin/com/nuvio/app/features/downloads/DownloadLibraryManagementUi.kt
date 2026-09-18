@@ -71,6 +71,7 @@ import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
 import com.nuvio.app.core.ui.NuvioBottomSheetDivider
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioQuietActionButton
+import com.nuvio.app.core.ui.NuvioQuietActionStyle
 import com.nuvio.app.core.ui.NuvioQuietActionTone
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
@@ -655,6 +656,7 @@ private fun DownloadManagerPanelHeader(
                     Res.string.downloads_deselect_all
                 },
             ),
+            style = NuvioQuietActionStyle.Outlined,
             onClick = if (summary.fileCount == 0) onSelectAll else onClear,
         )
     }
@@ -702,6 +704,7 @@ private fun DownloadManagerRemoveButton(
         label = stringResource(Res.string.downloads_remove_download),
         icon = Icons.Default.DeleteOutline,
         tone = NuvioQuietActionTone.Destructive,
+        style = NuvioQuietActionStyle.Outlined,
         enabled = enabled,
         onClick = onRemove,
         modifier = modifier,

@@ -8,8 +8,8 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,7 +44,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -454,6 +453,7 @@ fun NuvioQuietActionButton(
     contentDescription: String? = label,
     enabled: Boolean = true,
     tone: NuvioQuietActionTone = NuvioQuietActionTone.Neutral,
+    style: NuvioQuietActionStyle = NuvioQuietActionStyle.Compact,
 ) {
     require(label != null || icon != null)
     val tokens = MaterialTheme.nuvio
@@ -473,49 +473,73 @@ fun NuvioQuietActionButton(
     }.let { color ->
         if (enabled) color else color.copy(alpha = color.alpha * tokens.opacity.disabled)
     }
-    TextButton(
+    val resolvedContainerColor = if (enabled) {
+        containerColor
+    } else {
+        containerColor.copy(alpha = containerColor.alpha * tokens.opacity.disabled)
+    }
+    val resolvedContentColor = if (enabled) contentColor else tokens.colors.textDisabled
+    val border = if (style == NuvioQuietActionStyle.Outlined) {
+        BorderStroke(tokens.borders.thin, borderColor)
+    } else {
+        null
+    }
+    Surface(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier.then(
-            if (iconOnly) Modifier.size(NuvioTokens.Space.s40 + NuvioTokens.Space.s4) else Modifier,
-        ).border(
-            width = tokens.borders.thin,
-            color = borderColor,
-            shape = tokens.shapes.chip,
+            if (iconOnly) {
+                Modifier.size(NuvioTokens.Space.s40 + NuvioTokens.Space.s4)
+            } else {
+                Modifier.height(NuvioTokens.Space.s40 + NuvioTokens.Space.s4)
+            },
         ),
         shape = tokens.shapes.chip,
-        colors = ButtonDefaults.textButtonColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
-            disabledContainerColor = containerColor.copy(
-                alpha = containerColor.alpha * tokens.opacity.disabled,
-            ),
-            disabledContentColor = tokens.colors.textDisabled,
-        ),
-        contentPadding = if (iconOnly) {
-            PaddingValues(NuvioTokens.Space.s8)
-        } else {
-            PaddingValues(horizontal = NuvioTokens.Space.s12, vertical = NuvioTokens.Space.s8)
-        },
+        color = Color.Transparent,
+        contentColor = resolvedContentColor,
     ) {
-        if (icon != null) {
-            Icon(
-                imageVector = icon,
-                contentDescription = contentDescription,
-                modifier = Modifier.size(
-                    if (iconOnly) NuvioTokens.Icon.md else NuvioTokens.Icon.sm,
-                ),
-            )
-        }
-        if (icon != null && label != null) {
-            Spacer(Modifier.width(NuvioTokens.Space.s6))
-        }
-        if (label != null) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-            )
+        Box(contentAlignment = Alignment.Center) {
+            Surface(
+                modifier = if (iconOnly) {
+                    Modifier.size(NuvioTokens.Space.s32)
+                } else {
+                    Modifier.height(NuvioTokens.Space.s32)
+                },
+                shape = tokens.shapes.chip,
+                color = resolvedContainerColor,
+                contentColor = resolvedContentColor,
+                border = border,
+            ) {
+                Row(
+                    modifier = if (iconOnly) {
+                        Modifier.fillMaxSize()
+                    } else {
+                        Modifier.padding(horizontal = NuvioTokens.Space.s10)
+                    },
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (icon != null) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = contentDescription,
+                            modifier = Modifier.size(
+                                if (iconOnly) NuvioTokens.Icon.md else NuvioTokens.Icon.sm,
+                            ),
+                        )
+                    }
+                    if (icon != null && label != null) {
+                        Spacer(Modifier.width(NuvioTokens.Space.s6))
+                    }
+                    if (label != null) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -523,6 +547,11 @@ fun NuvioQuietActionButton(
 enum class NuvioQuietActionTone {
     Neutral,
     Destructive,
+}
+
+enum class NuvioQuietActionStyle {
+    Compact,
+    Outlined,
 }
 
 @Composable

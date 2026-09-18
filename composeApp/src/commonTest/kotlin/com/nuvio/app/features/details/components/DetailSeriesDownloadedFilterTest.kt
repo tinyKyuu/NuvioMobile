@@ -53,6 +53,12 @@ class DetailSeriesDownloadedFilterTest {
         assertEquals(listOf(1), incoming.episodes.map(MetaVideo::episode))
     }
 
+    @Test
+    fun `season selector stays visible when filtering leaves one of several seasons`() {
+        assertTrue(shouldKeepSeasonSelector(allSeasonCount = 4))
+        assertFalse(shouldKeepSeasonSelector(allSeasonCount = 1))
+    }
+
     private fun episode(season: Int, episode: Int) = MetaVideo(
         id = "s${season}e$episode",
         title = "Episode $episode",

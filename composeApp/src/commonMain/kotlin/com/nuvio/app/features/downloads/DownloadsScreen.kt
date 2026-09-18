@@ -64,6 +64,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
+import com.nuvio.app.core.ui.NuvioQuietActionButton
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.NuvioToastController
@@ -209,19 +210,17 @@ fun DownloadsScreen(
                     actions = {
                         if (selectionSupported) {
                             if (selectionMode) {
-                                IconButton(onClick = ::leaveSelection) {
-                                    Icon(
-                                        imageVector = Icons.Rounded.Close,
-                                        contentDescription = stringResource(Res.string.downloads_exit_selection),
-                                        tint = MaterialTheme.nuvio.colors.textSecondary,
-                                    )
-                                }
+                                NuvioQuietActionButton(
+                                    icon = Icons.Rounded.Close,
+                                    contentDescription = stringResource(Res.string.downloads_exit_selection),
+                                    onClick = ::leaveSelection,
+                                )
                             } else if (selectedShowId == null) {
-                                TextButton(
-                                    enabled = visibleSelectionIds.isNotEmpty(),
-                                    onClick = { selectionMode = true },
-                                ) {
-                                    Text(stringResource(Res.string.downloads_select))
+                                if (visibleSelectionIds.isNotEmpty()) {
+                                    NuvioQuietActionButton(
+                                        label = stringResource(Res.string.downloads_select),
+                                        onClick = { selectionMode = true },
+                                    )
                                 }
                                 if (mode == DownloadsScreenMode.Legacy) {
                                     IconButton(onClick = { showManagement = !showManagement }) {
@@ -467,6 +466,20 @@ private fun LazyListScope.downloadsRootContent(
         }
     }
 
+    if (mode == DownloadsScreenMode.Activity) {
+        item(key = "downloads-activity-settings") {
+            DownloadsManagementCard(
+                items = uiState.items,
+                policy = networkPolicy,
+                onPolicyChanged = onNetworkPolicyChanged,
+                onManageCompletedDownloads = onManageCompletedDownloads,
+                collapsible = true,
+                expanded = activityPolicyExpanded,
+                onExpandedChanged = onActivityPolicyExpandedChanged,
+            )
+        }
+    }
+
     if (currentDownloads.isNotEmpty()) {
         item {
             SectionTitle(stringResource(Res.string.downloads_section_active))
@@ -497,27 +510,16 @@ private fun LazyListScope.downloadsRootContent(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 40.dp),
+                        .padding(horizontal = 20.dp, vertical = 24.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = stringResource(Res.string.downloads_activity_empty),
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-        }
-        item(key = "downloads-activity-policy") {
-            DownloadsManagementCard(
-                items = uiState.items,
-                policy = networkPolicy,
-                onPolicyChanged = onNetworkPolicyChanged,
-                onManageCompletedDownloads = onManageCompletedDownloads,
-                collapsible = true,
-                expanded = activityPolicyExpanded,
-                onExpandedChanged = onActivityPolicyExpandedChanged,
-            )
         }
         return
     }
@@ -974,13 +976,6 @@ private fun DownloadSelectionBar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
             ) {
-                IconButton(onClick = onExitSelection) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = stringResource(Res.string.downloads_exit_selection),
-                        tint = tokens.colors.textSecondary,
-                    )
-                }
                 Text(
                     text = if (summary.fileCount == 0) {
                         stringResource(Res.string.downloads_select_prompt)
@@ -1032,6 +1027,11 @@ private fun DownloadSelectionBar(
                         )
                     }
                 }
+                NuvioQuietActionButton(
+                    icon = Icons.Rounded.Close,
+                    contentDescription = stringResource(Res.string.downloads_exit_selection),
+                    onClick = onExitSelection,
+                )
             }
         }
     }
@@ -1140,6 +1140,11 @@ private fun DownloadsManagementCard(
     onExpandedChanged: (Boolean) -> Unit = {},
 ) {
     val storedBytes = items.sumOf { it.downloadedBytes.coerceAtLeast(0L) }
+    val summary = stringResource(
+        Res.string.downloads_manage_storage_summary,
+        items.size,
+        formatBytes(storedBytes),
+    )
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1148,7 +1153,10 @@ private fun DownloadsManagementCard(
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            modifier = Modifier.padding(
+                horizontal = 16.dp,
+                vertical = if (collapsible && !expanded) 10.dp else 14.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(
@@ -1160,15 +1168,25 @@ private fun DownloadsManagementCard(
                         } else {
                             Modifier
                         },
-                    ),
+                ),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = stringResource(Res.string.downloads_policy_title),
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(Res.string.downloads_settings_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    if (collapsible) {
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
                 if (collapsible) {
                     Icon(
                         imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
@@ -1183,15 +1201,13 @@ private fun DownloadsManagementCard(
                     )
                 }
             }
-            Text(
-                text = stringResource(
-                    Res.string.downloads_manage_storage_description,
-                    items.size,
-                    formatBytes(storedBytes),
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (!collapsible) {
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             if (expanded) {
                 if (onManageCompletedDownloads != null) {
                     TextButton(
@@ -1228,6 +1244,11 @@ private fun DownloadsManagementCard(
                 )
                 Text(
                     text = stringResource(Res.string.downloads_network_policy_note),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = stringResource(Res.string.downloads_concurrency_note),
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

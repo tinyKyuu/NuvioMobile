@@ -1,8 +1,6 @@
 package com.nuvio.app.features.details.components
 
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -38,6 +36,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -72,12 +71,11 @@ import com.nuvio.app.core.build.AppFeaturePolicy
 import com.nuvio.app.core.format.formatReleaseDateForDisplay
 import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import com.nuvio.app.core.ui.NuvioCardDepthSurface
-import com.nuvio.app.core.ui.NuvioDropdownChip
-import com.nuvio.app.core.ui.NuvioDropdownOption
 import com.nuvio.app.core.ui.NuvioMediaBadge
 import com.nuvio.app.core.ui.NuvioMediaStatusGroup
 import com.nuvio.app.core.ui.NuvioMediaStatusItem
 import com.nuvio.app.core.ui.NuvioProgressBar
+import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.nuvioCardDepth
 import com.nuvio.app.core.ui.nuvio
@@ -86,14 +84,11 @@ import com.nuvio.app.core.ui.posterCardClickable
 import com.nuvio.app.features.details.MetaDetails
 import com.nuvio.app.features.details.MetaEpisodeCardStyle
 import com.nuvio.app.features.details.MetaVideo
-import com.nuvio.app.features.details.SeasonViewMode
-import com.nuvio.app.features.details.SeasonViewModeStorage
 import com.nuvio.app.features.details.formatRuntimeFromMinutes
 import com.nuvio.app.features.details.metaVideoSeasonEpisodeComparator
 import com.nuvio.app.features.details.normalizeSeasonNumber
 import com.nuvio.app.features.details.preferredEpisodeNumberForSeason
 import com.nuvio.app.features.details.seasonSortKey
-import com.nuvio.app.features.details.seasonViewModeOrDefault
 import com.nuvio.app.features.details.shouldShowSelectedSeasonHeading
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.watchprogress.WatchProgressEntry
@@ -105,6 +100,8 @@ import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
@@ -226,6 +223,7 @@ fun DetailSeriesContent(
         return
     }
 
+    val allSeasons = groupedEpisodes.keys.sortedBy(::seasonSortKey)
     val seasons = visibleGroupedEpisodes.keys.sortedBy(::seasonSortKey)
     val defaultSeason = preferredSeasonNumber
         ?.takeIf { it in visibleGroupedEpisodes }
@@ -241,10 +239,6 @@ fun DetailSeriesContent(
         }
     }
 
-    var seasonViewMode by remember {
-        mutableStateOf(seasonViewModeOrDefault(SeasonViewModeStorage.load()))
-    }
-
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
         val sizing = seriesContentSizing(maxWidth.value)
         val containerWidthDp = maxWidth.value
@@ -252,16 +246,8 @@ fun DetailSeriesContent(
         Column(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            if (seasons.size > 1) {
-                val hasSeasonPosters = seasons.any { season ->
-                    resolveSeasonPoster(
-                        season = season,
-                        groupedEpisodes = visibleGroupedEpisodes,
-                        meta = meta,
-                    ) != null
-                }
+            if (meta.type == "series") {
                 Column(
-                    modifier = Modifier.animateContentSize(animationSpec = tween(280)),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Row(
@@ -270,54 +256,34 @@ fun DetailSeriesContent(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = stringResource(Res.string.details_seasons),
+                            text = if (allSeasons.size == 1) {
+                                allSeasons.single().label()
+                            } else {
+                                stringResource(Res.string.details_seasons)
+                            },
+                            modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontSize = sizing.seasonHeaderSize,
                                 fontWeight = FontWeight.SemiBold,
                             ),
                             color = MaterialTheme.colorScheme.onBackground,
                         )
-                        if (hasSeasonPosters) {
-                            SeasonViewModeToggle(
-                                mode = seasonViewMode,
-                                sizing = sizing,
-                                onClick = {
-                                    val next = seasonViewMode.toggled()
-                                    seasonViewMode = next
-                                    SeasonViewModeStorage.save(next)
+                        if (showDownloadedOnlyFilter) {
+                            EpisodeAvailabilityControl(
+                                downloadedOnly = downloadedOnly,
+                                onDownloadedOnlyChanged = { checked ->
+                                    downloadedOnly = checked
+                                    if (checked && currentSeason !in downloadedGroupedEpisodes) {
+                                        selectedSeasonOverride = downloadedGroupedEpisodes.keys
+                                            .sortedBy(::seasonSortKey)
+                                            .firstOrNull()
+                                    }
                                 },
                             )
                         }
                     }
 
-                    if (hasSeasonPosters) {
-                        Crossfade(
-                            targetState = seasonViewMode,
-                            animationSpec = tween(280),
-                            label = "season_selector_layout",
-                        ) { mode ->
-                            when (mode) {
-                                SeasonViewMode.Posters -> SeasonPosterScrollRow(
-                                    seasons = seasons,
-                                    groupedEpisodes = visibleGroupedEpisodes,
-                                    meta = meta,
-                                    currentSeason = currentSeason,
-                                    sizing = sizing,
-                                    horizontalScrollPadding = horizontalScrollPadding,
-                                    onSelect = { selectedSeasonOverride = it },
-                                    onLongPress = onSeasonLongPress,
-                                )
-                                SeasonViewMode.Text -> SeasonTextChipScrollRow(
-                                    seasons = seasons,
-                                    currentSeason = currentSeason,
-                                    sizing = sizing,
-                                    horizontalScrollPadding = horizontalScrollPadding,
-                                    onSelect = { selectedSeasonOverride = it },
-                                    onLongPress = onSeasonLongPress,
-                                )
-                            }
-                        }
-                    } else {
+                    if (shouldKeepSeasonSelector(allSeasons.size)) {
                         SeasonTextChipScrollRow(
                             seasons = seasons,
                             currentSeason = currentSeason,
@@ -328,20 +294,6 @@ fun DetailSeriesContent(
                         )
                     }
                 }
-            }
-
-            if (showDownloadedOnlyFilter) {
-                EpisodeAvailabilityControl(
-                    downloadedOnly = downloadedOnly,
-                    onDownloadedOnlyChanged = { checked ->
-                        downloadedOnly = checked
-                        if (checked && currentSeason !in downloadedGroupedEpisodes) {
-                            selectedSeasonOverride = downloadedGroupedEpisodes.keys
-                                .sortedBy(::seasonSortKey)
-                                .firstOrNull()
-                        }
-                    },
-                )
             }
 
             val currentSeasonContent = remember(currentSeason, visibleGroupedEpisodes) {
@@ -368,7 +320,7 @@ fun DetailSeriesContent(
                 Column(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    if (shouldShowSelectedSeasonHeading(seasons.size)) {
+                    if (meta.type != "series" && shouldShowSelectedSeasonHeading(seasons.size)) {
                         DetailSectionTitle(
                             title = if (meta.type != "series" && seasonForContent <= 0) {
                                 stringResource(Res.string.details_videos)
@@ -475,55 +427,64 @@ private fun EpisodeAvailabilityControl(
     downloadedOnly: Boolean,
     onDownloadedOnlyChanged: (Boolean) -> Unit,
 ) {
-    val title = stringResource(Res.string.details_episode_availability)
     val allLabel = stringResource(Res.string.details_episode_availability_all)
     val downloadedLabel = stringResource(Res.string.details_episode_availability_downloaded)
     val selectedLabel = if (downloadedOnly) downloadedLabel else allLabel
-    NuvioDropdownChip(
-        title = title,
-        label = "$title: $selectedLabel",
-        selectedKey = downloadedOnly.toString(),
-        options = listOf(
-            NuvioDropdownOption(key = false.toString(), label = allLabel),
-            NuvioDropdownOption(key = true.toString(), label = downloadedLabel),
-        ),
-        onSelected = { option ->
-            onDownloadedOnlyChanged(option.key.toBooleanStrict())
-        },
-    )
+    val tokens = MaterialTheme.nuvio
+    Row(
+        modifier = Modifier
+            .clip(tokens.shapes.chip)
+            .background(tokens.colors.overlayHover)
+            .border(
+                width = tokens.borders.thin,
+                color = tokens.colors.borderSubtle,
+                shape = tokens.shapes.chip,
+            )
+            .semantics { stateDescription = selectedLabel }
+            .toggleable(
+                value = downloadedOnly,
+                role = Role.Switch,
+                onValueChange = onDownloadedOnlyChanged,
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        EpisodeAvailabilitySegment(
+            label = allLabel,
+            selected = !downloadedOnly,
+        )
+        Box(
+            modifier = Modifier
+                .width(tokens.borders.thin)
+                .height(NuvioTokens.Space.s20)
+                .background(tokens.colors.borderSubtle),
+        )
+        EpisodeAvailabilitySegment(
+            label = downloadedLabel,
+            selected = downloadedOnly,
+        )
+    }
 }
 
 @Composable
-private fun SeasonViewModeToggle(
-    mode: SeasonViewMode,
-    sizing: SeriesContentSizing,
-    onClick: () -> Unit,
+private fun EpisodeAvailabilitySegment(
+    label: String,
+    selected: Boolean,
 ) {
-    val isPosters = mode == SeasonViewMode.Posters
+    val tokens = MaterialTheme.nuvio
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-            .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.2f),
-                shape = RoundedCornerShape(8.dp),
+            .background(
+                if (selected) tokens.colors.overlaySelected else Color.Transparent,
             )
-            .clickable(role = Role.Button, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp),
+            .padding(horizontal = NuvioTokens.Space.s10, vertical = NuvioTokens.Space.s8),
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text = if (isPosters) {
-                stringResource(Res.string.details_season_view_posters)
-            } else {
-                stringResource(Res.string.details_season_view_text)
-            },
-            style = MaterialTheme.typography.labelLarge.copy(
-                fontSize = sizing.seasonToggleTextSize,
-                fontWeight = FontWeight.SemiBold,
-            ),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) tokens.colors.textPrimary else tokens.colors.textMuted,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
         )
     }
 }
@@ -1632,6 +1593,8 @@ internal fun shouldOfferDownloadedOnlyFilter(
     downloadedEpisodes.isNotEmpty() &&
     downloadedEpisodes.values.sumOf(List<MetaVideo>::size) <
     allEpisodes.values.sumOf(List<MetaVideo>::size)
+
+internal fun shouldKeepSeasonSelector(allSeasonCount: Int): Boolean = allSeasonCount > 1
 
 internal fun MetaVideo.seasonEpisodeKey(): Pair<Int, Int>? {
     val seasonNumber = season ?: return null

@@ -119,9 +119,9 @@ class DownloadLibraryManagementTest {
     }
 
     @Test
-    fun `narrow controls stack and reserve fixed grid clearance`() {
-        assertTrue(useStackedDownloadManagerControls(390.dp))
-        assertFalse(useStackedDownloadManagerControls(700.dp))
+    fun `narrow controls use compact labels without stacking the manager bar`() {
+        assertTrue(useCompactDownloadManagerControls(390.dp))
+        assertFalse(useCompactDownloadManagerControls(700.dp))
         assertEquals(112.dp, downloadManagerGridBottomClearance())
     }
 

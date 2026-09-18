@@ -640,11 +640,14 @@
     <string name="downloads_export_failed">Couldn&apos;t export this download</string>
     <string name="downloads_manage_storage">Manage downloads</string>
     <string name="downloads_policy_title">Download policy</string>
+    <string name="downloads_settings_title">Download settings</string>
     <string name="downloads_policy_expand">Show download policy</string>
     <string name="downloads_policy_collapse">Hide download policy</string>
     <string name="downloads_manage">Manage</string>
     <string name="downloads_manage_completed">Manage Downloads</string>
     <string name="downloads_manage_storage_description">%1$d item(s) • %2$s stored • up to 2 active downloads</string>
+    <string name="downloads_manage_storage_summary">%1$d item(s) • %2$s stored</string>
+    <string name="downloads_concurrency_note">2 downloads run at once. Additional downloads wait in the queue.</string>
     <string name="downloads_network_allow_cellular">Allow cellular data</string>
     <string name="downloads_network_allow_cellular_description">Used only when Wi-Fi-only mode is off.</string>
     <string name="downloads_network_allow_constrained">Allow Low Data Mode</string>
@@ -663,6 +666,7 @@
     <string name="downloads_select">Select</string>
     <string name="downloads_select_all">Select all</string>
     <string name="downloads_deselect_all">Deselect all</string>
+    <string name="downloads_deselect">Deselect</string>
     <string name="downloads_exit_selection">Exit selection</string>
     <string name="downloads_select_prompt">Select downloads</string>
     <string name="downloads_remove_selected_count">Remove %1$d</string>

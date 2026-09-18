@@ -43,6 +43,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -440,6 +441,53 @@ fun NuvioIconActionButton(
             contentDescription = contentDescription,
             tint = tint,
         )
+    }
+}
+
+@Composable
+fun NuvioQuietActionButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    icon: ImageVector? = null,
+    contentDescription: String? = label,
+    enabled: Boolean = true,
+) {
+    require(label != null || icon != null)
+    val tokens = MaterialTheme.nuvio
+    val iconOnly = label == null
+    TextButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.then(
+            if (iconOnly) Modifier.size(NuvioTokens.Space.s40 + NuvioTokens.Space.s4) else Modifier,
+        ),
+        shape = tokens.shapes.chip,
+        colors = ButtonDefaults.textButtonColors(
+            containerColor = tokens.colors.overlayHover,
+            contentColor = tokens.colors.textPrimary,
+            disabledContainerColor = tokens.colors.overlayHover.copy(alpha = tokens.opacity.disabled),
+            disabledContentColor = tokens.colors.textDisabled,
+        ),
+        contentPadding = if (iconOnly) {
+            PaddingValues(NuvioTokens.Space.s8)
+        } else {
+            PaddingValues(horizontal = NuvioTokens.Space.s12, vertical = NuvioTokens.Space.s8)
+        },
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(NuvioTokens.Icon.sm),
+            )
+        }
+        if (icon != null && label != null) {
+            Spacer(Modifier.width(NuvioTokens.Space.s6))
+        }
+        if (label != null) {
+            Text(text = label, maxLines = 1)
+        }
     }
 }
 

@@ -42,6 +42,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -72,6 +73,7 @@ import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
 import com.nuvio.app.core.ui.NuvioBottomSheetDivider
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
+import com.nuvio.app.core.ui.NuvioQuietActionButton
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioTokens
@@ -99,7 +101,7 @@ internal fun resolveDownloadManagerContainer(
     DownloadManagerContainer.BottomSheet
 }
 
-internal fun useStackedDownloadManagerControls(
+internal fun useCompactDownloadManagerControls(
     availableWidth: Dp,
 ): Boolean = availableWidth < 480.dp
 
@@ -148,7 +150,7 @@ internal fun BoxScope.DownloadLibraryManagementHost(
     }
 
     AnimatedVisibility(
-        visible = state.isManaging,
+        visible = state.isManaging && !state.isExpanded,
         modifier = Modifier
             .align(Alignment.BottomCenter)
             .fillMaxWidth(),
@@ -309,64 +311,28 @@ private fun DownloadManagerCollapsedBar(
         ),
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val stacked = useStackedDownloadManagerControls(maxWidth)
-            if (stacked) {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                start = NuvioTokens.Space.s6,
-                                top = NuvioTokens.Space.s10,
-                                end = NuvioTokens.Space.s14,
-                            ),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        DownloadSelectionExitButton(onExit = onExit)
-                        DownloadManagerExpandSummary(
-                            summary = summary,
-                            onExpand = onExpand,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    DownloadManagerBarActions(
-                        summary = summary,
-                        allDownloadsSelected = allDownloadsSelected,
-                        onSelectAll = onSelectAll,
-                        onClear = onClear,
-                        onRemove = onRemove,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(
-                                start = NuvioTokens.Space.s8,
-                                end = NuvioTokens.Space.s8,
-                                bottom = NuvioTokens.Space.s6,
-                            ),
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = NuvioTokens.Space.s8, vertical = NuvioTokens.Space.s6),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    DownloadSelectionExitButton(onExit = onExit)
-                    DownloadManagerExpandSummary(
-                        summary = summary,
-                        onExpand = onExpand,
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(start = NuvioTokens.Space.s6),
-                    )
-                    DownloadManagerBarActions(
-                        summary = summary,
-                        allDownloadsSelected = allDownloadsSelected,
-                        onSelectAll = onSelectAll,
-                        onClear = onClear,
-                        onRemove = onRemove,
-                    )
-                }
+            val compact = useCompactDownloadManagerControls(maxWidth)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = NuvioTokens.Space.s8, vertical = NuvioTokens.Space.s6),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
+            ) {
+                DownloadManagerExpandSummary(
+                    summary = summary,
+                    onExpand = onExpand,
+                    modifier = Modifier.weight(1f),
+                )
+                DownloadManagerBarActions(
+                    summary = summary,
+                    allDownloadsSelected = allDownloadsSelected,
+                    onSelectAll = onSelectAll,
+                    onClear = onClear,
+                    onRemove = onRemove,
+                    compact = compact,
+                )
+                DownloadSelectionExitButton(onExit = onExit)
             }
         }
     }
@@ -389,14 +355,18 @@ private fun DownloadManagerExpandSummary(
         Icon(
             imageVector = Icons.Default.ExpandLess,
             contentDescription = stringResource(Res.string.downloads_manager_expand),
-            tint = tokens.colors.accent,
+            tint = tokens.colors.textSecondary,
         )
         Text(
-            text = downloadSelectionSummaryText(summary),
+            text = if (summary.fileCount == 0) {
+                stringResource(Res.string.downloads_select_prompt)
+            } else {
+                stringResource(Res.string.downloads_selection_count, summary.fileCount)
+            },
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.bodyMedium,
             color = tokens.colors.textPrimary,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }
@@ -409,6 +379,7 @@ private fun DownloadManagerBarActions(
     onSelectAll: () -> Unit,
     onClear: () -> Unit,
     onRemove: () -> Unit,
+    compact: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -417,20 +388,18 @@ private fun DownloadManagerBarActions(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (summary.fileCount == 0) {
-            TextButton(
+            NuvioQuietActionButton(
+                label = stringResource(Res.string.downloads_select_all),
                 enabled = !allDownloadsSelected,
                 onClick = onSelectAll,
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.nuvio.colors.textPrimary),
-            ) {
-                Text(stringResource(Res.string.downloads_select_all), maxLines = 1)
-            }
+            )
         } else {
-            TextButton(
+            NuvioQuietActionButton(
+                label = stringResource(
+                    if (compact) Res.string.downloads_deselect else Res.string.downloads_deselect_all,
+                ),
                 onClick = onClear,
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.nuvio.colors.textSecondary),
-            ) {
-                Text(stringResource(Res.string.downloads_deselect_all), maxLines = 1)
-            }
+            )
             TextButton(
                 onClick = onRemove,
                 colors = ButtonDefaults.textButtonColors(contentColor = ThemeColors.Crimson.secondary),
@@ -448,13 +417,11 @@ private fun DownloadManagerBarActions(
 private fun DownloadSelectionExitButton(
     onExit: () -> Unit,
 ) {
-    IconButton(onClick = onExit) {
-        Icon(
-            imageVector = Icons.Rounded.Close,
-            contentDescription = stringResource(Res.string.downloads_exit_selection),
-            tint = MaterialTheme.nuvio.colors.textSecondary,
-        )
-    }
+    NuvioQuietActionButton(
+        icon = Icons.Rounded.Close,
+        contentDescription = stringResource(Res.string.downloads_exit_selection),
+        onClick = onExit,
+    )
 }
 
 @Composable
@@ -503,19 +470,19 @@ private fun DownloadManagerExpandedContainer(
             }
         }
     } else {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         val scope = rememberCoroutineScope()
         NuvioModalBottomSheet(
             onDismissRequest = {
                 scope.launch { dismissNuvioBottomSheet(sheetState, onDismiss) }
             },
             sheetState = sheetState,
-            fullHeight = false,
+            fullHeight = true,
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.9f),
+                    .fillMaxHeight(0.96f),
             ) {
                 content()
             }
@@ -638,12 +605,14 @@ private fun DownloadManagerPanel(
                 }
             }
         }
-        HorizontalDivider(color = MaterialTheme.nuvio.colors.borderSubtle)
-        DownloadManagerPanelFooter(
-            summary = summary,
-            bottomPadding = footerBottomPadding,
-            onRemove = onRemove,
-        )
+        if (summary.fileCount > 0) {
+            HorizontalDivider(color = MaterialTheme.nuvio.colors.borderSubtle)
+            DownloadManagerPanelFooter(
+                summary = summary,
+                bottomPadding = footerBottomPadding,
+                onRemove = onRemove,
+            )
+        }
     }
 }
 
@@ -683,21 +652,16 @@ private fun DownloadManagerPanelHeader(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        TextButton(
+        NuvioQuietActionButton(
+            label = stringResource(
+                if (summary.fileCount == 0) {
+                    Res.string.downloads_select_all
+                } else {
+                    Res.string.downloads_deselect_all
+                },
+            ),
             onClick = if (summary.fileCount == 0) onSelectAll else onClear,
-            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.nuvio.colors.textSecondary),
-        ) {
-            Text(
-                stringResource(
-                    if (summary.fileCount == 0) {
-                        Res.string.downloads_select_all
-                    } else {
-                        Res.string.downloads_deselect_all
-                    },
-                ),
-                maxLines = 1,
-            )
-        }
+        )
     }
 }
 
@@ -707,56 +671,29 @@ private fun DownloadManagerPanelFooter(
     bottomPadding: Dp,
     onRemove: () -> Unit,
 ) {
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val stacked = useStackedDownloadManagerControls(maxWidth)
-        val contentModifier = Modifier
+    Row(
+        modifier = Modifier
             .fillMaxWidth()
             .padding(
                 start = NuvioTokens.Space.s16,
                 top = NuvioTokens.Space.s12,
                 end = NuvioTokens.Space.s16,
                 bottom = bottomPadding,
-            )
-        if (stacked) {
-            Column(
-                modifier = contentModifier,
-                verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s10),
-            ) {
-                Text(
-                    text = downloadSelectionSummaryText(summary),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (summary.fileCount > 0) {
-                    DownloadManagerRemoveButton(
-                        enabled = true,
-                        onRemove = onRemove,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-            }
-        } else {
-            Row(
-                modifier = contentModifier,
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
-            ) {
-                Text(
-                    text = downloadSelectionSummaryText(summary),
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                if (summary.fileCount > 0) {
-                    DownloadManagerRemoveButton(
-                        enabled = true,
-                        onRemove = onRemove,
-                    )
-                }
-            }
-        }
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s12),
+    ) {
+        Text(
+            text = downloadSelectionSummaryText(summary),
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        DownloadManagerRemoveButton(
+            enabled = true,
+            onRemove = onRemove,
+        )
     }
 }
 
@@ -928,6 +865,11 @@ private fun DownloadManagerRow(
             TriStateCheckbox(
                 state = toggleState,
                 onClick = null,
+                colors = CheckboxDefaults.colors(
+                    checkedColor = tokens.colors.accent,
+                    uncheckedColor = tokens.colors.textSecondary,
+                    checkmarkColor = tokens.colors.onAccent,
+                ),
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(

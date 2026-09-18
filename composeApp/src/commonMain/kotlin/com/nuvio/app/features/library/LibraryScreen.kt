@@ -42,13 +42,11 @@ import androidx.compose.material.icons.rounded.ViewAgenda
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -83,6 +81,7 @@ import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioPosterAvailability
 import com.nuvio.app.core.ui.NuvioPosterSelectionState
+import com.nuvio.app.core.ui.NuvioQuietActionButton
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.NuvioViewAllPillSize
@@ -1208,7 +1207,9 @@ private fun LibraryHeaderActions(
                         contentAlignment = Alignment.Center,
                     ) {
                         if (presentation.label == LibraryManageActionLabel.Close) {
-                            IconButton(
+                            NuvioQuietActionButton(
+                                icon = Icons.Rounded.Close,
+                                contentDescription = stringResource(Res.string.downloads_exit_selection),
                                 onClick = {
                                     onManagementStateChange(
                                         reduceDownloadLibraryManagement(
@@ -1217,21 +1218,11 @@ private fun LibraryHeaderActions(
                                         ),
                                     )
                                 },
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Close,
-                                    contentDescription = stringResource(Res.string.downloads_exit_selection),
-                                    tint = mutedColor,
-                                )
-                            }
+                            )
                         } else {
-                            TextButton(
+                            NuvioQuietActionButton(
+                                label = stringResource(Res.string.downloads_select),
                                 enabled = presentation.enabled,
-                                contentPadding = PaddingValues(horizontal = 8.dp),
-                                colors = ButtonDefaults.textButtonColors(
-                                    contentColor = mutedColor,
-                                    disabledContentColor = mutedColor.copy(alpha = 0.38f),
-                                ),
                                 onClick = {
                                     onManagementStateChange(
                                         reduceDownloadLibraryManagement(
@@ -1240,9 +1231,7 @@ private fun LibraryHeaderActions(
                                         ),
                                     )
                                 },
-                            ) {
-                                Text(stringResource(Res.string.downloads_select))
-                            }
+                            )
                         }
                     }
                 }

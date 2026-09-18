@@ -328,12 +328,21 @@ fun NuvioMediaStatusGroup(
     if (items.isEmpty()) return
     val tokens = MaterialTheme.nuvio
     val palette = ThemeColors.getColorPalette(MaterialTheme.appTheme)
+    val grouped = items.size > 1
     Column(
         modifier = modifier
             .clip(tokens.shapes.avatar)
             .background(tokens.colors.overlayScrim)
-            .padding(vertical = NuvioTokens.Space.s2),
-        verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
+            .then(
+                if (grouped) {
+                    Modifier.padding(vertical = NuvioTokens.Space.s2)
+                } else {
+                    Modifier
+                },
+            ),
+        verticalArrangement = Arrangement.spacedBy(
+            if (grouped) NuvioTokens.Space.s2 else NuvioTokens.Space.none,
+        ),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         items.forEach { item ->

@@ -78,6 +78,7 @@ import com.nuvio.app.core.ui.NuvioDropdownChip
 import com.nuvio.app.core.ui.NuvioDropdownOption
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
+import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioPosterAvailability
 import com.nuvio.app.core.ui.NuvioPosterSelectionState
@@ -1202,11 +1203,11 @@ private fun LibraryHeaderActions(
                         isManaging = managementState.isManaging,
                         hasDownloadedItems = hasDownloadedItems,
                     )
-                    Box(
-                        modifier = Modifier.width(76.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (presentation.label == LibraryManageActionLabel.Close) {
+                    if (presentation.label == LibraryManageActionLabel.Close) {
+                        Box(
+                            modifier = Modifier.width(NuvioTokens.Space.s48),
+                            contentAlignment = Alignment.Center,
+                        ) {
                             NuvioQuietActionButton(
                                 icon = Icons.Rounded.Close,
                                 contentDescription = stringResource(Res.string.downloads_exit_selection),
@@ -1219,20 +1220,20 @@ private fun LibraryHeaderActions(
                                     )
                                 },
                             )
-                        } else {
-                            NuvioQuietActionButton(
-                                label = stringResource(Res.string.downloads_select),
-                                enabled = presentation.enabled,
-                                onClick = {
-                                    onManagementStateChange(
-                                        reduceDownloadLibraryManagement(
-                                            managementState,
-                                            DownloadLibraryManagementEvent.EnterManage,
-                                        ),
-                                    )
-                                },
-                            )
                         }
+                    } else {
+                        NuvioQuietActionButton(
+                            label = stringResource(Res.string.downloads_select),
+                            enabled = presentation.enabled,
+                            onClick = {
+                                onManagementStateChange(
+                                    reduceDownloadLibraryManagement(
+                                        managementState,
+                                        DownloadLibraryManagementEvent.EnterManage,
+                                    ),
+                                )
+                            },
+                        )
                     }
                 }
 

@@ -383,7 +383,7 @@ private fun DownloadManagerBarActions(
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.End,
+        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (summary.fileCount == 0) {
@@ -640,13 +640,15 @@ private fun DownloadManagerPanelHeader(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(
-                text = downloadSelectionSummaryText(summary),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.nuvio.colors.textMuted,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (summary.fileCount > 0) {
+                Text(
+                    text = downloadSelectionSummaryText(summary),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.nuvio.colors.textMuted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
         NuvioQuietActionButton(
             label = stringResource(

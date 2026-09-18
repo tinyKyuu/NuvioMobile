@@ -1,8 +1,5 @@
 package com.nuvio.app.features.downloads
 
-import com.nuvio.app.features.home.PosterShape
-import com.nuvio.app.features.library.LibraryItem
-
 internal data class DownloadEnqueueRequest(
     val profileId: Int,
     val contentType: String,
@@ -72,31 +69,6 @@ internal data class DownloadEnqueueRequest(
             .forEach { (key, value) -> appendFingerprintPart("response:$key", value) }
     }
 }
-
-internal fun DownloadEnqueueRequest.toLocalLibraryItem(): LibraryItem? {
-    val normalized = normalized()
-    if (
-        normalized.parentMetaId.isBlank() ||
-        normalized.parentMetaType.isBlank() ||
-        normalized.title.isBlank()
-    ) {
-        return null
-    }
-    return LibraryItem(
-        id = normalized.parentMetaId,
-        type = normalized.parentMetaType,
-        name = normalized.title,
-        poster = normalized.poster,
-        banner = normalized.background,
-        logo = normalized.logo,
-        posterShape = PosterShape.Poster,
-        imdbId = normalized.parentMetaId.takeIf { id -> id.startsWith("tt") },
-        savedAtEpochMs = 0L,
-    )
-}
-
-internal fun shouldSaveDownloadToLocalLibrary(result: DownloadEnqueueResult): Boolean =
-    result == DownloadEnqueueResult.Started || result == DownloadEnqueueResult.Replaced
 
 internal enum class DownloadEligibilityReason {
     MissingUrl,

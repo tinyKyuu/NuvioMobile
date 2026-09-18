@@ -281,6 +281,29 @@ class LibraryDisplaySettingsTest {
     }
 
     @Test
+    fun `All titles combines local selected source and downloads without changing membership`() {
+        val localOnly = item("local-only", name = "Local")
+        val sharedLocal = item("shared", name = "Local metadata")
+        val selectedOnly = item("selected-only", name = "Tracked")
+        val sharedSelected = item("shared", name = "Tracked metadata")
+        val downloadOnly = item("download-only", name = "Downloaded")
+        val sharedDownload = item("shared", name = "Downloaded metadata").copy(
+            poster = "file:///offline/shared.jpg",
+        )
+
+        val merged = mergeAllLibraryTitleItems(
+            localItems = listOf(localOnly, sharedLocal),
+            selectedSourceItems = listOf(selectedOnly, sharedSelected),
+            downloadedItems = listOf(downloadOnly, sharedDownload),
+        )
+
+        assertEquals(listOf("local-only", "shared", "selected-only", "download-only"), merged.map { it.id })
+        assertEquals("Tracked metadata", merged.first { it.id == "shared" }.name)
+        assertEquals("file:///offline/shared.jpg", merged.first { it.id == "shared" }.poster)
+        assertEquals(listOf("local-only", "shared"), listOf(localOnly, sharedLocal).map { it.id })
+    }
+
+    @Test
     fun `watched filter keeps fully watched series separate from partial progress`() {
         val watchedMovie = item("movie-watched")
         val unwatchedMovie = item("movie-unwatched")

@@ -104,36 +104,6 @@ class DownloadEnqueueModelsTest {
         )
     }
 
-    @Test
-    fun `successful enqueue maps parent metadata into the local library`() {
-        val libraryItem = request().copy(
-            parentMetaId = "tt1234567",
-            parentMetaType = "series",
-            title = "Series title",
-            poster = "https://images.test/poster.jpg",
-            background = "https://images.test/background.jpg",
-            logo = "https://images.test/logo.png",
-        ).toLocalLibraryItem()
-
-        requireNotNull(libraryItem)
-        assertEquals("tt1234567", libraryItem.id)
-        assertEquals("series", libraryItem.type)
-        assertEquals("Series title", libraryItem.name)
-        assertEquals("tt1234567", libraryItem.imdbId)
-        assertEquals("https://images.test/poster.jpg", libraryItem.poster)
-        assertEquals("https://images.test/background.jpg", libraryItem.banner)
-        assertEquals("https://images.test/logo.png", libraryItem.logo)
-    }
-
-    @Test
-    fun `only committed new or replacement downloads trigger local saving`() {
-        assertEquals(true, shouldSaveDownloadToLocalLibrary(DownloadEnqueueResult.Started))
-        assertEquals(true, shouldSaveDownloadToLocalLibrary(DownloadEnqueueResult.Replaced))
-        assertEquals(false, shouldSaveDownloadToLocalLibrary(DownloadEnqueueResult.AlreadyExists))
-        assertEquals(false, shouldSaveDownloadToLocalLibrary(DownloadEnqueueResult.ReplacementRequired))
-        assertEquals(false, shouldSaveDownloadToLocalLibrary(DownloadEnqueueResult.UnsupportedFormat))
-        assertEquals(false, shouldSaveDownloadToLocalLibrary(DownloadEnqueueResult.ProfileChanged))
-    }
 }
 
 private fun request(

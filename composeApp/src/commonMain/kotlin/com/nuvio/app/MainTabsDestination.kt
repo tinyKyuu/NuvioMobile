@@ -241,6 +241,30 @@ enum class ReconnectControlState {
     Failed,
 }
 
+internal enum class RootConnectionVisual {
+    Hidden,
+    ReconnectWithIcon,
+    ReconnectText,
+    RestoringWithSpinner,
+    Spinner,
+}
+
+internal fun rootConnectionVisual(
+    state: ReconnectControlState,
+    showStatusGraphic: Boolean,
+): RootConnectionVisual = when {
+    state == ReconnectControlState.Hidden -> RootConnectionVisual.Hidden
+    state == ReconnectControlState.Probing || state == ReconnectControlState.Restoring -> {
+        if (showStatusGraphic) {
+            RootConnectionVisual.RestoringWithSpinner
+        } else {
+            RootConnectionVisual.Spinner
+        }
+    }
+    showStatusGraphic -> RootConnectionVisual.ReconnectWithIcon
+    else -> RootConnectionVisual.ReconnectText
+}
+
 internal fun reconnectControlState(
     networkStatus: NetworkStatusUiState,
     recovery: NetworkRecoveryUiState,
@@ -269,17 +293,17 @@ internal fun rootConnectionStateForTab(
 }
 
 internal enum class TabletDockPresentation {
-    Labeled,
+    Full,
+    SettingsCompact,
     Compact,
 }
 
 internal fun tabletDockPresentationForMeasuredContent(
     availableWidthPx: Int,
-    labeledWidthPx: Int,
-): TabletDockPresentation = if (
-    labeledWidthPx <= availableWidthPx
-) {
-    TabletDockPresentation.Labeled
-} else {
-    TabletDockPresentation.Compact
+    fullWidthPx: Int,
+    settingsCompactWidthPx: Int,
+): TabletDockPresentation = when {
+    fullWidthPx <= availableWidthPx -> TabletDockPresentation.Full
+    settingsCompactWidthPx <= availableWidthPx -> TabletDockPresentation.SettingsCompact
+    else -> TabletDockPresentation.Compact
 }

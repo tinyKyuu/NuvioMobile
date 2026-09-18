@@ -51,14 +51,16 @@ internal fun LibrarySavedControls(
 ) {
     val sortOptions = availableLibrarySortOptions(sourceMode)
     val allTypesLabel = stringResource(Res.string.library_filter_all_types)
+    val watchedTitle = stringResource(Res.string.library_filter_watched)
+    val watchedValue = libraryWatchedFilterLabel(watchedFilter)
 
     Row(
         modifier = modifier.horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         NuvioDropdownChip(
-            title = stringResource(Res.string.library_filter_watched),
-            label = libraryWatchedFilterLabel(watchedFilter),
+            title = watchedTitle,
+            label = "$watchedTitle: $watchedValue",
             selectedKey = watchedFilter.name,
             options = LibraryWatchedFilter.entries.map { option ->
                 NuvioDropdownOption(key = option.name, label = libraryWatchedFilterLabel(option))

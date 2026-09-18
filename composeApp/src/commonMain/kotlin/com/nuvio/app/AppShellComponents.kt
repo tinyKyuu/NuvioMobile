@@ -1,6 +1,11 @@
 package com.nuvio.app
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -10,9 +15,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.rounded.WifiOff
@@ -36,6 +44,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
@@ -77,11 +86,13 @@ import nuvio.composeapp.generated.resources.app_brand_name
 import nuvio.composeapp.generated.resources.compose_nav_home
 import nuvio.composeapp.generated.resources.compose_nav_library
 import nuvio.composeapp.generated.resources.compose_nav_search
+import nuvio.composeapp.generated.resources.compose_settings_page_root
 import nuvio.composeapp.generated.resources.network_reconnect
 import nuvio.composeapp.generated.resources.network_reconnecting
 import nuvio.composeapp.generated.resources.network_online
 import nuvio.composeapp.generated.resources.network_restore_failed_reconnect
 import nuvio.composeapp.generated.resources.network_restoring_content
+import nuvio.composeapp.generated.resources.network_restoring_short
 import nuvio.composeapp.generated.resources.sidebar_library
 import nuvio.composeapp.generated.resources.sidebar_search
 import org.jetbrains.compose.resources.painterResource
@@ -284,6 +295,7 @@ internal fun TabletFloatingBottomDock(
     val homeLabel = stringResource(Res.string.compose_nav_home)
     val searchLabel = stringResource(Res.string.compose_nav_search)
     val libraryLabel = stringResource(Res.string.compose_nav_library)
+    val settingsLabel = stringResource(Res.string.compose_settings_page_root)
     val labelStyle = MaterialTheme.typography.labelLarge
     val textMeasurer = rememberTextMeasurer()
     val density = LocalDensity.current
@@ -295,13 +307,14 @@ internal fun TabletFloatingBottomDock(
             .padding(bottom = nuvioSafeBottomPadding(tokens.spacing.controlGap)),
         contentAlignment = Alignment.BottomCenter,
     ) {
+        val primaryIconPillWidth = tokens.components.chipHorizontalPadding * 2 + NuvioTokens.Space.s18
+        val compactSettingsWidth = NuvioTokens.Space.s48
         val compactWidthPx = with(density) {
             (
                 NuvioTokens.Space.s10 * 2 +
                     tokens.spacing.controlGap * 3 +
-                    (tokens.components.chipHorizontalPadding * 2 + NuvioTokens.Space.s18) * 3 +
-                    tokens.spacing.listGap * 2 +
-                    NuvioTokens.Space.s28
+                    primaryIconPillWidth * 3 +
+                    compactSettingsWidth
                 ).roundToPx()
         }
         val labelWidthsPx = listOf(homeLabel, searchLabel, libraryLabel).sumOf { label ->
@@ -311,14 +324,31 @@ internal fun TabletFloatingBottomDock(
                 maxLines = 1,
             ).size.width
         }
-        val labeledWidthPx = compactWidthPx + labelWidthsPx + with(density) {
+        val settingsCompactWidthPx = compactWidthPx + labelWidthsPx + with(density) {
             (tokens.spacing.controlGap * 3).roundToPx()
         }
+        val settingsLabelWidthPx = textMeasurer.measure(
+            text = AnnotatedString(settingsLabel),
+            style = labelStyle,
+            maxLines = 1,
+        ).size.width
+        val fullSettingsWidthPx = settingsLabelWidthPx + with(density) {
+            (
+                tokens.components.chipHorizontalPadding * 2 +
+                    NuvioTokens.Space.s28 +
+                    tokens.spacing.controlGap
+                ).roundToPx()
+        }
+        val fullWidthPx = settingsCompactWidthPx - with(density) {
+            compactSettingsWidth.roundToPx()
+        } + fullSettingsWidthPx
         val presentation = tabletDockPresentationForMeasuredContent(
             availableWidthPx = with(density) { maxWidth.roundToPx() },
-            labeledWidthPx = labeledWidthPx,
+            fullWidthPx = fullWidthPx,
+            settingsCompactWidthPx = settingsCompactWidthPx,
         )
-        val showLabels = presentation == TabletDockPresentation.Labeled
+        val showPrimaryLabels = presentation != TabletDockPresentation.Compact
+        val showSettingsLabel = presentation == TabletDockPresentation.Full
 
         Surface(
             color = tokens.colors.surface.copy(alpha = tokens.opacity.visible - tokens.opacity.subtle),
@@ -333,7 +363,7 @@ internal fun TabletFloatingBottomDock(
             ) {
                 TabletDockPillItem(
                     label = homeLabel,
-                    showLabel = showLabels,
+                    showLabel = showPrimaryLabels,
                     selected = selectedTab == AppScreenTab.Home,
                     onClick = { onTabSelected(AppScreenTab.Home) },
                     icon = {
@@ -351,7 +381,7 @@ internal fun TabletFloatingBottomDock(
                 )
                 TabletDockPillItem(
                     label = searchLabel,
-                    showLabel = showLabels,
+                    showLabel = showPrimaryLabels,
                     selected = selectedTab == AppScreenTab.Search,
                     onClick = { onTabSelected(AppScreenTab.Search) },
                     icon = {
@@ -369,7 +399,7 @@ internal fun TabletFloatingBottomDock(
                 )
                 TabletDockPillItem(
                     label = libraryLabel,
-                    showLabel = showLabels,
+                    showLabel = showPrimaryLabels,
                     selected = selectedTab == AppScreenTab.Library,
                     onClick = { onTabSelected(AppScreenTab.Library) },
                     icon = {
@@ -391,20 +421,24 @@ internal fun TabletFloatingBottomDock(
                     } else {
                         tokens.colors.surface
                     },
-                    shape = tokens.shapes.chip,
+                    shape = if (showSettingsLabel) tokens.shapes.chip else CircleShape,
+                    modifier = if (showSettingsLabel) Modifier else Modifier.size(compactSettingsWidth),
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = tokens.spacing.listGap, vertical = tokens.spacing.controlGap),
-                        horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ProfileSwitcherTab(
-                            selected = selectedTab == AppScreenTab.Settings,
-                            onClick = { onTabSelected(AppScreenTab.Settings) },
-                            onProfileSelected = onProfileSelected,
-                            onAddProfileRequested = onAddProfileRequested,
-                        )
-                    }
+                    ProfileSwitcherTab(
+                        selected = selectedTab == AppScreenTab.Settings,
+                        onClick = { onTabSelected(AppScreenTab.Settings) },
+                        onProfileSelected = onProfileSelected,
+                        onAddProfileRequested = onAddProfileRequested,
+                        label = settingsLabel.takeIf { showSettingsLabel },
+                        modifier = if (showSettingsLabel) {
+                            Modifier.padding(
+                                horizontal = tokens.components.chipHorizontalPadding,
+                                vertical = NuvioTokens.Space.s10,
+                            )
+                        } else {
+                            Modifier.fillMaxSize()
+                        },
+                    )
                 }
             }
         }
@@ -423,6 +457,7 @@ internal fun RootConnectionControl(
     if (state == ReconnectControlState.Hidden) return
     val tokens = MaterialTheme.nuvio
     val reconnectText = stringResource(Res.string.network_reconnect)
+    val restoringText = stringResource(Res.string.network_restoring_short)
     val statusText = when (state) {
         ReconnectControlState.Probing -> stringResource(Res.string.network_reconnecting)
         ReconnectControlState.Restoring -> stringResource(Res.string.network_restoring_content)
@@ -437,6 +472,38 @@ internal fun RootConnectionControl(
     }
     val tooltipText = "$conditionText · $statusText"
     val actionEnabled = state == ReconnectControlState.Offline || state == ReconnectControlState.Failed
+    val visual = rootConnectionVisual(state, showStatusGraphic)
+    val labelStyle = MaterialTheme.typography.labelLarge
+    val textMeasurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val horizontalPadding = tokens.components.chipHorizontalPadding
+    val contentGap = tokens.spacing.controlGap
+    val labelWidthPx = if (showStatusGraphic) {
+        maxOf(
+            textMeasurer.measure(AnnotatedString(reconnectText), labelStyle, maxLines = 1).size.width,
+            textMeasurer.measure(AnnotatedString(restoringText), labelStyle, maxLines = 1).size.width,
+        )
+    } else {
+        textMeasurer.measure(AnnotatedString(reconnectText), labelStyle, maxLines = 1).size.width
+    }
+    val controlWidth = with(density) {
+        val fixedContentWidthPx = if (showStatusGraphic) {
+            labelWidthPx + NuvioTokens.Space.s18.roundToPx() + contentGap.roundToPx()
+        } else {
+            labelWidthPx
+        }
+        (fixedContentWidthPx + horizontalPadding.roundToPx() * 2).toDp()
+    }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val containerColor by animateColorAsState(
+        targetValue = if (isPressed) {
+            tokens.colors.overlayPressed.compositeOver(tokens.colors.surfaceCard)
+        } else {
+            tokens.colors.surfaceCard
+        },
+        label = "ReconnectButtonColor",
+    )
 
     TooltipBox(
         modifier = modifier,
@@ -449,14 +516,19 @@ internal fun RootConnectionControl(
         state = rememberTooltipState(),
     ) {
         Surface(
-            color = tokens.colors.surface.copy(alpha = tokens.opacity.visible - tokens.opacity.subtle),
+            color = containerColor,
             shape = tokens.shapes.chip,
+            border = BorderStroke(tokens.borders.hairline, tokens.colors.borderStrong),
             tonalElevation = tokens.elevation.playerControls,
             shadowElevation = tokens.elevation.overlay,
             modifier = Modifier
+                .width(controlWidth)
+                .heightIn(min = 44.dp)
                 .semantics { contentDescription = tooltipText }
                 .clickable(
                     enabled = actionEnabled,
+                    interactionSource = interactionSource,
+                    indication = LocalIndication.current,
                     onClickLabel = reconnectText,
                     role = Role.Button,
                     onClick = onRetry,
@@ -464,33 +536,51 @@ internal fun RootConnectionControl(
         ) {
             Row(
                 modifier = Modifier
+                    .fillMaxWidth()
                     .padding(
-                        horizontal = tokens.components.chipHorizontalPadding,
+                        horizontal = horizontalPadding,
                         vertical = NuvioTokens.Space.s10,
                     ),
-                horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
+                horizontalArrangement = Arrangement.spacedBy(contentGap, Alignment.CenterHorizontally),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = statusText,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = tokens.colors.textMuted,
-                )
-                if (showStatusGraphic) {
-                    if (state == ReconnectControlState.Probing || state == ReconnectControlState.Restoring) {
+                when (visual) {
+                    RootConnectionVisual.RestoringWithSpinner -> {
+                        Text(
+                            text = restoringText,
+                            style = labelStyle,
+                            color = tokens.colors.textPrimary,
+                        )
                         CircularProgressIndicator(
                             modifier = Modifier.size(NuvioTokens.Space.s18),
-                            color = tokens.colors.textMuted,
+                            color = tokens.colors.textPrimary,
                             strokeWidth = 2.dp,
                         )
-                    } else {
+                    }
+                    RootConnectionVisual.Spinner -> CircularProgressIndicator(
+                        modifier = Modifier.size(NuvioTokens.Space.s18),
+                        color = tokens.colors.textPrimary,
+                        strokeWidth = 2.dp,
+                    )
+                    RootConnectionVisual.ReconnectWithIcon -> {
+                        Text(
+                            text = reconnectText,
+                            style = labelStyle,
+                            color = tokens.colors.textPrimary,
+                        )
                         Icon(
                             imageVector = Icons.Rounded.WifiOff,
                             contentDescription = null,
                             modifier = Modifier.size(NuvioTokens.Space.s18),
-                            tint = tokens.colors.textMuted,
+                            tint = tokens.colors.textPrimary,
                         )
                     }
+                    RootConnectionVisual.ReconnectText -> Text(
+                        text = reconnectText,
+                        style = labelStyle,
+                        color = tokens.colors.textPrimary,
+                    )
+                    RootConnectionVisual.Hidden -> Unit
                 }
             }
         }

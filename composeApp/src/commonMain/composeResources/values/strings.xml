@@ -1576,6 +1576,7 @@
     <string name="network_reconnecting">Reconnecting…</string>
     <string name="network_restore_failed_reconnect">Couldn’t restore content · Reconnect</string>
     <string name="network_restoring_content">Restoring content…</string>
+    <string name="network_restoring_short">Restoring</string>
     <string name="network_error_empty_response_body">Empty response body</string>
     <string name="network_error_request_failed_http">Request failed with HTTP %1$d</string>
     <string name="network_no_internet_connection">No internet connection</string>
@@ -1901,8 +1902,8 @@
     <string name="library_filter_sort">Sort library</string>
     <string name="library_filter_type">Select type</string>
     <string name="library_filter_view">View</string>
-    <string name="library_filter_watched">Watched</string>
-    <string name="library_filter_watched_all">All</string>
+    <string name="library_filter_watched">Watch status</string>
+    <string name="library_filter_watched_all">Any</string>
     <string name="library_filter_watched_only">Watched</string>
     <string name="library_filter_unwatched_only">Unwatched</string>
     <string name="library_layout_show_horizontal">Show horizontal shelves</string>

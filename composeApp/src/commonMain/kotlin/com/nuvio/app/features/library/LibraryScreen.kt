@@ -199,12 +199,11 @@ fun LibraryScreen(
     val offlineArtworkFallbacks = remember(offlineLibraryUiState.titles) {
         offlineLibraryUiState.titles.mapNotNull { title -> title.toLibraryArtworkFallback() }
     }
-    val savedSections = remember(uiState.sections, offlineArtworkFallbacks) {
-        uiState.sections.map { section ->
-            section.copy(
-                items = section.items.map { item -> item.withArtworkFallback(offlineArtworkFallbacks) },
-            )
-        }
+    val selectedSourceItems = remember(uiState.items, offlineArtworkFallbacks) {
+        uiState.items.map { item -> item.withArtworkFallback(offlineArtworkFallbacks) }
+    }
+    val localItems = remember(uiState.localItems, offlineArtworkFallbacks) {
+        uiState.localItems.map { item -> item.withArtworkFallback(offlineArtworkFallbacks) }
     }
     val completedDownloadLibrary = remember(downloadsUiState.completedItems) {
         buildCompletedDownloadLibrary(downloadsUiState.completedItems)
@@ -225,23 +224,19 @@ fun LibraryScreen(
     val downloadedKeys = remember(downloadedItems) {
         downloadedItems.mapTo(linkedSetOf(), ::libraryDisplayItemKey)
     }
-    val allTitleItems = remember(savedSections, downloadedItems) {
-        mergeLibraryTitleItems(
-            savedItems = savedSections.flatMap(LibrarySection::items),
+    val allTitleItems = remember(localItems, selectedSourceItems, downloadedItems) {
+        mergeAllLibraryTitleItems(
+            localItems = localItems,
+            selectedSourceItems = selectedSourceItems,
             downloadedItems = downloadedItems,
         )
     }
     val allTitleSections = remember(allTitleItems, downloadedMovieTitle, downloadedSeriesTitle) {
         buildTitleLibrarySections(allTitleItems, downloadedMovieTitle, downloadedSeriesTitle)
     }
-    val titleSourceMode = if (sourceMode == LibraryViewMode.Saved) {
-        uiState.sourceMode
-    } else {
-        LibrarySourceMode.LOCAL
-    }
+    val titleSourceMode = LibrarySourceMode.LOCAL
     val unfilteredTitleSections = when (sourceMode) {
         LibraryViewMode.All -> allTitleSections
-        LibraryViewMode.Saved -> savedSections
         LibraryViewMode.Downloaded -> downloadedSections
         LibraryViewMode.Cloud -> emptyList()
     }
@@ -399,7 +394,7 @@ fun LibraryScreen(
 
     val disintegration = remember { LibraryDisintegrationHolder() }
     val librarySectionsDisplay = if (
-        sourceMode == LibraryViewMode.Saved &&
+        sourceMode == LibraryViewMode.All &&
         displaySettings.layoutMode == LibraryLayoutMode.HORIZONTAL &&
         uiState.isLoaded &&
         sortedSections.isNotEmpty()
@@ -447,19 +442,7 @@ fun LibraryScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         NuvioScreenHeader(
-                            title = if (
-                                sourceMode == LibraryViewMode.All ||
-                                sourceMode == LibraryViewMode.Cloud ||
-                                sourceMode == LibraryViewMode.Downloaded
-                            ) {
-                                stringResource(Res.string.library_title)
-                            } else {
-                                when (uiState.sourceMode) {
-                                    LibrarySourceMode.LOCAL -> stringResource(Res.string.library_title)
-                                    LibrarySourceMode.TRAKT -> stringResource(Res.string.library_trakt_title)
-                                    LibrarySourceMode.SIMKL -> stringResource(Res.string.library_simkl_title)
-                                }
-                            },
+                            title = stringResource(Res.string.library_title),
                             modifier = Modifier.padding(horizontal = 16.dp),
                             actionsLayout = NuvioScreenHeaderActionsLayout.Adaptive,
                             actions = {
@@ -657,7 +640,7 @@ fun LibraryScreen(
             } else {
                 when {
                     (!uiState.isLoaded || (uiState.isLoading && uiState.sections.isEmpty())) &&
-                        (sourceMode == LibraryViewMode.Saved || downloadedItems.isEmpty()) -> {
+                        unfilteredTitleSections.isEmpty() -> {
                         if (displaySettings.layoutMode == LibraryLayoutMode.VERTICAL) {
                             libraryVerticalSkeletonItems(gridColumns)
                         } else {
@@ -1020,7 +1003,6 @@ private fun LibraryViewDropdown(
 @Composable
 private fun libraryViewModeLabel(mode: LibraryViewMode): String = when (mode) {
     LibraryViewMode.All -> stringResource(Res.string.library_source_all_titles)
-    LibraryViewMode.Saved -> stringResource(Res.string.library_source_saved)
     LibraryViewMode.Downloaded -> stringResource(Res.string.offline_downloaded_title)
     LibraryViewMode.Cloud -> stringResource(Res.string.library_source_cloud_files)
 }
@@ -1788,7 +1770,6 @@ private fun CloudSkeletonBlock(
 
 internal enum class LibraryViewMode {
     All,
-    Saved,
     Downloaded,
     Cloud,
 }
@@ -1797,7 +1778,6 @@ internal fun availableLibraryViewModes(
     hasCloudLibraryProvider: Boolean,
 ): List<LibraryViewMode> = buildList {
     add(LibraryViewMode.All)
-    add(LibraryViewMode.Saved)
     add(LibraryViewMode.Downloaded)
     if (hasCloudLibraryProvider) add(LibraryViewMode.Cloud)
 }

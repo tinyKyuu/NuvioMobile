@@ -26,13 +26,12 @@ class LibraryHeaderTest {
     @Test
     fun `Cloud files only appears when a compatible provider exists`() {
         assertEquals(
-            listOf(LibraryViewMode.All, LibraryViewMode.Saved, LibraryViewMode.Downloaded),
+            listOf(LibraryViewMode.All, LibraryViewMode.Downloaded),
             availableLibraryViewModes(hasCloudLibraryProvider = false),
         )
         assertEquals(
             listOf(
                 LibraryViewMode.All,
-                LibraryViewMode.Saved,
                 LibraryViewMode.Downloaded,
                 LibraryViewMode.Cloud,
             ),
@@ -59,7 +58,7 @@ class LibraryHeaderTest {
                 LibraryHeaderAction.ViewMode,
             ),
             libraryHeaderActionOrder(
-                sourceMode = LibraryViewMode.Saved,
+                sourceMode = LibraryViewMode.All,
                 hasDownloadActivity = true,
             ),
         )

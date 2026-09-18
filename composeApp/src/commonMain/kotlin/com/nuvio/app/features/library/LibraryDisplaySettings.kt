@@ -192,6 +192,15 @@ internal fun mergeLibraryTitleItems(
     return itemsByKey.values.toList()
 }
 
+internal fun mergeAllLibraryTitleItems(
+    localItems: List<LibraryItem>,
+    selectedSourceItems: List<LibraryItem>,
+    downloadedItems: List<LibraryItem>,
+): List<LibraryItem> = mergeLibraryTitleItems(
+    savedItems = localItems + selectedSourceItems,
+    downloadedItems = downloadedItems,
+)
+
 private fun LibraryItem.withDownloadFallback(downloaded: LibraryItem): LibraryItem = copy(
     name = name.ifBlank { downloaded.name },
     poster = poster ?: downloaded.poster,

@@ -101,6 +101,26 @@ class MainTabsDestinationTest {
     }
 
     @Test
+    fun `reconnect presentation keeps long status text out of visible button content`() {
+        assertEquals(
+            RootConnectionVisual.ReconnectWithIcon,
+            rootConnectionVisual(ReconnectControlState.Offline, showStatusGraphic = true),
+        )
+        assertEquals(
+            RootConnectionVisual.ReconnectText,
+            rootConnectionVisual(ReconnectControlState.Failed, showStatusGraphic = false),
+        )
+        assertEquals(
+            RootConnectionVisual.RestoringWithSpinner,
+            rootConnectionVisual(ReconnectControlState.Restoring, showStatusGraphic = true),
+        )
+        assertEquals(
+            RootConnectionVisual.Spinner,
+            rootConnectionVisual(ReconnectControlState.Probing, showStatusGraphic = false),
+        )
+    }
+
+    @Test
     fun `offline phone with playable local content keeps header retry reachable`() {
         assertFalse(
             shouldShowOfflineHomeConnectionCard(
@@ -187,18 +207,38 @@ class MainTabsDestinationTest {
     }
 
     @Test
-    fun `tablet dock keeps labels exactly while measured content fits`() {
+    fun `tablet dock progressively removes labels only when measured content stops fitting`() {
         assertEquals(
             TabletDockPresentation.Compact,
-            tabletDockPresentationForMeasuredContent(availableWidthPx = 599, labeledWidthPx = 600),
+            tabletDockPresentationForMeasuredContent(
+                availableWidthPx = 499,
+                fullWidthPx = 700,
+                settingsCompactWidthPx = 500,
+            ),
         )
         assertEquals(
-            TabletDockPresentation.Labeled,
-            tabletDockPresentationForMeasuredContent(availableWidthPx = 600, labeledWidthPx = 600),
+            TabletDockPresentation.SettingsCompact,
+            tabletDockPresentationForMeasuredContent(
+                availableWidthPx = 500,
+                fullWidthPx = 700,
+                settingsCompactWidthPx = 500,
+            ),
         )
         assertEquals(
-            TabletDockPresentation.Labeled,
-            tabletDockPresentationForMeasuredContent(availableWidthPx = 1_024, labeledWidthPx = 600),
+            TabletDockPresentation.SettingsCompact,
+            tabletDockPresentationForMeasuredContent(
+                availableWidthPx = 699,
+                fullWidthPx = 700,
+                settingsCompactWidthPx = 500,
+            ),
+        )
+        assertEquals(
+            TabletDockPresentation.Full,
+            tabletDockPresentationForMeasuredContent(
+                availableWidthPx = 700,
+                fullWidthPx = 700,
+                settingsCompactWidthPx = 500,
+            ),
         )
     }
 

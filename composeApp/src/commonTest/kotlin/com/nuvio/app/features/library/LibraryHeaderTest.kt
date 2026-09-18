@@ -10,8 +10,8 @@ class LibraryHeaderTest {
     @Test
     fun `wide and narrow widths keep Library actions out of the connection row`() {
         val phone = libraryHeaderLayoutForWidth(390.dp)
-        val narrowTablet = libraryHeaderLayoutForWidth(600.dp)
-        val tablet = libraryHeaderLayoutForWidth(720.dp)
+        val narrowTablet = libraryHeaderLayoutForWidth(519.dp)
+        val tablet = libraryHeaderLayoutForWidth(520.dp)
         val wideTablet = libraryHeaderLayoutForWidth(1_024.dp)
 
         assertEquals(LibraryHeaderArrangement.Narrow, phone.arrangement)

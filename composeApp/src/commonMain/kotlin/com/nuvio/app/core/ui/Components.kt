@@ -195,6 +195,8 @@ fun NuvioScreenHeader(
                         text = currentTitle,
                         style = MaterialTheme.typography.displayLarge,
                         color = tokens.colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -223,7 +225,7 @@ fun NuvioScreenHeader(
                 horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
                 verticalAlignment = Alignment.Bottom,
             ) {
-                HeaderTitle(modifier = Modifier.weight(1f, fill = false))
+                HeaderTitle(modifier = Modifier.weight(1f))
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
                     verticalAlignment = Alignment.CenterVertically,

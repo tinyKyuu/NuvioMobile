@@ -150,9 +150,13 @@ class MainTabsDestinationTest {
     }
 
     @Test
-    fun `root headers stack a visible connection control at narrow widths`() {
+    fun `root headers keep a visible connection control inline until the width is genuinely narrow`() {
         assertEquals(
             NuvioScreenHeaderActionsLayout.Stacked,
+            rootHeaderActionsLayoutForWidth(340.dp, ReconnectControlState.Probing),
+        )
+        assertEquals(
+            NuvioScreenHeaderActionsLayout.Inline,
             rootHeaderActionsLayoutForWidth(390.dp, ReconnectControlState.Probing),
         )
         assertEquals(
@@ -163,6 +167,19 @@ class MainTabsDestinationTest {
             NuvioScreenHeaderActionsLayout.Inline,
             rootHeaderActionsLayoutForWidth(320.dp, ReconnectControlState.Hidden),
         )
+    }
+
+    @Test
+    fun `root connection control drops its status graphic before it stacks`() {
+        assertFalse(rootConnectionControlShowsStatusGraphic(390.dp))
+        assertTrue(rootConnectionControlShowsStatusGraphic(440.dp))
+    }
+
+    @Test
+    fun `tablet dock hides labels when a tablet window is narrow`() {
+        assertEquals(TabletDockPresentation.Compact, tabletDockPresentationForWidth(599.dp))
+        assertEquals(TabletDockPresentation.Labeled, tabletDockPresentationForWidth(600.dp))
+        assertEquals(TabletDockPresentation.Labeled, tabletDockPresentationForWidth(1_024.dp))
     }
 
     @Test

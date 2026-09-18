@@ -125,6 +125,7 @@ import com.nuvio.app.features.home.components.rememberContinueWatchingLayout
 import com.nuvio.app.ReconnectControlState
 import com.nuvio.app.RootConnectionControl
 import com.nuvio.app.rootHeaderActionsLayoutForWidth
+import com.nuvio.app.rootConnectionControlShowsStatusGraphic
 import kotlinx.coroutines.CancellationException
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -1003,6 +1004,9 @@ fun HomeScreen(
                                         condition = networkCondition,
                                         state = reconnectControlState,
                                         onRetry = onNetworkRetry,
+                                        showStatusGraphic = rootConnectionControlShowsStatusGraphic(
+                                            headerAvailableWidth,
+                                        ),
                                     )
                                 },
                             )

@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.rounded.PublicOff
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -275,9 +275,11 @@ internal fun TabletFloatingBottomDock(
     onTabSelected: (AppScreenTab) -> Unit,
     onProfileSelected: (NuvioProfile) -> Unit,
     onAddProfileRequested: () -> Unit,
+    presentation: TabletDockPresentation,
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
+    val showLabels = presentation == TabletDockPresentation.Labeled
 
     Box(
         modifier = modifier
@@ -298,6 +300,7 @@ internal fun TabletFloatingBottomDock(
             ) {
                 TabletDockPillItem(
                     label = stringResource(Res.string.compose_nav_home),
+                    showLabel = showLabels,
                     selected = selectedTab == AppScreenTab.Home,
                     onClick = { onTabSelected(AppScreenTab.Home) },
                     icon = {
@@ -315,6 +318,7 @@ internal fun TabletFloatingBottomDock(
                 )
                 TabletDockPillItem(
                     label = stringResource(Res.string.compose_nav_search),
+                    showLabel = showLabels,
                     selected = selectedTab == AppScreenTab.Search,
                     onClick = { onTabSelected(AppScreenTab.Search) },
                     icon = {
@@ -332,6 +336,7 @@ internal fun TabletFloatingBottomDock(
                 )
                 TabletDockPillItem(
                     label = stringResource(Res.string.compose_nav_library),
+                    showLabel = showLabels,
                     selected = selectedTab == AppScreenTab.Library,
                     onClick = { onTabSelected(AppScreenTab.Library) },
                     icon = {
@@ -366,16 +371,18 @@ internal fun TabletFloatingBottomDock(
                             onProfileSelected = onProfileSelected,
                             onAddProfileRequested = onAddProfileRequested,
                         )
-                        Text(
-                            text = stringResource(Res.string.compose_settings_page_root),
-                            modifier = Modifier.clickable { onTabSelected(AppScreenTab.Settings) },
-                            style = MaterialTheme.typography.labelLarge,
-                            color = if (selectedTab == AppScreenTab.Settings) {
-                                tokens.colors.textPrimary
-                            } else {
-                                tokens.colors.textMuted
-                            },
-                        )
+                        if (showLabels) {
+                            Text(
+                                text = stringResource(Res.string.compose_settings_page_root),
+                                modifier = Modifier.clickable { onTabSelected(AppScreenTab.Settings) },
+                                style = MaterialTheme.typography.labelLarge,
+                                color = if (selectedTab == AppScreenTab.Settings) {
+                                    tokens.colors.textPrimary
+                                } else {
+                                    tokens.colors.textMuted
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -389,6 +396,7 @@ internal fun RootConnectionControl(
     condition: NetworkCondition,
     state: ReconnectControlState,
     onRetry: () -> Unit,
+    showStatusGraphic: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     if (state == ReconnectControlState.Hidden) return
@@ -442,25 +450,27 @@ internal fun RootConnectionControl(
                 horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (state == ReconnectControlState.Probing || state == ReconnectControlState.Restoring) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(NuvioTokens.Space.s18),
-                        color = tokens.colors.textMuted,
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    Icon(
-                        imageVector = Icons.Rounded.PublicOff,
-                        contentDescription = null,
-                        modifier = Modifier.size(NuvioTokens.Space.s18),
-                        tint = tokens.colors.textMuted,
-                    )
-                }
                 Text(
                     text = statusText,
                     style = MaterialTheme.typography.labelLarge,
                     color = tokens.colors.textMuted,
                 )
+                if (showStatusGraphic) {
+                    if (state == ReconnectControlState.Probing || state == ReconnectControlState.Restoring) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(NuvioTokens.Space.s18),
+                            color = tokens.colors.textMuted,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Rounded.WifiOff,
+                            contentDescription = null,
+                            modifier = Modifier.size(NuvioTokens.Space.s18),
+                            tint = tokens.colors.textMuted,
+                        )
+                    }
+                }
             }
         }
     }
@@ -472,6 +482,7 @@ internal fun ContinueWatchingItem.isCloudLibraryContinueWatchingItem(): Boolean 
 @Composable
 private fun TabletDockPillItem(
     label: String,
+    showLabel: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
     icon: @Composable () -> Unit,
@@ -489,15 +500,17 @@ private fun TabletDockPillItem(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             icon()
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLarge,
-                color = if (selected) {
-                    tokens.colors.textPrimary
-                } else {
-                    tokens.colors.textMuted
-                },
-            )
+            if (showLabel) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (selected) {
+                        tokens.colors.textPrimary
+                    } else {
+                        tokens.colors.textMuted
+                    },
+                )
+            }
         }
     }
 }

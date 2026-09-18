@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -87,6 +86,7 @@ import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.ReconnectControlState
 import com.nuvio.app.RootConnectionControl
 import com.nuvio.app.rootHeaderActionsLayoutForWidth
+import com.nuvio.app.rootConnectionControlShowsStatusGraphic
 import com.nuvio.app.features.cloud.CloudLibraryFile
 import com.nuvio.app.features.cloud.CloudLibraryItem
 import com.nuvio.app.features.cloud.CloudLibraryItemType
@@ -443,6 +443,9 @@ fun LibraryScreen(
                                     condition = networkCondition,
                                     state = reconnectControlState,
                                     onRetry = onNetworkRetry,
+                                    showStatusGraphic = rootConnectionControlShowsStatusGraphic(
+                                        headerAvailableWidth,
+                                    ),
                                 )
                             },
                         )
@@ -972,7 +975,7 @@ internal data class LibraryHeaderLayout(
 )
 
 internal fun libraryHeaderLayoutForWidth(availableWidth: Dp): LibraryHeaderLayout =
-    if (availableWidth >= 720.dp) {
+    if (availableWidth >= 520.dp) {
         LibraryHeaderLayout(
             arrangement = LibraryHeaderArrangement.Wide,
             actionsRow = LibraryHeaderRow.Secondary,
@@ -1054,30 +1057,27 @@ private fun LibraryHeaderActions(
                             stringResource(Res.string.downloads_manage_completed)
                         LibraryManageActionLabel.Done -> stringResource(Res.string.action_done)
                     }
-                    Box(modifier = Modifier.widthIn(min = 156.dp)) {
-                        TextButton(
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = presentation.enabled,
-                            contentPadding = PaddingValues(horizontal = 8.dp),
-                            colors = ButtonDefaults.textButtonColors(
-                                contentColor = mutedColor,
-                                disabledContentColor = mutedColor.copy(alpha = 0.38f),
-                            ),
-                            onClick = {
-                                onManagementStateChange(
-                                    reduceDownloadLibraryManagement(
-                                        managementState,
-                                        if (managementState.isManaging) {
-                                            DownloadLibraryManagementEvent.Done
-                                        } else {
-                                            DownloadLibraryManagementEvent.EnterManage
-                                        },
-                                    ),
-                                )
-                            },
-                        ) {
-                            Text(label)
-                        }
+                    TextButton(
+                        enabled = presentation.enabled,
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        colors = ButtonDefaults.textButtonColors(
+                            contentColor = mutedColor,
+                            disabledContentColor = mutedColor.copy(alpha = 0.38f),
+                        ),
+                        onClick = {
+                            onManagementStateChange(
+                                reduceDownloadLibraryManagement(
+                                    managementState,
+                                    if (managementState.isManaging) {
+                                        DownloadLibraryManagementEvent.Done
+                                    } else {
+                                        DownloadLibraryManagementEvent.EnterManage
+                                    },
+                                ),
+                            )
+                        },
+                    ) {
+                        Text(label)
                     }
                 }
 

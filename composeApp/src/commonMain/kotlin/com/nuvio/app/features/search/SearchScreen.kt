@@ -50,6 +50,7 @@ import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.ReconnectControlState
 import com.nuvio.app.RootConnectionControl
 import com.nuvio.app.rootHeaderActionsLayoutForWidth
+import com.nuvio.app.rootConnectionControlShowsStatusGraphic
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.features.addons.AddonRepository
@@ -239,6 +240,9 @@ fun SearchScreen(
                                 condition = networkCondition,
                                 state = reconnectControlState,
                                 onRetry = onNetworkRetry,
+                                showStatusGraphic = rootConnectionControlShowsStatusGraphic(
+                                    headerAvailableWidth,
+                                ),
                             )
                         },
                     )

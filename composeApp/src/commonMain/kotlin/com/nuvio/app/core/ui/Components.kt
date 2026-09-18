@@ -9,6 +9,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -452,22 +453,43 @@ fun NuvioQuietActionButton(
     icon: ImageVector? = null,
     contentDescription: String? = label,
     enabled: Boolean = true,
-    contentColor: Color? = null,
+    tone: NuvioQuietActionTone = NuvioQuietActionTone.Neutral,
 ) {
     require(label != null || icon != null)
     val tokens = MaterialTheme.nuvio
     val iconOnly = label == null
+    val destructiveColor = ThemeColors.Crimson.secondary
+    val containerColor = when (tone) {
+        NuvioQuietActionTone.Neutral -> tokens.colors.overlayHover
+        NuvioQuietActionTone.Destructive -> destructiveColor.copy(alpha = tokens.opacity.selected)
+    }
+    val contentColor = when (tone) {
+        NuvioQuietActionTone.Neutral -> tokens.colors.textSecondary
+        NuvioQuietActionTone.Destructive -> destructiveColor
+    }
+    val borderColor = when (tone) {
+        NuvioQuietActionTone.Neutral -> tokens.colors.borderStrong
+        NuvioQuietActionTone.Destructive -> destructiveColor.copy(alpha = tokens.opacity.medium)
+    }.let { color ->
+        if (enabled) color else color.copy(alpha = color.alpha * tokens.opacity.disabled)
+    }
     TextButton(
         onClick = onClick,
         enabled = enabled,
         modifier = modifier.then(
             if (iconOnly) Modifier.size(NuvioTokens.Space.s40 + NuvioTokens.Space.s4) else Modifier,
+        ).border(
+            width = tokens.borders.thin,
+            color = borderColor,
+            shape = tokens.shapes.chip,
         ),
         shape = tokens.shapes.chip,
         colors = ButtonDefaults.textButtonColors(
-            containerColor = tokens.colors.overlayHover,
-            contentColor = contentColor ?: tokens.colors.textPrimary,
-            disabledContainerColor = tokens.colors.overlayHover.copy(alpha = tokens.opacity.disabled),
+            containerColor = containerColor,
+            contentColor = contentColor,
+            disabledContainerColor = containerColor.copy(
+                alpha = containerColor.alpha * tokens.opacity.disabled,
+            ),
             disabledContentColor = tokens.colors.textDisabled,
         ),
         contentPadding = if (iconOnly) {
@@ -480,16 +502,27 @@ fun NuvioQuietActionButton(
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                modifier = Modifier.size(NuvioTokens.Icon.sm),
+                modifier = Modifier.size(
+                    if (iconOnly) NuvioTokens.Icon.md else NuvioTokens.Icon.sm,
+                ),
             )
         }
         if (icon != null && label != null) {
             Spacer(Modifier.width(NuvioTokens.Space.s6))
         }
         if (label != null) {
-            Text(text = label, maxLines = 1)
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+            )
         }
     }
+}
+
+enum class NuvioQuietActionTone {
+    Neutral,
+    Destructive,
 }
 
 @Composable

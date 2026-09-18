@@ -34,7 +34,6 @@ import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -65,6 +64,7 @@ import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioQuietActionButton
+import com.nuvio.app.core.ui.NuvioQuietActionTone
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.NuvioToastController
@@ -999,26 +999,24 @@ private fun DownloadSelectionBar(
                     horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
                 ) {
                     if (summary.fileCount == 0) {
-                        DownloadSelectionAction(
+                        NuvioQuietActionButton(
                             label = stringResource(Res.string.downloads_select_all),
                             enabled = !allVisibleSelected,
                             onClick = onSelectAll,
                         )
                     } else {
-                        DownloadSelectionAction(
+                        NuvioQuietActionButton(
                             label = stringResource(Res.string.downloads_deselect_all),
-                            enabled = true,
                             onClick = onClearSelection,
                         )
-                        DownloadSelectionAction(
+                        NuvioQuietActionButton(
                             label = stringResource(
                                 Res.string.downloads_remove_selected_count,
                                 summary.fileCount,
                             ),
-                            enabled = true,
+                            icon = if (compactSummary) null else Icons.Rounded.Delete,
+                            tone = NuvioQuietActionTone.Destructive,
                             onClick = onDeleteSelection,
-                            destructive = true,
-                            showDeleteIcon = !compactSummary,
                         )
                     }
                 }
@@ -1029,54 +1027,6 @@ private fun DownloadSelectionBar(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun DownloadSelectionAction(
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    destructive: Boolean = false,
-    showDeleteIcon: Boolean = false,
-) {
-    val tokens = MaterialTheme.nuvio
-    val containerColor = if (destructive) {
-        tokens.colors.danger.copy(alpha = tokens.opacity.selected)
-    } else {
-        tokens.colors.overlayHover
-    }
-    val contentColor = if (destructive) tokens.colors.danger else tokens.colors.textPrimary
-
-    TextButton(
-        enabled = enabled,
-        onClick = onClick,
-        shape = tokens.shapes.chip,
-        colors = ButtonDefaults.textButtonColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
-            disabledContainerColor = containerColor.copy(
-                alpha = containerColor.alpha * tokens.opacity.disabled,
-            ),
-            disabledContentColor = tokens.colors.textDisabled,
-        ),
-        contentPadding = PaddingValues(
-            horizontal = NuvioTokens.Space.s12,
-            vertical = NuvioTokens.Space.s8,
-        ),
-    ) {
-        if (showDeleteIcon) {
-            Icon(
-                imageVector = Icons.Rounded.Delete,
-                contentDescription = null,
-                modifier = Modifier.size(NuvioTokens.Icon.sm),
-            )
-            Spacer(modifier = Modifier.size(NuvioTokens.Space.s6))
-        }
-        Text(
-            text = label,
-            maxLines = 1,
-        )
     }
 }
 

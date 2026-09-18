@@ -40,8 +40,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.BasicAlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -50,7 +48,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TriStateCheckbox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -74,6 +71,7 @@ import com.nuvio.app.core.ui.NuvioBottomSheetActionRow
 import com.nuvio.app.core.ui.NuvioBottomSheetDivider
 import com.nuvio.app.core.ui.NuvioModalBottomSheet
 import com.nuvio.app.core.ui.NuvioQuietActionButton
+import com.nuvio.app.core.ui.NuvioQuietActionTone
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioTokens
@@ -400,21 +398,12 @@ private fun DownloadManagerBarActions(
                 ),
                 onClick = onClear,
             )
-            TextButton(
+            NuvioQuietActionButton(
+                label = stringResource(Res.string.downloads_remove_selected_count, summary.fileCount),
+                icon = Icons.Default.DeleteOutline,
+                tone = NuvioQuietActionTone.Destructive,
                 onClick = onRemove,
-                colors = ButtonDefaults.textButtonColors(contentColor = ThemeColors.Crimson.secondary),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.DeleteOutline,
-                    contentDescription = null,
-                    modifier = Modifier.size(NuvioTokens.Icon.sm),
-                )
-                Spacer(Modifier.size(NuvioTokens.Space.s4))
-                Text(
-                    stringResource(Res.string.downloads_remove_selected_count, summary.fileCount),
-                    maxLines = 1,
-                )
-            }
+            )
         }
     }
 }
@@ -709,25 +698,14 @@ private fun DownloadManagerRemoveButton(
     onRemove: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Button(
+    NuvioQuietActionButton(
+        label = stringResource(Res.string.downloads_remove_download),
+        icon = Icons.Default.DeleteOutline,
+        tone = NuvioQuietActionTone.Destructive,
         enabled = enabled,
         onClick = onRemove,
         modifier = modifier,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = ThemeColors.Crimson.secondary,
-            contentColor = MaterialTheme.colorScheme.onError,
-            disabledContainerColor = ThemeColors.Crimson.secondary.copy(
-                alpha = MaterialTheme.nuvio.opacity.disabled,
-            ),
-            disabledContentColor = MaterialTheme.colorScheme.onError.copy(
-                alpha = MaterialTheme.nuvio.opacity.disabled,
-            ),
-        ),
-    ) {
-        Icon(Icons.Default.DeleteOutline, contentDescription = null)
-        Spacer(Modifier.size(NuvioTokens.Space.s6))
-        Text(stringResource(Res.string.downloads_remove_download), maxLines = 1)
-    }
+    )
 }
 
 private fun CompletedDownloadLibrary.downloadIdsForRoute(

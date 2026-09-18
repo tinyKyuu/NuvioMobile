@@ -82,6 +82,95 @@ class ContinueWatchingArtworkTest {
     }
 
     @Test
+    fun `poster style retains remote episode image as final fallback when thumbnails are disabled`() {
+        val episodeUrl = "https://images.test/episode-only.jpg"
+        val candidates = item()
+            .copy(
+                imageUrl = episodeUrl,
+                poster = null,
+                background = null,
+                episodeThumbnail = episodeUrl,
+            )
+            .artworkCandidates(
+                presentation = ContinueWatchingArtworkPresentation.Poster,
+                useEpisodeThumbnails = false,
+            )
+
+        assertEquals(
+            listOf(
+                ContinueWatchingArtworkCandidate(
+                    url = episodeUrl,
+                    sourceCategory = ContinueWatchingArtworkSourceCategory.Remote,
+                    role = ContinueWatchingArtworkRole.EpisodeThumbnail,
+                ),
+            ),
+            candidates,
+        )
+        assertNull(nextContinueWatchingArtworkCandidateIndex(0, candidates.size))
+    }
+
+    @Test
+    fun `poster style retains current local episode image as final fallback when thumbnails are disabled`() {
+        val localEpisodeUrl = "file:///current-container/episode-only.jpg"
+        val candidates = item()
+            .copy(
+                imageUrl = null,
+                poster = null,
+                background = null,
+                episodeThumbnail = null,
+                localArtwork = ContinueWatchingArtworkSet(
+                    episodeThumbnail = localEpisodeUrl,
+                ),
+            )
+            .artworkCandidates(
+                presentation = ContinueWatchingArtworkPresentation.Poster,
+                useEpisodeThumbnails = false,
+            )
+
+        assertEquals(
+            listOf(
+                ContinueWatchingArtworkCandidate(
+                    url = localEpisodeUrl,
+                    sourceCategory = ContinueWatchingArtworkSourceCategory.CurrentLocal,
+                    role = ContinueWatchingArtworkRole.EpisodeThumbnail,
+                ),
+            ),
+            candidates,
+        )
+        assertNull(nextContinueWatchingArtworkCandidateIndex(0, candidates.size))
+    }
+
+    @Test
+    fun `poster style keeps normal fallback order with thumbnails enabled or disabled`() {
+        val resolved = item()
+            .withResolvedArtwork(resolution(), allowRemote = true)
+            .copy(imageUrl = "https://images.test/generic.jpg")
+
+        val enabled = resolved.artworkCandidates(
+            presentation = ContinueWatchingArtworkPresentation.Poster,
+            useEpisodeThumbnails = true,
+        )
+        val disabled = resolved.artworkCandidates(
+            presentation = ContinueWatchingArtworkPresentation.Poster,
+            useEpisodeThumbnails = false,
+        )
+        val expectedRoles = listOf(
+            ContinueWatchingArtworkRole.Poster,
+            ContinueWatchingArtworkRole.Poster,
+            ContinueWatchingArtworkRole.Background,
+            ContinueWatchingArtworkRole.Background,
+            ContinueWatchingArtworkRole.Image,
+            ContinueWatchingArtworkRole.EpisodeThumbnail,
+            ContinueWatchingArtworkRole.EpisodeThumbnail,
+        )
+
+        assertEquals(expectedRoles, enabled.map(ContinueWatchingArtworkCandidate::role))
+        assertEquals(expectedRoles, disabled.map(ContinueWatchingArtworkCandidate::role))
+        assertEquals(enabled, disabled)
+        assertEquals(disabled.size, disabled.map(ContinueWatchingArtworkCandidate::url).toSet().size)
+    }
+
+    @Test
     fun `offline mode never exposes remote artwork and total local failure uses placeholder`() {
         val resolved = item().withResolvedArtwork(
             resolution = ContinueWatchingArtworkResolution(

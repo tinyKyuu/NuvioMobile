@@ -86,11 +86,11 @@ internal fun ContinueWatchingItem.artworkCandidates(
             if (seasonNumber == null || episodeNumber == null) {
                 defaultArtworkRoleOrder(useEpisodeThumbnails)
             } else {
-                listOfNotNull(
+                listOf(
                     ContinueWatchingArtworkRole.Poster,
                     ContinueWatchingArtworkRole.Background,
                     ContinueWatchingArtworkRole.Image,
-                    ContinueWatchingArtworkRole.EpisodeThumbnail.takeIf { useEpisodeThumbnails },
+                    ContinueWatchingArtworkRole.EpisodeThumbnail,
                 )
             }
         }

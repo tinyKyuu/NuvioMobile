@@ -235,6 +235,8 @@ internal fun MainTabsDestination(
                         } else {
                             NuvioNavigationBarVisualStyle.Standard
                         },
+                        selectedIndex = selectedTab.ordinal,
+                        itemCount = AppScreenTab.entries.size,
                     ) {
                         NavItem(
                             selected = selectedTab == AppScreenTab.Home,

@@ -1,20 +1,27 @@
 package com.nuvio.app.core.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +40,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
@@ -119,6 +127,8 @@ fun NuvioNavigationBar(
     maxWidth: Dp? = null,
     horizontalPadding: Dp? = null,
     visualStyle: NuvioNavigationBarVisualStyle = NuvioNavigationBarVisualStyle.Standard,
+    selectedIndex: Int? = null,
+    itemCount: Int = 0,
     content: @Composable NuvioNavigationBarScope.() -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -132,7 +142,11 @@ fun NuvioNavigationBar(
     )
 
     val navigationBarInsets = nuvioBottomNavigationBarInsets()
-    val bottomSafePadding = navigationBarInsets.asPaddingValues().calculateBottomPadding()
+    val bottomSafePadding = navigationBarBottomPadding(
+        visualStyle = visualStyle,
+        windowInsetsBottom = navigationBarInsets.asPaddingValues().calculateBottomPadding(),
+        physicalBottom = platformPhysicalBottomInset(),
+    )
 
     // Dynamic horizontal padding: pill shrinks when labels are hidden — driven by same labelFraction
     val expandedHorizontalPadding = 28.dp
@@ -189,6 +203,17 @@ fun NuvioNavigationBar(
             )
 
         Box(modifier = pillModifier) {
+            if (
+                visualStyle == NuvioNavigationBarVisualStyle.IosTablet &&
+                selectedIndex != null &&
+                itemCount > 0
+            ) {
+                IosTabletSelectionIndicator(
+                    modifier = Modifier.matchParentSize(),
+                    selectedIndex = selectedIndex,
+                    itemCount = itemCount,
+                )
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -202,6 +227,7 @@ fun NuvioNavigationBar(
                 NuvioNavigationBarScopeImpl(
                     rowScope = this,
                     labelFraction = labelFraction,
+                    usesSharedSelectionIndicator = visualStyle == NuvioNavigationBarVisualStyle.IosTablet,
                 ).content()
             }
         }
@@ -211,6 +237,69 @@ fun NuvioNavigationBar(
 enum class NuvioNavigationBarVisualStyle {
     Standard,
     IosTablet,
+}
+
+internal fun navigationBarBottomPadding(
+    visualStyle: NuvioNavigationBarVisualStyle,
+    windowInsetsBottom: Dp,
+    physicalBottom: Dp,
+): Dp = if (visualStyle == NuvioNavigationBarVisualStyle.IosTablet) {
+    physicalBottom
+} else {
+    windowInsetsBottom
+}
+
+internal fun sharedSelectionIndicatorOffset(
+    slotWidth: Dp,
+    selectedIndex: Int,
+    itemCount: Int,
+): Dp = slotWidth * selectedIndex.coerceIn(0, (itemCount - 1).coerceAtLeast(0))
+
+@Composable
+private fun IosTabletSelectionIndicator(
+    modifier: Modifier,
+    selectedIndex: Int,
+    itemCount: Int,
+) {
+    val tokens = MaterialTheme.nuvio
+    val shape = RoundedCornerShape(NuvioTokens.Radius.full)
+    BoxWithConstraints(
+        modifier = modifier
+            .padding(
+                horizontal = NuvioTokens.Space.s6,
+                vertical = NuvioTokens.Space.s4,
+            ),
+    ) {
+        val slotWidth = maxWidth / itemCount
+        val targetOffset = sharedSelectionIndicatorOffset(
+            slotWidth = slotWidth,
+            selectedIndex = selectedIndex,
+            itemCount = itemCount,
+        )
+        val animatedOffset by animateDpAsState(
+            targetValue = targetOffset,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioLowBouncy,
+                stiffness = Spring.StiffnessMediumLow,
+            ),
+            label = "ios_tablet_nav_indicator_offset",
+        )
+        Box(
+            modifier = Modifier
+                .offset(x = animatedOffset)
+                .width(slotWidth)
+                .fillMaxHeight()
+                .padding(horizontal = NuvioTokens.Space.s2)
+                .shadow(tokens.elevation.raised, shape, clip = false)
+                .clip(shape)
+                .background(tokens.colors.overlaySelected)
+                .border(
+                    tokens.borders.hairline,
+                    tokens.colors.textPrimary.copy(alpha = tokens.opacity.pressed),
+                    shape,
+                ),
+        )
+    }
 }
 
 interface NuvioNavigationBarScope {
@@ -250,6 +339,7 @@ interface NuvioNavigationBarScope {
 private class NuvioNavigationBarScopeImpl(
     private val rowScope: androidx.compose.foundation.layout.RowScope,
     private val labelFraction: Float,
+    private val usesSharedSelectionIndicator: Boolean,
 ) : NuvioNavigationBarScope {
 
     @Composable
@@ -270,15 +360,30 @@ private class NuvioNavigationBarScopeImpl(
         )
         // Selected item gets a pill-shaped highlight using accent at low opacity
         val selectedBgColor by animateColorAsState(
-            targetValue = if (selected) tokens.colors.accent.copy(alpha = NuvioTokens.Opacity.selected)
-            else Color.Transparent,
+            targetValue = if (selected && !usesSharedSelectionIndicator) {
+                tokens.colors.accent.copy(alpha = NuvioTokens.Opacity.selected)
+            } else {
+                Color.Transparent
+            },
             label = "nav_bg_color",
+        )
+        val selectedScale by animateFloatAsState(
+            targetValue = if (selected && usesSharedSelectionIndicator) 1.08f else 1f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMedium,
+            ),
+            label = "nav_selection_scale",
         )
 
         with(rowScope) {
             Column(
                 modifier = modifier
                     .weight(1f)
+                    .graphicsLayer {
+                        scaleX = selectedScale
+                        scaleY = selectedScale
+                    }
                     .clip(RoundedCornerShape(NuvioTokens.Radius.full))
                     .background(selectedBgColor)
                     .selectable(
@@ -326,15 +431,30 @@ private class NuvioNavigationBarScopeImpl(
             label = "nav_icon_color",
         )
         val selectedBgColor by animateColorAsState(
-            targetValue = if (selected) tokens.colors.accent.copy(alpha = NuvioTokens.Opacity.selected)
-            else Color.Transparent,
+            targetValue = if (selected && !usesSharedSelectionIndicator) {
+                tokens.colors.accent.copy(alpha = NuvioTokens.Opacity.selected)
+            } else {
+                Color.Transparent
+            },
             label = "nav_bg_color",
+        )
+        val selectedScale by animateFloatAsState(
+            targetValue = if (selected && usesSharedSelectionIndicator) 1.08f else 1f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMedium,
+            ),
+            label = "nav_selection_scale",
         )
 
         with(rowScope) {
             Column(
                 modifier = modifier
                     .weight(1f)
+                    .graphicsLayer {
+                        scaleX = selectedScale
+                        scaleY = selectedScale
+                    }
                     .clip(RoundedCornerShape(NuvioTokens.Radius.full))
                     .background(selectedBgColor)
                     .selectable(
@@ -376,19 +496,34 @@ private class NuvioNavigationBarScopeImpl(
     ) {
         val tokens = MaterialTheme.nuvio
         val selectedBgColor by animateColorAsState(
-            targetValue = if (selected) tokens.colors.accent.copy(alpha = NuvioTokens.Opacity.selected)
-            else Color.Transparent,
+            targetValue = if (selected && !usesSharedSelectionIndicator) {
+                tokens.colors.accent.copy(alpha = NuvioTokens.Opacity.selected)
+            } else {
+                Color.Transparent
+            },
             label = "nav_bg_color",
         )
         val iconColor by animateColorAsState(
             targetValue = if (selected) tokens.colors.accent else tokens.colors.textMuted,
             label = "nav_icon_color",
         )
+        val selectedScale by animateFloatAsState(
+            targetValue = if (selected && usesSharedSelectionIndicator) 1.08f else 1f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMedium,
+            ),
+            label = "nav_selection_scale",
+        )
 
         with(rowScope) {
             Column(
                 modifier = modifier
                     .weight(1f)
+                    .graphicsLayer {
+                        scaleX = selectedScale
+                        scaleY = selectedScale
+                    }
                     .clip(RoundedCornerShape(NuvioTokens.Radius.full))
                     .background(selectedBgColor)
                     .selectable(

@@ -17,3 +17,7 @@ internal actual fun nuvioBottomNavigationBarInsets(): WindowInsets = WindowInset
 @Composable
 internal actual fun platformPhysicalTopInset(): Dp =
     WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+
+@Composable
+internal actual fun platformPhysicalBottomInset(): Dp =
+    WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()

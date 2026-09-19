@@ -2,6 +2,7 @@ package com.nuvio.app
 
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioNavBarScrollState
+import com.nuvio.app.core.ui.NuvioNavigationBarVisualStyle
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkRecoveryPhase
 import com.nuvio.app.core.network.NetworkRecoveryUiState
@@ -10,8 +11,10 @@ import com.nuvio.app.features.home.shouldShowOfflineHomeConnectionCard
 import com.nuvio.app.features.settings.NavBarStyle
 import com.nuvio.app.core.ui.NuvioAdaptiveHeaderPresentation
 import com.nuvio.app.core.ui.keyboardLayoutOccludesContent
+import com.nuvio.app.core.ui.navigationBarBottomPadding
 import com.nuvio.app.core.ui.reconciledIosImeVisibility
 import com.nuvio.app.core.ui.resolveAdaptiveHeaderPresentation
+import com.nuvio.app.core.ui.sharedSelectionIndicatorOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -189,6 +192,33 @@ class MainTabsDestinationTest {
         assertFalse(keyboardLayoutOccludesContent(layoutHeight = 21.0, bottomSafeArea = 20.0))
         assertFalse(keyboardLayoutOccludesContent(layoutHeight = 68.5, bottomSafeArea = 20.0))
         assertTrue(keyboardLayoutOccludesContent(layoutHeight = 320.0, bottomSafeArea = 20.0))
+    }
+
+    @Test
+    fun `iPad dock keeps the physical bottom inset while keyboard insets animate`() {
+        assertEquals(
+            20.dp,
+            navigationBarBottomPadding(
+                visualStyle = NuvioNavigationBarVisualStyle.IosTablet,
+                windowInsetsBottom = 340.dp,
+                physicalBottom = 20.dp,
+            ),
+        )
+        assertEquals(
+            340.dp,
+            navigationBarBottomPadding(
+                visualStyle = NuvioNavigationBarVisualStyle.Standard,
+                windowInsetsBottom = 340.dp,
+                physicalBottom = 20.dp,
+            ),
+        )
+    }
+
+    @Test
+    fun `iPad shared selector travels by one equal tab slot`() {
+        assertEquals(0.dp, sharedSelectionIndicatorOffset(100.dp, selectedIndex = 0, itemCount = 4))
+        assertEquals(100.dp, sharedSelectionIndicatorOffset(100.dp, selectedIndex = 1, itemCount = 4))
+        assertEquals(300.dp, sharedSelectionIndicatorOffset(100.dp, selectedIndex = 3, itemCount = 4))
     }
 
     @Test

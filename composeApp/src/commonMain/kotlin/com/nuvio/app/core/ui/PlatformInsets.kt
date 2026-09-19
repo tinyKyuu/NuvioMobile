@@ -17,6 +17,10 @@ internal expect fun nuvioBottomNavigationBarInsets(): WindowInsets
 @Composable
 internal expect fun platformPhysicalTopInset(): Dp
 
+/** Physical display-safe bottom inset, unaffected by software-keyboard animation. */
+@Composable
+internal expect fun platformPhysicalBottomInset(): Dp
+
 internal val LocalNuvioBottomNavigationOverlayPadding = staticCompositionLocalOf { 0.dp }
 internal val LocalNuvioTopNavigationOverlayPadding = staticCompositionLocalOf { 0.dp }
 

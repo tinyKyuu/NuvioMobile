@@ -31,3 +31,16 @@ internal actual fun platformPhysicalTopInset(): Dp {
     return physicalTop?.dp
         ?: WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
 }
+
+@OptIn(ExperimentalForeignApi::class)
+@Composable
+internal actual fun platformPhysicalBottomInset(): Dp {
+    val physicalBottom = LocalUIViewController.current.view.window
+        ?.safeAreaInsets
+        ?.useContents { bottom.toFloat() }
+
+    return physicalBottom?.dp
+        ?: WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)
+            .asPaddingValues()
+            .calculateBottomPadding()
+}

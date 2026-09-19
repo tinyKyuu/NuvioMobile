@@ -3,7 +3,7 @@ package com.nuvio.app.features.simkl
 import io.ktor.http.Url
 import io.ktor.http.encodeURLParameter
 
-internal const val SIMKL_AUTHORIZATION_TIMEOUT_MS = 5L * 60L * 1_000L
+internal const val SIMKL_AUTHORIZATION_TIMEOUT_MS = 10L * 60L * 1_000L
 
 internal fun parseSimklAuthCallback(
     callbackUrl: String,
@@ -15,10 +15,22 @@ internal fun parseSimklAuthCallback(
         return SimklAuthCallback.NotSimkl
     }
     val parsed = runCatching { Url(callbackUrl) }.getOrNull() ?: return SimklAuthCallback.Invalid
-    val code = parsed.parameters["code"].orEmpty().trim()
     val state = parsed.parameters["state"].orEmpty().trim()
-    if (code.isBlank() || state.isBlank()) return SimklAuthCallback.Invalid
-    return SimklAuthCallback.AuthorizationCode(code = code, state = state)
+    val issuer = parsed.parameters["iss"].orEmpty().trim()
+    if (state.isBlank() || issuer.isBlank()) return SimklAuthCallback.Invalid
+
+    val error = parsed.parameters["error"].orEmpty().trim()
+    if (error.isNotBlank()) {
+        return SimklAuthCallback.AuthorizationError(
+            error = error,
+            state = state,
+            issuer = issuer,
+        )
+    }
+
+    val code = parsed.parameters["code"].orEmpty().trim()
+    if (code.isBlank()) return SimklAuthCallback.Invalid
+    return SimklAuthCallback.AuthorizationCode(code = code, state = state, issuer = issuer)
 }
 
 internal fun isSimklAuthorizationExpired(
@@ -44,12 +56,12 @@ internal fun constantTimeEquals(left: String, right: String): Boolean {
 internal fun buildSimklAuthorizationUrl(
     clientId: String,
     redirectUri: String,
-    appName: String,
-    appVersion: String,
     material: SimklPkceMaterial,
 ): String = buildString {
     append(SIMKL_AUTHORIZE_URL)
     append("?response_type=code")
+    append("&scope=")
+    append(SIMKL_REQUIRED_SCOPE.encodeURLParameter())
     append("&client_id=")
     append(clientId.encodeURLParameter())
     append("&redirect_uri=")
@@ -59,8 +71,4 @@ internal fun buildSimklAuthorizationUrl(
     append("&code_challenge_method=S256")
     append("&state=")
     append(material.state.encodeURLParameter())
-    append("&app-name=")
-    append(appName.encodeURLParameter())
-    append("&app-version=")
-    append(appVersion.encodeURLParameter())
 }

@@ -76,6 +76,7 @@ import com.nuvio.app.features.watchprogress.WatchProgressSourceCoordinator
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_cancel
+import nuvio.composeapp.generated.resources.settings_simkl_authorization_denied
 import nuvio.composeapp.generated.resources.settings_simkl_authorization_expired
 import nuvio.composeapp.generated.resources.settings_simkl_authorization_revoked
 import nuvio.composeapp.generated.resources.settings_simkl_connect
@@ -86,6 +87,7 @@ import nuvio.composeapp.generated.resources.settings_simkl_disconnect
 import nuvio.composeapp.generated.resources.settings_simkl_disconnect_description
 import nuvio.composeapp.generated.resources.settings_simkl_finish_sign_in
 import nuvio.composeapp.generated.resources.settings_simkl_invalid_callback
+import nuvio.composeapp.generated.resources.settings_simkl_insufficient_scope
 import nuvio.composeapp.generated.resources.settings_simkl_open_login
 import nuvio.composeapp.generated.resources.settings_simkl_sign_in_description
 import nuvio.composeapp.generated.resources.settings_simkl_sign_in_failed
@@ -769,12 +771,17 @@ private fun simklErrorMessage(error: SimklAuthError?): String? = when (error) {
     null, SimklAuthError.MISSING_CLIENT_ID -> null
     SimklAuthError.INVALID_CALLBACK,
     SimklAuthError.INVALID_CALLBACK_STATE,
+    SimklAuthError.INVALID_CALLBACK_ISSUER,
     -> stringResource(Res.string.settings_simkl_invalid_callback)
+    SimklAuthError.AUTHORIZATION_DENIED ->
+        stringResource(Res.string.settings_simkl_authorization_denied)
     SimklAuthError.AUTHORIZATION_EXPIRED ->
         stringResource(Res.string.settings_simkl_authorization_expired)
     SimklAuthError.TOKEN_EXCHANGE_FAILED,
     SimklAuthError.INVALID_TOKEN_RESPONSE,
     -> stringResource(Res.string.settings_simkl_sign_in_failed)
+    SimklAuthError.INSUFFICIENT_SCOPE ->
+        stringResource(Res.string.settings_simkl_insufficient_scope)
     SimklAuthError.AUTHORIZATION_REVOKED ->
         stringResource(Res.string.settings_simkl_authorization_revoked)
 }

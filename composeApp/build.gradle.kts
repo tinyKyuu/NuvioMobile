@@ -227,8 +227,8 @@ abstract class VerifyTrackingConfigurationTask : DefaultTask() {
                 add("Trakt redirect URI must be nuvio://auth/trakt")
             }
             if (simklClientId.get().isBlank()) add("Simkl client ID is missing")
-            if (!simklRedirectUri.get().equals("nuvio://auth/simkl", ignoreCase = true)) {
-                add("Simkl redirect URI must be nuvio://auth/simkl")
+            if (!simklRedirectUri.get().equals("com.tinykyuu.nuvio://auth/simkl", ignoreCase = true)) {
+                add("Simkl redirect URI must be com.tinykyuu.nuvio://auth/simkl")
             }
         }
         check(problems.isEmpty()) {
@@ -429,8 +429,8 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
     traktClientSecret.set(runtimeConfigValue("TRAKT_CLIENT_SECRET"))
     traktRedirectUri.set(runtimeConfigValue("TRAKT_REDIRECT_URI", "nuvio://auth/trakt"))
     simklClientId.set(runtimeConfigValue("SIMKL_CLIENT_ID"))
-    simklRedirectUri.set(runtimeConfigValue("SIMKL_REDIRECT_URI", "nuvio://auth/simkl"))
-    simklAppName.set(runtimeConfigValue("SIMKL_APP_NAME", "nuvio"))
+    simklRedirectUri.set(runtimeConfigValue("SIMKL_REDIRECT_URI", "com.tinykyuu.nuvio://auth/simkl"))
+    simklAppName.set(runtimeConfigValue("SIMKL_APP_NAME", "nuvio-watch-together"))
 }
 
 tasks.register<VerifyTrackingConfigurationTask>("verifyTrackingConfiguration") {
@@ -440,7 +440,7 @@ tasks.register<VerifyTrackingConfigurationTask>("verifyTrackingConfiguration") {
     traktClientSecret.set(runtimeConfigValue("TRAKT_CLIENT_SECRET"))
     traktRedirectUri.set(runtimeConfigValue("TRAKT_REDIRECT_URI", "nuvio://auth/trakt"))
     simklClientId.set(runtimeConfigValue("SIMKL_CLIENT_ID"))
-    simklRedirectUri.set(runtimeConfigValue("SIMKL_REDIRECT_URI", "nuvio://auth/simkl"))
+    simklRedirectUri.set(runtimeConfigValue("SIMKL_REDIRECT_URI", "com.tinykyuu.nuvio://auth/simkl"))
 }
 
 val generateWatchTogetherTestFixtures =

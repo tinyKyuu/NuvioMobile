@@ -43,36 +43,55 @@ class SimklPkceTest {
     fun `authorization URL uses browser host and exact S256 method`() {
         val url = buildSimklAuthorizationUrl(
             clientId = "client id",
-            redirectUri = "nuvio://auth/simkl",
-            appName = "nuvio",
-            appVersion = "1.2.3",
+            redirectUri = "com.tinykyuu.nuvio://auth/simkl",
             material = SimklPkceMaterial("verifier", "challenge", "state"),
         )
 
-        assertTrue(url.startsWith("https://simkl.com/oauth/authorize?"))
+        assertTrue(url.startsWith("https://simkl.com/oauth2/authorize?"))
         assertTrue("client_id=client+id" in url || "client_id=client%20id" in url)
         assertTrue("code_challenge_method=S256" in url)
-        assertTrue("redirect_uri=nuvio%3A%2F%2Fauth%2Fsimkl" in url)
+        assertTrue("scope=media%3Aread+media%3Awrite" in url || "scope=media%3Aread%20media%3Awrite" in url)
+        assertTrue("redirect_uri=com.tinykyuu.nuvio%3A%2F%2Fauth%2Fsimkl" in url)
     }
 
     @Test
     fun `callback parser rejects other routes and missing state`() {
         assertIs<SimklAuthCallback.NotSimkl>(
-            parseSimklAuthCallback("nuvio://auth/trakt?code=a&state=b", "nuvio://auth/simkl"),
+            parseSimklAuthCallback(
+                "nuvio://auth/trakt?code=a&state=b&iss=https%3A%2F%2Fsimkl.com",
+                "com.tinykyuu.nuvio://auth/simkl",
+            ),
         )
         assertIs<SimklAuthCallback.Invalid>(
-            parseSimklAuthCallback("nuvio://auth/simkl?code=a", "nuvio://auth/simkl"),
+            parseSimklAuthCallback(
+                "com.tinykyuu.nuvio://auth/simkl?code=a&state=b",
+                "com.tinykyuu.nuvio://auth/simkl",
+            ),
         )
         assertEquals(
-            SimklAuthCallback.AuthorizationCode(code = "a", state = "b"),
-            parseSimklAuthCallback("nuvio://auth/simkl?code=a&state=b", "nuvio://auth/simkl"),
+            SimklAuthCallback.AuthorizationCode(code = "a", state = "b", issuer = SIMKL_ISSUER),
+            parseSimklAuthCallback(
+                "com.tinykyuu.nuvio://auth/simkl?code=a&state=b&iss=https%3A%2F%2Fsimkl.com",
+                "com.tinykyuu.nuvio://auth/simkl",
+            ),
+        )
+        assertEquals(
+            SimklAuthCallback.AuthorizationError(
+                error = "access_denied",
+                state = "b",
+                issuer = SIMKL_ISSUER,
+            ),
+            parseSimklAuthCallback(
+                "com.tinykyuu.nuvio://auth/simkl?error=access_denied&state=b&iss=https%3A%2F%2Fsimkl.com",
+                "com.tinykyuu.nuvio://auth/simkl",
+            ),
         )
     }
 
     @Test
-    fun `pending authorization expires after five minutes`() {
-        assertFalse(isSimklAuthorizationExpired(1_000L, 301_000L))
-        assertTrue(isSimklAuthorizationExpired(1_000L, 301_001L))
+    fun `pending authorization expires after ten minutes`() {
+        assertFalse(isSimklAuthorizationExpired(1_000L, 601_000L))
+        assertTrue(isSimklAuthorizationExpired(1_000L, 601_001L))
         assertTrue(isSimklAuthorizationExpired(null, 1_000L))
         assertTrue(isSimklAuthorizationExpired(2_000L, 1_000L))
     }

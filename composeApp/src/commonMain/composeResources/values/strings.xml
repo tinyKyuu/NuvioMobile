@@ -1361,7 +1361,6 @@
     <string name="settings_simkl_connected_description">Lists, watched history, playback progress, and scrobbles sync with Simkl.</string>
     <string name="settings_simkl_disconnect">Disconnect</string>
     <string name="settings_simkl_finish_sign_in">Continue connecting Simkl</string>
-    <string name="settings_simkl_approval_redirect">Finish signing in and approve access in Simkl. You will return to Nuvio automatically.</string>
     <string name="settings_simkl_open_login">Continue in Simkl</string>
     <string name="settings_simkl_sign_in_description">Connect Simkl to sync lists, watched history, playback progress, and scrobbles.</string>
     <string name="settings_simkl_sign_in_unavailable">Simkl sign-in is not configured for this build.</string>

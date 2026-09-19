@@ -79,17 +79,14 @@ import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.settings_simkl_authorization_denied
 import nuvio.composeapp.generated.resources.settings_simkl_authorization_expired
 import nuvio.composeapp.generated.resources.settings_simkl_authorization_revoked
-import nuvio.composeapp.generated.resources.settings_simkl_approval_redirect
 import nuvio.composeapp.generated.resources.settings_simkl_connect
 import nuvio.composeapp.generated.resources.settings_simkl_connected_as
 import nuvio.composeapp.generated.resources.settings_simkl_connected_description
 import nuvio.composeapp.generated.resources.settings_simkl_default_user
 import nuvio.composeapp.generated.resources.settings_simkl_disconnect
 import nuvio.composeapp.generated.resources.settings_simkl_disconnect_description
-import nuvio.composeapp.generated.resources.settings_simkl_finish_sign_in
 import nuvio.composeapp.generated.resources.settings_simkl_invalid_callback
 import nuvio.composeapp.generated.resources.settings_simkl_insufficient_scope
-import nuvio.composeapp.generated.resources.settings_simkl_open_login
 import nuvio.composeapp.generated.resources.settings_simkl_sign_in_description
 import nuvio.composeapp.generated.resources.settings_simkl_sign_in_failed
 import nuvio.composeapp.generated.resources.settings_simkl_sign_in_unavailable
@@ -99,15 +96,12 @@ import nuvio.composeapp.generated.resources.settings_simkl_visit
 import nuvio.composeapp.generated.resources.settings_tracking_disconnect_description
 import nuvio.composeapp.generated.resources.settings_tracking_disconnect_title
 import nuvio.composeapp.generated.resources.settings_tracking_unavailable_action
-import nuvio.composeapp.generated.resources.settings_trakt_approval_redirect
 import nuvio.composeapp.generated.resources.settings_trakt_connect
 import nuvio.composeapp.generated.resources.settings_trakt_connected_as
 import nuvio.composeapp.generated.resources.settings_trakt_default_user
 import nuvio.composeapp.generated.resources.settings_trakt_disconnect
 import nuvio.composeapp.generated.resources.settings_trakt_disconnect_description
 import nuvio.composeapp.generated.resources.settings_trakt_failed_open_browser
-import nuvio.composeapp.generated.resources.settings_trakt_finish_sign_in
-import nuvio.composeapp.generated.resources.settings_trakt_open_login
 import nuvio.composeapp.generated.resources.settings_trakt_save_actions_description
 import nuvio.composeapp.generated.resources.settings_trakt_sign_in_description
 import nuvio.composeapp.generated.resources.settings_trakt_sign_in_unavailable
@@ -242,10 +236,7 @@ private fun TraktProviderCard(
         ),
         connectedDescription = stringResource(Res.string.settings_trakt_save_actions_description),
         signInDescription = stringResource(Res.string.settings_trakt_sign_in_description),
-        finishSignInLabel = stringResource(Res.string.settings_trakt_finish_sign_in),
-        approvalDescription = stringResource(Res.string.settings_trakt_approval_redirect),
         connectLabel = stringResource(Res.string.settings_trakt_connect),
-        openLoginLabel = stringResource(Res.string.settings_trakt_open_login),
         disconnectLabel = stringResource(Res.string.settings_trakt_disconnect),
         unavailableLabel = stringResource(Res.string.settings_tracking_unavailable_action),
         missingCredentialsMessage = stringResource(Res.string.settings_trakt_sign_in_unavailable),
@@ -258,7 +249,6 @@ private fun TraktProviderCard(
             TraktAuthRepository.pendingAuthorizationUrl()
                 ?: TraktAuthRepository.onConnectRequested()
         },
-        onCancelAuthorization = TraktAuthRepository::onCancelAuthorization,
         onDisconnect = TraktAuthRepository::onDisconnectRequested,
         modifier = modifier,
     )
@@ -284,10 +274,7 @@ private fun SimklProviderCard(
         ),
         connectedDescription = stringResource(Res.string.settings_simkl_connected_description),
         signInDescription = stringResource(Res.string.settings_simkl_sign_in_description),
-        finishSignInLabel = stringResource(Res.string.settings_simkl_finish_sign_in),
-        approvalDescription = stringResource(Res.string.settings_simkl_approval_redirect),
         connectLabel = stringResource(Res.string.settings_simkl_connect),
-        openLoginLabel = stringResource(Res.string.settings_simkl_open_login),
         disconnectLabel = stringResource(Res.string.settings_simkl_disconnect),
         syncLabel = stringResource(Res.string.settings_simkl_sync_now),
         infoLabel = stringResource(Res.string.settings_simkl_sync_info_action),
@@ -302,7 +289,6 @@ private fun SimklProviderCard(
             SimklAuthRepository.pendingAuthorizationUrl()
                 ?: SimklAuthRepository.onConnectRequested()
         },
-        onCancelAuthorization = SimklAuthRepository::onCancelAuthorization,
         onSyncRequested = onSyncRequested,
         onInfoRequested = onInfoRequested,
         onDisconnect = SimklAuthRepository::onDisconnectRequested,
@@ -319,10 +305,7 @@ private fun TrackingProviderCard(
     connectedLabel: String,
     connectedDescription: String,
     signInDescription: String,
-    finishSignInLabel: String,
-    approvalDescription: String,
     connectLabel: String,
-    openLoginLabel: String,
     disconnectLabel: String,
     unavailableLabel: String,
     missingCredentialsMessage: String,
@@ -336,7 +319,6 @@ private fun TrackingProviderCard(
     websiteUrl: String? = null,
     onConnectRequested: () -> String?,
     onResumeAuthorization: () -> String?,
-    onCancelAuthorization: () -> Unit,
     onSyncRequested: (() -> Unit)? = null,
     onInfoRequested: (() -> Unit)? = null,
     onDisconnect: () -> Unit,
@@ -402,41 +384,8 @@ private fun TrackingProviderCard(
                     }
                 }
 
+                TrackingConnectionCardMode.DISCONNECTED,
                 TrackingConnectionCardMode.AWAITING_APPROVAL -> {
-                    Text(
-                        text = finishSignInLabel,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = approvalDescription,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.78f),
-                    )
-                    TrackingBrandPrimaryButton(
-                        label = openLoginLabel,
-                        loading = isLoading,
-                        enabled = !isLoading,
-                        onClick = { openUrl(onResumeAuthorization()) },
-                    )
-                    OutlinedButton(
-                        onClick = onCancelAuthorization,
-                        enabled = !isLoading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 48.dp),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.44f)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = Color.White,
-                            disabledContentColor = Color.White.copy(alpha = 0.45f),
-                        ),
-                    ) {
-                        Text(stringResource(Res.string.action_cancel))
-                    }
-                }
-
-                TrackingConnectionCardMode.DISCONNECTED -> {
                     Text(
                         text = signInDescription,
                         style = MaterialTheme.typography.bodyMedium,
@@ -446,7 +395,15 @@ private fun TrackingProviderCard(
                         label = if (credentialsConfigured) connectLabel else unavailableLabel,
                         loading = isLoading,
                         enabled = credentialsConfigured && !isLoading,
-                        onClick = { openUrl(onConnectRequested()) },
+                        onClick = {
+                            openUrl(
+                                if (mode == TrackingConnectionCardMode.AWAITING_APPROVAL) {
+                                    onResumeAuthorization()
+                                } else {
+                                    onConnectRequested()
+                                },
+                            )
+                        },
                     )
                     if (!credentialsConfigured) {
                         TrackingBrandMessage(

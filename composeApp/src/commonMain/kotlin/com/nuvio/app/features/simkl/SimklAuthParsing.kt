@@ -9,7 +9,9 @@ internal fun parseSimklAuthCallback(
     callbackUrl: String,
     redirectUri: String,
 ): SimklAuthCallback {
-    if (callbackUrl != redirectUri && !callbackUrl.startsWith("$redirectUri?")) {
+    if (!callbackUrl.equals(redirectUri, ignoreCase = true) &&
+        !callbackUrl.startsWith("$redirectUri?", ignoreCase = true)
+    ) {
         return SimklAuthCallback.NotSimkl
     }
     val parsed = runCatching { Url(callbackUrl) }.getOrNull() ?: return SimklAuthCallback.Invalid

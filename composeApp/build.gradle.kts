@@ -45,6 +45,24 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
     @get:Input
     abstract val sentryEnvironment: Property<String>
 
+    @get:Input
+    abstract val traktClientId: Property<String>
+
+    @get:Input
+    abstract val traktClientSecret: Property<String>
+
+    @get:Input
+    abstract val traktRedirectUri: Property<String>
+
+    @get:Input
+    abstract val simklClientId: Property<String>
+
+    @get:Input
+    abstract val simklRedirectUri: Property<String>
+
+    @get:Input
+    abstract val simklAppName: Property<String>
+
     @TaskAction
     fun generate() {
         val props = Properties()
@@ -89,9 +107,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.trakt
                 |
                 |object TraktConfig {
-                |    const val CLIENT_ID = "${props.getProperty("TRAKT_CLIENT_ID", "")}" 
-                |    const val CLIENT_SECRET = "${props.getProperty("TRAKT_CLIENT_SECRET", "")}" 
-                |    const val REDIRECT_URI = "${props.getProperty("TRAKT_REDIRECT_URI", "nuvio://auth/trakt")}" 
+                |    const val CLIENT_ID = "${traktClientId.get()}"
+                |    const val CLIENT_SECRET = "${traktClientSecret.get()}"
+                |    const val REDIRECT_URI = "${traktRedirectUri.get()}"
                 |}
                 """.trimMargin()
             )
@@ -104,9 +122,9 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 |package com.nuvio.app.features.simkl
                 |
                 |object SimklConfig {
-                |    const val CLIENT_ID = "${props.getProperty("SIMKL_CLIENT_ID", "")}"
-                |    const val REDIRECT_URI = "${props.getProperty("SIMKL_REDIRECT_URI", "nuvio://auth/simkl")}"
-                |    const val APP_NAME = "${props.getProperty("SIMKL_APP_NAME", "nuvio")}"
+                |    const val CLIENT_ID = "${simklClientId.get()}"
+                |    const val REDIRECT_URI = "${simklRedirectUri.get()}"
+                |    const val APP_NAME = "${simklAppName.get()}"
                 |}
                 """.trimMargin()
             )
@@ -181,6 +199,42 @@ abstract class GenerateRuntimeConfigsTask : DefaultTask() {
                 """.trimMargin()
             )
         }
+    }
+}
+
+abstract class VerifyTrackingConfigurationTask : DefaultTask() {
+    @get:Input
+    abstract val traktClientId: Property<String>
+
+    @get:Input
+    abstract val traktClientSecret: Property<String>
+
+    @get:Input
+    abstract val traktRedirectUri: Property<String>
+
+    @get:Input
+    abstract val simklClientId: Property<String>
+
+    @get:Input
+    abstract val simklRedirectUri: Property<String>
+
+    @TaskAction
+    fun verify() {
+        val problems = buildList {
+            if (traktClientId.get().isBlank()) add("Trakt client ID is missing")
+            if (traktClientSecret.get().isBlank()) add("Trakt client secret is missing")
+            if (!traktRedirectUri.get().equals("nuvio://auth/trakt", ignoreCase = true)) {
+                add("Trakt redirect URI must be nuvio://auth/trakt")
+            }
+            if (simklClientId.get().isBlank()) add("Simkl client ID is missing")
+            if (!simklRedirectUri.get().equals("nuvio://auth/simkl", ignoreCase = true)) {
+                add("Simkl redirect URI must be nuvio://auth/simkl")
+            }
+        }
+        check(problems.isEmpty()) {
+            "Tracking configuration is incomplete:\n- ${problems.joinToString("\n- ")}"
+        }
+        logger.lifecycle("Trakt and Simkl build configuration is present and uses supported redirects.")
     }
 }
 
@@ -371,6 +425,22 @@ val generateRuntimeConfigs = tasks.register<GenerateRuntimeConfigsTask>("generat
             else -> "production"
         }
     )
+    traktClientId.set(runtimeConfigValue("TRAKT_CLIENT_ID"))
+    traktClientSecret.set(runtimeConfigValue("TRAKT_CLIENT_SECRET"))
+    traktRedirectUri.set(runtimeConfigValue("TRAKT_REDIRECT_URI", "nuvio://auth/trakt"))
+    simklClientId.set(runtimeConfigValue("SIMKL_CLIENT_ID"))
+    simklRedirectUri.set(runtimeConfigValue("SIMKL_REDIRECT_URI", "nuvio://auth/simkl"))
+    simklAppName.set(runtimeConfigValue("SIMKL_APP_NAME", "nuvio"))
+}
+
+tasks.register<VerifyTrackingConfigurationTask>("verifyTrackingConfiguration") {
+    group = "verification"
+    description = "Checks tracking provider build configuration without printing configured values."
+    traktClientId.set(runtimeConfigValue("TRAKT_CLIENT_ID"))
+    traktClientSecret.set(runtimeConfigValue("TRAKT_CLIENT_SECRET"))
+    traktRedirectUri.set(runtimeConfigValue("TRAKT_REDIRECT_URI", "nuvio://auth/trakt"))
+    simklClientId.set(runtimeConfigValue("SIMKL_CLIENT_ID"))
+    simklRedirectUri.set(runtimeConfigValue("SIMKL_REDIRECT_URI", "nuvio://auth/simkl"))
 }
 
 val generateWatchTogetherTestFixtures =

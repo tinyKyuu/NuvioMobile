@@ -62,3 +62,5 @@ secret material, including:
 This repository intentionally ignores `local.properties` and
 `iosApp/Configuration/Signing.local.xcconfig`. Keep official server runtime
 configuration and personal Apple signing configuration in those local files.
+Tracking-enabled archives must also pass the provider check documented in
+[Tracking provider build configuration](./tracking-providers.md).

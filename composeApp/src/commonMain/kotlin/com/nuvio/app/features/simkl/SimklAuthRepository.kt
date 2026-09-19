@@ -2,10 +2,12 @@ package com.nuvio.app.features.simkl
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.tracking.TrackingAuthProvider
+import com.nuvio.app.features.tracking.TrackingAuthConfigurationStatus
 import com.nuvio.app.features.tracking.TrackingCapability
 import com.nuvio.app.features.tracking.TrackingProviderDescriptor
 import com.nuvio.app.features.tracking.TrackingProviderId
 import com.nuvio.app.features.tracking.TrackingProviderRegistry
+import com.nuvio.app.features.tracking.trackingAuthConfigurationStatus
 import com.nuvio.app.features.tracking.TrackingRefreshIntent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -24,6 +26,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 object SimklAuthRepository : TrackingAuthProvider {
+    private const val SUPPORTED_REDIRECT_URI = "nuvio://auth/simkl"
     private val log = Logger.withTag("SimklAuth")
     private val json = Json {
         ignoreUnknownKeys = true
@@ -87,7 +90,15 @@ object SimklAuthRepository : TrackingAuthProvider {
         return uiState.value
     }
 
-    fun hasRequiredCredentials(): Boolean = SimklConfig.CLIENT_ID.isNotBlank()
+    internal fun configurationStatus(): TrackingAuthConfigurationStatus =
+        trackingAuthConfigurationStatus(
+            requiredValues = listOf(SimklConfig.CLIENT_ID),
+            redirectUri = SimklConfig.REDIRECT_URI,
+            supportedRedirectUri = SUPPORTED_REDIRECT_URI,
+        )
+
+    fun hasRequiredCredentials(): Boolean =
+        configurationStatus() == TrackingAuthConfigurationStatus.READY
 
     fun onConnectRequested(): String? {
         ensureLoaded()

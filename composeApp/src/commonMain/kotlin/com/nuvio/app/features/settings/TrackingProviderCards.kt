@@ -79,6 +79,7 @@ import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.settings_simkl_authorization_denied
 import nuvio.composeapp.generated.resources.settings_simkl_authorization_expired
 import nuvio.composeapp.generated.resources.settings_simkl_authorization_revoked
+import nuvio.composeapp.generated.resources.settings_simkl_approval_redirect
 import nuvio.composeapp.generated.resources.settings_simkl_connect
 import nuvio.composeapp.generated.resources.settings_simkl_connected_as
 import nuvio.composeapp.generated.resources.settings_simkl_connected_description
@@ -91,13 +92,13 @@ import nuvio.composeapp.generated.resources.settings_simkl_insufficient_scope
 import nuvio.composeapp.generated.resources.settings_simkl_open_login
 import nuvio.composeapp.generated.resources.settings_simkl_sign_in_description
 import nuvio.composeapp.generated.resources.settings_simkl_sign_in_failed
+import nuvio.composeapp.generated.resources.settings_simkl_sign_in_unavailable
 import nuvio.composeapp.generated.resources.settings_simkl_sync_info_action
 import nuvio.composeapp.generated.resources.settings_simkl_sync_now
 import nuvio.composeapp.generated.resources.settings_simkl_visit
-import nuvio.composeapp.generated.resources.settings_tracking_approval_redirect
 import nuvio.composeapp.generated.resources.settings_tracking_disconnect_description
 import nuvio.composeapp.generated.resources.settings_tracking_disconnect_title
-import nuvio.composeapp.generated.resources.settings_tracking_sign_in_unavailable
+import nuvio.composeapp.generated.resources.settings_tracking_unavailable_action
 import nuvio.composeapp.generated.resources.settings_trakt_approval_redirect
 import nuvio.composeapp.generated.resources.settings_trakt_connect
 import nuvio.composeapp.generated.resources.settings_trakt_connected_as
@@ -109,6 +110,7 @@ import nuvio.composeapp.generated.resources.settings_trakt_finish_sign_in
 import nuvio.composeapp.generated.resources.settings_trakt_open_login
 import nuvio.composeapp.generated.resources.settings_trakt_save_actions_description
 import nuvio.composeapp.generated.resources.settings_trakt_sign_in_description
+import nuvio.composeapp.generated.resources.settings_trakt_sign_in_unavailable
 import org.jetbrains.compose.resources.stringResource
 
 internal enum class TrackingBrand(val displayName: String) {
@@ -181,18 +183,18 @@ internal fun TrackingProviderCards(
                     .height(IntrinsicSize.Min),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                TraktProviderCard(
-                    uiState = traktUiState,
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                )
                 SimklProviderCard(
                     uiState = simklUiState,
                     isSyncing = syncState.isLoading,
                     syncErrorMessage = syncState.errorMessage,
                     onSyncRequested = onSimklSyncRequested,
                     onInfoRequested = { showSyncInfo = true },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                )
+                TraktProviderCard(
+                    uiState = traktUiState,
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight(),
@@ -203,16 +205,16 @@ internal fun TrackingProviderCards(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(if (isTablet) 16.dp else 12.dp),
             ) {
-                TraktProviderCard(
-                    uiState = traktUiState,
-                    modifier = Modifier.fillMaxWidth(),
-                )
                 SimklProviderCard(
                     uiState = simklUiState,
                     isSyncing = syncState.isLoading,
                     syncErrorMessage = syncState.errorMessage,
                     onSyncRequested = onSimklSyncRequested,
                     onInfoRequested = { showSyncInfo = true },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                TraktProviderCard(
+                    uiState = traktUiState,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -245,7 +247,8 @@ private fun TraktProviderCard(
         connectLabel = stringResource(Res.string.settings_trakt_connect),
         openLoginLabel = stringResource(Res.string.settings_trakt_open_login),
         disconnectLabel = stringResource(Res.string.settings_trakt_disconnect),
-        missingCredentialsMessage = stringResource(Res.string.settings_tracking_sign_in_unavailable),
+        unavailableLabel = stringResource(Res.string.settings_tracking_unavailable_action),
+        missingCredentialsMessage = stringResource(Res.string.settings_trakt_sign_in_unavailable),
         statusMessage = uiState.statusMessage.takeUnless {
             uiState.mode == TraktConnectionMode.CONNECTED
         },
@@ -282,14 +285,15 @@ private fun SimklProviderCard(
         connectedDescription = stringResource(Res.string.settings_simkl_connected_description),
         signInDescription = stringResource(Res.string.settings_simkl_sign_in_description),
         finishSignInLabel = stringResource(Res.string.settings_simkl_finish_sign_in),
-        approvalDescription = stringResource(Res.string.settings_tracking_approval_redirect),
+        approvalDescription = stringResource(Res.string.settings_simkl_approval_redirect),
         connectLabel = stringResource(Res.string.settings_simkl_connect),
         openLoginLabel = stringResource(Res.string.settings_simkl_open_login),
         disconnectLabel = stringResource(Res.string.settings_simkl_disconnect),
         syncLabel = stringResource(Res.string.settings_simkl_sync_now),
         infoLabel = stringResource(Res.string.settings_simkl_sync_info_action),
         isSyncing = isSyncing,
-        missingCredentialsMessage = stringResource(Res.string.settings_tracking_sign_in_unavailable),
+        unavailableLabel = stringResource(Res.string.settings_tracking_unavailable_action),
+        missingCredentialsMessage = stringResource(Res.string.settings_simkl_sign_in_unavailable),
         errorMessage = simklErrorMessage(uiState.error) ?: syncErrorMessage,
         websiteLabel = stringResource(Res.string.settings_simkl_visit),
         websiteUrl = SIMKL_WEBSITE_URL,
@@ -320,6 +324,7 @@ private fun TrackingProviderCard(
     connectLabel: String,
     openLoginLabel: String,
     disconnectLabel: String,
+    unavailableLabel: String,
     missingCredentialsMessage: String,
     modifier: Modifier = Modifier,
     syncLabel: String? = null,
@@ -438,7 +443,7 @@ private fun TrackingProviderCard(
                         color = Color.White.copy(alpha = 0.82f),
                     )
                     TrackingBrandPrimaryButton(
-                        label = connectLabel,
+                        label = if (credentialsConfigured) connectLabel else unavailableLabel,
                         loading = isLoading,
                         enabled = credentialsConfigured && !isLoading,
                         onClick = { openUrl(onConnectRequested()) },

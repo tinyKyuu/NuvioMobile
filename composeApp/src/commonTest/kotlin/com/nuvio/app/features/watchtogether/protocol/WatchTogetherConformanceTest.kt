@@ -23,6 +23,7 @@ class WatchTogetherConformanceTest {
         assertEquals(
             setOf(
                 "pause-resume.json",
+                "readiness-countdown.json",
                 "readiness-next-round.json",
                 "reconnect-stale-sequence.json",
                 "seek-idempotency.json",
@@ -182,6 +183,8 @@ private class FixtureRunner(
             "disconnect" -> disconnect(step)
             "reconnect" -> reconnect(step)
             "nextRound" -> nextRound(step)
+            "beginCountdown" -> beginCountdown(step)
+            "completeCountdown" -> completeCountdown(step)
             "assert" -> assertState(step.requiredObject("expect"))
             else -> error("Unsupported fixture operation")
         }
@@ -389,6 +392,41 @@ private class FixtureRunner(
         assertEquals(step.requiredLong("revision"), state.revision)
     }
 
+    private fun beginCountdown(step: JsonObject) {
+        assertEquals(WatchTogetherRoundStatus.Preparing, state.round.status)
+        assertEquals(WatchTogetherPlaybackMode.Paused, state.round.playback.mode)
+        assertTrue(WatchTogetherReadinessGate.evaluate(state).ready)
+        state = state.copy(
+            revision = state.revision + 1L,
+            round = state.round.copy(
+                status = WatchTogetherRoundStatus.Countdown,
+                countdown = WatchTogetherCountdownState(
+                    startedAtRelayTimeMs = nowMs,
+                    endsAtRelayTimeMs = nowMs + WATCH_TOGETHER_DEFAULT_COUNTDOWN_DURATION_MS,
+                ),
+                playback = state.round.playback.copy(anchorRelayTimeMs = nowMs),
+            ),
+        )
+        assertEquals(step.requiredLong("revision"), state.revision)
+    }
+
+    private fun completeCountdown(step: JsonObject) {
+        val countdown = assertNotNull(state.round.countdown)
+        assertTrue(nowMs >= countdown.endsAtRelayTimeMs)
+        state = state.copy(
+            revision = state.revision + 1L,
+            round = state.round.copy(
+                status = WatchTogetherRoundStatus.Active,
+                countdown = null,
+                playback = state.round.playback.copy(
+                    mode = WatchTogetherPlaybackMode.Playing,
+                    anchorRelayTimeMs = countdown.endsAtRelayTimeMs,
+                ),
+            ),
+        )
+        assertEquals(step.requiredLong("revision"), state.revision)
+    }
+
     private fun assertState(expectation: JsonObject) {
         expectation.optionalLong("revision")?.let { assertEquals(it, state.revision) }
         expectation.optionalString("roundId")?.let { assertEquals(it, state.round.roundId) }
@@ -403,6 +441,12 @@ private class FixtureRunner(
         }
         expectation.optionalLong("canonicalPositionMs")?.let {
             assertEquals(it, WatchTogetherCanonicalClock.positionAt(state.round.playback, nowMs))
+        }
+        expectation.optionalLong("countdownStartedAtRelayTimeMs")?.let {
+            assertEquals(it, state.round.countdown?.startedAtRelayTimeMs)
+        }
+        expectation.optionalLong("countdownEndsAtRelayTimeMs")?.let {
+            assertEquals(it, state.round.countdown?.endsAtRelayTimeMs)
         }
         expectation["participant"]?.jsonObject?.let { participantExpectation ->
             val participant = participant(participantExpectation.requiredString("participantId"))

@@ -18,6 +18,7 @@ internal data class WatchTogetherServiceManifest(
     val description: String,
     val canonicalOrigin: String,
     val protocolVersions: List<String>,
+    val transports: List<WatchTogetherServiceTransport>,
     val endpoints: WatchTogetherServiceEndpoints,
     val operator: WatchTogetherServiceOperator,
     val privacy: WatchTogetherPrivacyDeclaration,
@@ -26,8 +27,20 @@ internal data class WatchTogetherServiceManifest(
 )
 
 @Serializable
+internal data class WatchTogetherServiceTransport(
+    val profile: WatchTogetherTransportProfile,
+    val projectUrl: String,
+    val publishableKey: String,
+)
+
+@Serializable
+internal enum class WatchTogetherTransportProfile {
+    @SerialName("supabase_direct_v1")
+    SupabaseDirectV1,
+}
+
+@Serializable
 internal data class WatchTogetherServiceEndpoints(
-    val relayWebSocketUrl: String,
     val accountLinkUrl: String? = null,
     val statusUrl: String? = null,
     val supportUrl: String? = null,
@@ -88,6 +101,9 @@ internal enum class WatchTogetherHostAuthenticationMode {
     @SerialName("none")
     None,
 
+    @SerialName("email_otp")
+    EmailOtp,
+
     @SerialName("email_otp_device_link")
     EmailOtpDeviceLink,
 }
@@ -129,6 +145,12 @@ internal enum class WatchTogetherServiceCapability {
 
     @SerialName("participant.readiness")
     ParticipantReadiness,
+
+    @SerialName("round.readiness_gate")
+    RoundReadinessGate,
+
+    @SerialName("round.countdown")
+    RoundCountdown,
 
     @SerialName("round.multiple")
     MultipleRounds,
@@ -238,6 +260,12 @@ internal enum class WatchTogetherRejectionCode {
     @SerialName("ROUND_MISMATCH")
     RoundMismatch,
 
+    @SerialName("READINESS_REQUIRED")
+    ReadinessRequired,
+
+    @SerialName("COUNTDOWN_ACTIVE")
+    CountdownActive,
+
     @SerialName("MESSAGE_ID_REUSE")
     MessageIdReuse,
 
@@ -333,7 +361,14 @@ internal data class WatchTogetherRoundState(
     val roundId: String,
     val generation: Long,
     val status: WatchTogetherRoundStatus,
+    val countdown: WatchTogetherCountdownState? = null,
     val playback: WatchTogetherPlaybackAnchor,
+)
+
+@Serializable
+internal data class WatchTogetherCountdownState(
+    val startedAtRelayTimeMs: Long,
+    val endsAtRelayTimeMs: Long,
 )
 
 @Serializable

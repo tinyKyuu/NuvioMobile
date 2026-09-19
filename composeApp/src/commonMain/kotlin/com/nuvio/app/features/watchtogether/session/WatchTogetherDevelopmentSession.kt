@@ -23,6 +23,7 @@ import com.nuvio.app.features.watchtogether.protocol.WatchTogetherServerMessageT
 import com.nuvio.app.features.watchtogether.protocol.WatchTogetherParticipantRole
 import com.nuvio.app.features.watchtogether.protocol.rejectedPayload
 import com.nuvio.app.features.watchtogether.protocol.snapshotPayload
+import com.nuvio.app.features.watchtogether.hosted.WatchTogetherPlaybackSession
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.WebSockets
@@ -54,7 +55,7 @@ internal class WatchTogetherDevelopmentSession(
     private val scope: CoroutineScope,
     private val player: WatchTogetherPlayerAdapter,
     private val client: HttpClient = HttpClient { install(WebSockets) },
-) {
+) : WatchTogetherPlaybackSession {
     private sealed interface InitialRequest {
         data class Create(val displayName: String) : InitialRequest
         data class Join(val displayName: String, val roomCode: String) : InitialRequest
@@ -120,7 +121,7 @@ internal class WatchTogetherDevelopmentSession(
         )
     }
 
-    fun requestPlayback(shouldPlay: Boolean): Boolean {
+    override fun requestPlayback(shouldPlay: Boolean): Boolean {
         if (mutableState.value.status != WatchTogetherDevelopmentStatus.Connected) return false
         val type = if (shouldPlay) {
             WatchTogetherClientCommandType.PlaybackResume
@@ -131,10 +132,10 @@ internal class WatchTogetherDevelopmentSession(
         return true
     }
 
-    fun requestSeek(positionMs: Long): Boolean {
+    override fun requestSeek(localPositionMs: Long): Boolean {
         if (mutableState.value.status != WatchTogetherDevelopmentStatus.Connected) return false
         val payload = WatchTogetherJson.encodeToJsonElement(
-            WatchTogetherSeekPayload(positionMs.coerceAtLeast(0L)),
+            WatchTogetherSeekPayload(localPositionMs.coerceAtLeast(0L)),
         ).jsonObject
         sendCommand(type = WatchTogetherClientCommandType.PlaybackSeek, payload = payload)
         return true

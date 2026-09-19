@@ -7,10 +7,11 @@ import com.nuvio.app.features.addons.httpRequestRaw
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.tracking.TrackingAuthProvider
 import com.nuvio.app.features.tracking.TrackingCapability
+import com.nuvio.app.features.tracking.TrackingAuthConfigurationStatus
 import com.nuvio.app.features.tracking.TrackingProviderDescriptor
 import com.nuvio.app.features.tracking.TrackingProviderId
 import com.nuvio.app.features.tracking.TrackingProviderRegistry
-import io.ktor.http.Url
+import com.nuvio.app.features.tracking.trackingAuthConfigurationStatus
 import io.ktor.http.encodeURLParameter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -37,6 +38,7 @@ object TraktAuthRepository : TrackingAuthProvider {
     private const val BASE_URL = "https://api.trakt.tv"
     private const val AUTHORIZE_URL = "https://trakt.tv/oauth/authorize"
     private const val API_VERSION = "2"
+    private const val SUPPORTED_REDIRECT_URI = "nuvio://auth/trakt"
 
     private val log = Logger.withTag("TraktAuth")
     private val json = Json {
@@ -113,13 +115,20 @@ object TraktAuthRepository : TrackingAuthProvider {
         return _uiState.value
     }
 
+    internal fun configurationStatus(): TrackingAuthConfigurationStatus =
+        trackingAuthConfigurationStatus(
+            requiredValues = listOf(TraktConfig.CLIENT_ID, TraktConfig.CLIENT_SECRET),
+            redirectUri = TraktConfig.REDIRECT_URI,
+            supportedRedirectUri = SUPPORTED_REDIRECT_URI,
+        )
+
     fun hasRequiredCredentials(): Boolean =
-        TraktConfig.CLIENT_ID.isNotBlank() && TraktConfig.CLIENT_SECRET.isNotBlank()
+        configurationStatus() == TrackingAuthConfigurationStatus.READY
 
     fun onConnectRequested(profileId: Int = ProfileRepository.activeProfileId): String? {
         ensureLoaded(profileId)
         if (!hasRequiredCredentials()) {
-            publish(errorMessage = localizedString(Res.string.trakt_missing_credentials))
+            publish(errorMessage = null)
             return null
         }
 
@@ -161,25 +170,21 @@ object TraktAuthRepository : TrackingAuthProvider {
     fun onAuthCallbackReceived(callbackUrl: String) {
         val profileId = ProfileRepository.activeProfileId
         ensureLoaded(profileId)
-        if (!callbackUrl.startsWith("${TraktConfig.REDIRECT_URI}?", ignoreCase = true) &&
-            !callbackUrl.equals(TraktConfig.REDIRECT_URI, ignoreCase = true)
-        ) {
-            return
-        }
+        val callback = parseTraktAuthCallback(callbackUrl, TraktConfig.REDIRECT_URI)
+        if (callback == TraktAuthCallback.NotTrakt) return
 
         scope.launch {
-            completeAuthorizationFromCallback(callbackUrl, profileId)
+            completeAuthorizationFromCallback(callback, profileId)
         }
     }
 
     override fun handleAuthCallback(url: String): Boolean {
-        if (!isTraktAuthCallback(url)) return false
+        if (parseTraktAuthCallback(url, TraktConfig.REDIRECT_URI) == TraktAuthCallback.NotTrakt) {
+            return false
+        }
         onAuthCallbackReceived(url)
         return true
     }
-
-    private fun isTraktAuthCallback(url: String): Boolean =
-        url == TraktConfig.REDIRECT_URI || url.startsWith("${TraktConfig.REDIRECT_URI}?")
 
     suspend fun authorizedHeaders(profileId: Int = currentProfileId): Map<String, String>? {
         ensureLoaded(profileId)
@@ -231,16 +236,13 @@ object TraktAuthRepository : TrackingAuthProvider {
         }
     }
 
-    private suspend fun completeAuthorizationFromCallback(callbackUrl: String, profileId: Int = currentProfileId) {
+    private suspend fun completeAuthorizationFromCallback(
+        callback: TraktAuthCallback,
+        profileId: Int = currentProfileId,
+    ) {
         publish(isLoading = true, errorMessage = null)
 
-        val parsedUrl = runCatching { Url(callbackUrl) }
-            .onFailure {
-                log.w { "Invalid Trakt callback URL: ${it.message}" }
-            }
-            .getOrNull()
-
-        if (parsedUrl == null) {
+        if (callback == TraktAuthCallback.Invalid || callback == TraktAuthCallback.NotTrakt) {
             clearPendingAuthorization()
             persist(profileId)
             publish(
@@ -250,33 +252,8 @@ object TraktAuthRepository : TrackingAuthProvider {
             return
         }
 
-        val errorCode = parsedUrl.parameters["error"]
-        if (!errorCode.isNullOrBlank()) {
-            val errorDescription = parsedUrl.parameters["error_description"]
-                ?: localizedString(Res.string.trakt_authorization_denied)
-            clearPendingAuthorization()
-            persist(profileId)
-            publish(
-                isLoading = false,
-                errorMessage = errorDescription,
-            )
-            return
-        }
-
-        val code = parsedUrl.parameters["code"].orEmpty().trim()
-        if (code.isBlank()) {
-            clearPendingAuthorization()
-            persist(profileId)
-            publish(
-                isLoading = false,
-                errorMessage = localizedString(Res.string.trakt_missing_auth_code),
-            )
-            return
-        }
-
         val expectedState = authState.pendingAuthorizationState
-        val callbackState = parsedUrl.parameters["state"].orEmpty().trim()
-        if (!expectedState.isNullOrBlank() && callbackState != expectedState) {
+        if (!isTraktCallbackStateValid(callback.state, expectedState)) {
             clearPendingAuthorization()
             persist(profileId)
             publish(
@@ -286,7 +263,22 @@ object TraktAuthRepository : TrackingAuthProvider {
             return
         }
 
-        exchangeAuthorizationCode(code, profileId)
+        when (callback) {
+            is TraktAuthCallback.ProviderError -> {
+                clearPendingAuthorization()
+                persist(profileId)
+                publish(
+                    isLoading = false,
+                    errorMessage = callback.description
+                        ?: localizedString(Res.string.trakt_authorization_denied),
+                )
+            }
+            is TraktAuthCallback.AuthorizationCode ->
+                exchangeAuthorizationCode(callback.code, profileId)
+            TraktAuthCallback.Invalid,
+            TraktAuthCallback.NotTrakt,
+            -> Unit
+        }
     }
 
     private suspend fun exchangeAuthorizationCode(code: String, profileId: Int = currentProfileId) {

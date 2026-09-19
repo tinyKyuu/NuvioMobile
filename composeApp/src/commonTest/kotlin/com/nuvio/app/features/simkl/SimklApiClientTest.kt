@@ -120,7 +120,7 @@ class SimklApiClientTest {
             harness.client.execute(
                 SimklApiRequest(
                     method = SimklHttpMethod.POST,
-                    path = "/oauth/token",
+                    path = "/oauth2/token",
                     body = "{}",
                     requiresAuthentication = false,
                     retryPolicy = SimklRetryPolicy.NEVER,
@@ -135,7 +135,7 @@ class SimklApiClientTest {
         assertTrue(request.headers.getValue("User-Agent").contains('/'))
         assertFalse("Authorization" in request.headers)
         assertTrue(harness.sleeps.isEmpty())
-        assertFalse(harness.wasUnauthorized)
+        assertFalse(harness.wasAuthorizationLost)
     }
 
     @Test
@@ -147,7 +147,7 @@ class SimklApiClientTest {
             harness.client.execute(
                 SimklApiRequest(
                     method = SimklHttpMethod.POST,
-                    path = "/oauth/token",
+                    path = "/oauth2/token",
                     body = "{}",
                     requiresAuthentication = false,
                     retryPolicy = SimklRetryPolicy.NEVER,
@@ -155,7 +155,7 @@ class SimklApiClientTest {
             )
         }
 
-        assertFalse(harness.wasUnauthorized)
+        assertFalse(harness.wasAuthorizationLost)
         assertEquals(1, engine.requests.size)
     }
 
@@ -181,7 +181,7 @@ class SimklApiClientTest {
         harness.client.execute(
             SimklApiRequest(
                 method = SimklHttpMethod.POST,
-                path = "/oauth/token",
+                path = "/oauth2/token",
                 body = "{}",
                 requiresAuthentication = false,
                 retryPolicy = SimklRetryPolicy.NEVER,
@@ -287,8 +287,23 @@ class SimklApiClientTest {
         assertFailsWith<SimklApiException> {
             unauthorizedHarness.client.execute(SimklApiRequest(SimklHttpMethod.GET, "/private"))
         }
-        assertTrue(unauthorizedHarness.wasUnauthorized)
+        assertTrue(unauthorizedHarness.wasAuthorizationLost)
         assertEquals(1, unauthorizedEngine.requests.size)
+    }
+
+    @Test
+    fun `authenticated 401 refreshes once and retries with the replacement token`() = runBlocking {
+        val engine = RecordingEngine(response(401), response(200))
+        val harness = TestHarness(engine, refreshedToken = "fresh-token")
+
+        harness.client.execute(SimklApiRequest(SimklHttpMethod.GET, "/private"))
+
+        assertEquals(listOf("token"), harness.rejectedTokens)
+        assertEquals(
+            listOf("Bearer token", "Bearer fresh-token"),
+            engine.requests.map { it.headers["Authorization"] },
+        )
+        assertFalse(harness.wasAuthorizationLost)
     }
 
     @Test
@@ -307,23 +322,29 @@ class SimklApiClientTest {
 
         assertEquals(409, result.status)
         assertTrue(result.isSoftSuccess)
-        assertFalse(harness.wasUnauthorized)
+        assertFalse(harness.wasAuthorizationLost)
     }
 
     private class TestHarness(
         engine: RecordingEngine,
         responseDurationMs: Long = 0L,
+        refreshedToken: String? = null,
     ) {
         var now = 0L
         val sleeps = mutableListOf<Long>()
-        var wasUnauthorized = false
+        val rejectedTokens = mutableListOf<String>()
+        var wasAuthorizationLost = false
         val client = SimklApiClient(
             engine = engine.also { recording ->
                 recording.now = { now }
                 recording.onResponse = { now += responseDurationMs }
             },
             accessToken = { "token" },
-            onUnauthorized = { wasUnauthorized = true },
+            refreshAccessToken = { rejectedToken ->
+                rejectedTokens += rejectedToken
+                refreshedToken
+            },
+            onUnauthorized = { wasAuthorizationLost = true },
             nowEpochMs = { now },
             sleep = { delayMs ->
                 sleeps += delayMs

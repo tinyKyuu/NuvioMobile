@@ -1,6 +1,8 @@
 package com.nuvio.app.features.settings
 
+import com.nuvio.app.features.library.LibrarySourceMode
 import com.nuvio.app.features.simkl.SimklConnectionMode
+import com.nuvio.app.features.tracking.WatchProgressSource
 import com.nuvio.app.features.trakt.MoreLikeThisSourcePreference
 import com.nuvio.app.features.trakt.TraktConnectionMode
 import kotlin.test.Test
@@ -9,6 +11,18 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class TrackingSettingsPresentationTest {
+    @Test
+    fun `tracking source pickers keep Simkl before Trakt`() {
+        assertEquals(
+            listOf(LibrarySourceMode.LOCAL, LibrarySourceMode.SIMKL, LibrarySourceMode.TRAKT),
+            librarySourceDisplayOrder(),
+        )
+        assertEquals(
+            listOf(WatchProgressSource.NUVIO_SYNC, WatchProgressSource.SIMKL, WatchProgressSource.TRAKT),
+            watchProgressSourceDisplayOrder(),
+        )
+    }
+
     @Test
     fun `provider connection modes map to matching card modes`() {
         assertEquals(

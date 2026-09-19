@@ -22,6 +22,7 @@ fi
 
 cd "${repository_root}"
 ./scripts/configure-official-nuvio-server.sh
+./gradlew :composeApp:verifyTrackingConfiguration
 ./scripts/prepare-ios-dependencies.sh
 
 env NUVIO_IOS_DISTRIBUTION=full \

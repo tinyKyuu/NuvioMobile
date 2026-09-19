@@ -92,7 +92,6 @@ import nuvio.composeapp.generated.resources.settings_simkl_sign_in_failed
 import nuvio.composeapp.generated.resources.settings_simkl_sign_in_unavailable
 import nuvio.composeapp.generated.resources.settings_simkl_sync_info_action
 import nuvio.composeapp.generated.resources.settings_simkl_sync_now
-import nuvio.composeapp.generated.resources.settings_simkl_visit
 import nuvio.composeapp.generated.resources.settings_tracking_disconnect_description
 import nuvio.composeapp.generated.resources.settings_tracking_disconnect_title
 import nuvio.composeapp.generated.resources.settings_tracking_unavailable_action
@@ -282,8 +281,6 @@ private fun SimklProviderCard(
         unavailableLabel = stringResource(Res.string.settings_tracking_unavailable_action),
         missingCredentialsMessage = stringResource(Res.string.settings_simkl_sign_in_unavailable),
         errorMessage = simklErrorMessage(uiState.error) ?: syncErrorMessage,
-        websiteLabel = stringResource(Res.string.settings_simkl_visit),
-        websiteUrl = SIMKL_WEBSITE_URL,
         onConnectRequested = SimklAuthRepository::onConnectRequested,
         onResumeAuthorization = {
             SimklAuthRepository.pendingAuthorizationUrl()
@@ -315,8 +312,6 @@ private fun TrackingProviderCard(
     isSyncing: Boolean = false,
     statusMessage: String? = null,
     errorMessage: String? = null,
-    websiteLabel: String? = null,
-    websiteUrl: String? = null,
     onConnectRequested: () -> String?,
     onResumeAuthorization: () -> String?,
     onSyncRequested: (() -> Unit)? = null,
@@ -325,6 +320,7 @@ private fun TrackingProviderCard(
 ) {
     val tokens = MaterialTheme.nuvio
     val uriHandler = LocalUriHandler.current
+    val isUnavailable = mode != TrackingConnectionCardMode.CONNECTED && !credentialsConfigured
     val failedOpenBrowserMessage = stringResource(Res.string.settings_trakt_failed_open_browser)
     var browserError by rememberSaveable { mutableStateOf(false) }
     var showDisconnectDialog by rememberSaveable { mutableStateOf(false) }
@@ -339,10 +335,10 @@ private fun TrackingProviderCard(
     Box(
         modifier = modifier
             .clip(tokens.shapes.card)
-            .background(brand.cardBrush(), tokens.shapes.card)
+            .background(brand.cardBrush(isUnavailable = isUnavailable), tokens.shapes.card)
             .border(
                 width = tokens.borders.hairline,
-                color = Color.White.copy(alpha = 0.2f),
+                color = Color.White.copy(alpha = if (isUnavailable) 0.12f else 0.24f),
                 shape = tokens.shapes.card,
             ),
     ) {
@@ -355,7 +351,6 @@ private fun TrackingProviderCard(
                 .size(150.dp)
                 .alpha(0.08f),
         )
-
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -365,6 +360,7 @@ private fun TrackingProviderCard(
             TrackingBrandWordmark(
                 brand = brand,
                 contentDescription = brand.displayName,
+                modifier = Modifier.alpha(if (isUnavailable) 0.68f else 1f),
             )
 
             when (mode) {
@@ -387,9 +383,10 @@ private fun TrackingProviderCard(
                 TrackingConnectionCardMode.DISCONNECTED,
                 TrackingConnectionCardMode.AWAITING_APPROVAL -> {
                     Text(
-                        text = signInDescription,
+                        text = if (credentialsConfigured) signInDescription else missingCredentialsMessage,
+                        modifier = Modifier.heightIn(min = 64.dp),
                         style = MaterialTheme.typography.bodyMedium,
-                        color = Color.White.copy(alpha = 0.82f),
+                        color = Color.White.copy(alpha = if (isUnavailable) 0.68f else 0.82f),
                     )
                     TrackingBrandPrimaryButton(
                         label = if (credentialsConfigured) connectLabel else unavailableLabel,
@@ -405,12 +402,6 @@ private fun TrackingProviderCard(
                             )
                         },
                     )
-                    if (!credentialsConfigured) {
-                        TrackingBrandMessage(
-                            text = missingCredentialsMessage,
-                            isError = false,
-                        )
-                    }
                 }
             }
 
@@ -424,12 +415,10 @@ private fun TrackingProviderCard(
                 TrackingBrandMessage(text = failedOpenBrowserMessage, isError = true)
             }
 
-            val hasWebsiteAction = !websiteLabel.isNullOrBlank() && !websiteUrl.isNullOrBlank()
             val hasDisconnectAction = mode == TrackingConnectionCardMode.CONNECTED
             val hasInfoAction = mode == TrackingConnectionCardMode.CONNECTED &&
                 infoLabel != null && onInfoRequested != null
             val footerActionCount = listOf(
-                hasWebsiteAction,
                 hasDisconnectAction,
                 hasInfoAction,
             ).count { it }
@@ -439,21 +428,6 @@ private fun TrackingProviderCard(
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (hasWebsiteAction) {
-                        TextButton(
-                            onClick = { openUrl(websiteUrl) },
-                            modifier = if (footerActionCount > 1) Modifier.weight(0.95f) else Modifier,
-                            contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp),
-                            colors = ButtonDefaults.textButtonColors(contentColor = Color.White),
-                        ) {
-                            Text(
-                                text = websiteLabel.orEmpty(),
-                                style = MaterialTheme.typography.labelMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                    }
                     if (hasDisconnectAction) {
                         TextButton(
                             onClick = { showDisconnectDialog = true },
@@ -689,6 +663,7 @@ internal fun TrackingBrandGlyph(
 private fun TrackingBrandWordmark(
     brand: TrackingBrand,
     contentDescription: String,
+    modifier: Modifier = Modifier,
 ) {
     val painter: Painter = when (brand) {
         TrackingBrand.TRAKT -> traktBrandPainter(TraktBrandAsset.Wordmark)
@@ -697,35 +672,53 @@ private fun TrackingBrandWordmark(
         TrackingBrand.TMDB,
         -> return
     }
-    Image(
-        painter = painter,
-        contentDescription = contentDescription,
-        modifier = when (brand) {
-            TrackingBrand.TRAKT -> Modifier
-                .width(86.dp)
-                .height(38.dp)
-            TrackingBrand.SIMKL -> Modifier
-                .width(124.dp)
-                .height(30.dp)
-            TrackingBrand.NUVIO,
-            TrackingBrand.TMDB,
-            -> Modifier
-        },
-        contentScale = ContentScale.Fit,
-        alignment = Alignment.CenterStart,
-    )
+    Box(
+        modifier = modifier
+            .width(124.dp)
+            .height(38.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Image(
+            painter = painter,
+            contentDescription = contentDescription,
+            modifier = when (brand) {
+                TrackingBrand.TRAKT -> Modifier
+                    .width(86.dp)
+                    .height(38.dp)
+                TrackingBrand.SIMKL -> Modifier
+                    .width(124.dp)
+                    .height(30.dp)
+                TrackingBrand.NUVIO,
+                TrackingBrand.TMDB,
+                -> Modifier
+            },
+            contentScale = ContentScale.Fit,
+            alignment = Alignment.CenterStart,
+        )
+    }
 }
 
-private fun TrackingBrand.cardBrush(): Brush = when (this) {
-    TrackingBrand.TRAKT -> Brush.linearGradient(
-        colors = listOf(Color(0xFF7D279B), Color(0xFFD61F56), Color(0xFFF22125)),
-    )
-    TrackingBrand.SIMKL -> Brush.linearGradient(
-        colors = listOf(Color(0xFF050505), Color(0xFF292929), Color(0xFF111111)),
-    )
-    TrackingBrand.NUVIO,
-    TrackingBrand.TMDB,
-    -> Brush.linearGradient(colors = listOf(Color(0xFF242424), Color(0xFF111111)))
+private fun TrackingBrand.cardBrush(isUnavailable: Boolean): Brush {
+    val colors = when (this) {
+        TrackingBrand.TRAKT -> listOf(Color(0xFF7D279B), Color(0xFFD61F56), Color(0xFFF22125))
+        TrackingBrand.SIMKL -> listOf(Color(0xFF050505), Color(0xFF292929), Color(0xFF111111))
+        TrackingBrand.NUVIO,
+        TrackingBrand.TMDB,
+        -> listOf(Color(0xFF242424), Color(0xFF111111))
+    }
+    val displayColors = if (isUnavailable) {
+        colors.map { color ->
+            Color(
+                red = color.red * 0.5f,
+                green = color.green * 0.5f,
+                blue = color.blue * 0.5f,
+                alpha = color.alpha,
+            )
+        }
+    } else {
+        colors
+    }
+    return Brush.linearGradient(colors = displayColors)
 }
 
 @Composable
@@ -749,4 +742,3 @@ private fun simklErrorMessage(error: SimklAuthError?): String? = when (error) {
 }
 
 private val TrackingErrorColor = Color(0xFFFFDAD6)
-private const val SIMKL_WEBSITE_URL = "https://simkl.com"

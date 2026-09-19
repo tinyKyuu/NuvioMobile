@@ -420,7 +420,7 @@ fun LibraryScreen(
         )
     }
 
-    LaunchedEffect(downloadManagementState.isManaging) {
+    LaunchedEffect(downloadManagementState.isManaging, onDownloadManagementActiveChange) {
         onDownloadManagementActiveChange(downloadManagementState.isManaging)
     }
 
@@ -431,7 +431,7 @@ fun LibraryScreen(
         )
     }
 
-    DisposableEffect(Unit) {
+    DisposableEffect(onDownloadManagementActiveChange) {
         onDispose { onDownloadManagementActiveChange(false) }
     }
 

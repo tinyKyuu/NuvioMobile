@@ -102,7 +102,7 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Feature | Where | Platforms | Status |
 | --- | --- | --- | --- |
 | Catalog and Continue Watching posters share one size setting. Automatic is stored on the device and chooses a phone or tablet size, Extra Large is available, and Continue Watching defaults to Poster. | Home, catalogs, and Settings | iOS, iPadOS, and Android | Merged |
-| Tablet root navigation uses one measured floating dock with a shared selected indicator: labels sit below icons when they fit, Settings drops its label first, and all labels disappear only when required | App navigation | iPadOS and Android tablets | [Merged](https://github.com/tinyKyuu/NuvioMobile/pull/32) |
+| Tablet root navigation uses the shared Compose dock with a bounded, theme-aware iPad presentation and stable labels. Android tablets retain Adaptive, Expanded, Compact, and Classic choices; measured width fallback drops Settings first, then all labels only when required. Keyboard and Download activity transitions restore the dock reliably. | App navigation | iPadOS and Android tablets | In testing |
 
 ### Library
 

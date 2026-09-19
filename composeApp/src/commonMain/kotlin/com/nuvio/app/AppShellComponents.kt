@@ -7,7 +7,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,10 +17,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.CircularProgressIndicator
@@ -55,14 +52,12 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.titleForEmptyState
 import com.nuvio.app.core.ui.DisintegrationRequest
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
-import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.cloud.CloudLibraryContentType
 import com.nuvio.app.features.cloud.CloudLibraryFile
 import com.nuvio.app.features.cloud.CloudLibraryItem
@@ -73,12 +68,8 @@ import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.library.LibraryScreen
 import com.nuvio.app.features.library.LibrarySection
 import com.nuvio.app.features.library.LibrarySortOption
-import com.nuvio.app.features.profiles.ActiveProfileMiniAvatar
-import com.nuvio.app.features.profiles.AvatarRepository
 import com.nuvio.app.features.profiles.NuvioProfile
 import com.nuvio.app.features.profiles.ProfileBackgroundBackdrop
-import com.nuvio.app.features.profiles.ProfileRepository
-import com.nuvio.app.features.profiles.ProfileSwitcherTab
 import com.nuvio.app.features.search.SearchScreen
 import com.nuvio.app.features.settings.AppBrandWordmark
 import com.nuvio.app.features.settings.SettingsScreen
@@ -88,19 +79,12 @@ import com.nuvio.app.navigation.NuvioNavigator
 import kotlinx.coroutines.flow.Flow
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.app_brand_name
-import nuvio.composeapp.generated.resources.compose_nav_home
-import nuvio.composeapp.generated.resources.compose_nav_library
-import nuvio.composeapp.generated.resources.compose_nav_search
-import nuvio.composeapp.generated.resources.compose_settings_page_root
 import nuvio.composeapp.generated.resources.network_reconnect
 import nuvio.composeapp.generated.resources.network_reconnecting
 import nuvio.composeapp.generated.resources.network_online
 import nuvio.composeapp.generated.resources.network_restore_failed_reconnect
 import nuvio.composeapp.generated.resources.network_restoring_content
 import nuvio.composeapp.generated.resources.network_restoring_short
-import nuvio.composeapp.generated.resources.sidebar_library
-import nuvio.composeapp.generated.resources.sidebar_search
-import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -290,167 +274,6 @@ internal fun rootListTopPaddingForStickyHeader(
     screenTopPadding: Dp,
 ): Dp? = if (isTabletLayout) screenTopPadding else null
 
-@Composable
-internal fun TabletFloatingBottomDock(
-    selectedTab: AppScreenTab,
-    onTabSelected: (AppScreenTab) -> Unit,
-    onProfileSelected: (NuvioProfile) -> Unit,
-    onAddProfileRequested: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val tokens = MaterialTheme.nuvio
-    val homeLabel = stringResource(Res.string.compose_nav_home)
-    val searchLabel = stringResource(Res.string.compose_nav_search)
-    val libraryLabel = stringResource(Res.string.compose_nav_library)
-    val settingsLabel = stringResource(Res.string.compose_settings_page_root)
-    val labelStyle = MaterialTheme.typography.labelMedium
-    val textMeasurer = rememberTextMeasurer()
-    val density = LocalDensity.current
-    val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
-    val avatars by AvatarRepository.avatars.collectAsStateWithLifecycle()
-
-    BoxWithConstraints(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = NuvioTokens.Space.s16)
-            .padding(bottom = nuvioSafeBottomPadding(tokens.spacing.controlGap)),
-        contentAlignment = Alignment.BottomCenter,
-    ) {
-        val indicatorWidth = NuvioTokens.Space.s48
-        val itemHorizontalPadding = NuvioTokens.Space.s6
-        val itemMinimumWidth = NuvioTokens.Space.s56
-        val dockHorizontalPadding = NuvioTokens.Space.s10
-        val itemPaddingPx = with(density) { (itemHorizontalPadding * 2).roundToPx() }
-        val indicatorWidthPx = with(density) { indicatorWidth.roundToPx() }
-        val compactItemWidthPx = maxOf(
-            with(density) { itemMinimumWidth.roundToPx() },
-            indicatorWidthPx + itemPaddingPx,
-        )
-        val dockPaddingPx = with(density) { (dockHorizontalPadding * 2).roundToPx() }
-        val dockGapsPx = with(density) { (tokens.spacing.controlGap * 3).roundToPx() }
-        fun labeledItemWidthPx(label: String): Int = maxOf(
-            compactItemWidthPx,
-            maxOf(
-                indicatorWidthPx,
-                textMeasurer.measure(
-                    text = AnnotatedString(label),
-                    style = labelStyle,
-                    maxLines = 1,
-                ).size.width,
-            ) + itemPaddingPx,
-        )
-        val primaryLabeledWidthPx = listOf(homeLabel, searchLabel, libraryLabel)
-            .sumOf(::labeledItemWidthPx)
-        val settingsCompactWidthPx = dockPaddingPx + dockGapsPx +
-            primaryLabeledWidthPx + compactItemWidthPx
-        val fullWidthPx = dockPaddingPx + dockGapsPx + primaryLabeledWidthPx +
-            labeledItemWidthPx(settingsLabel)
-        val presentation = tabletDockPresentationForMeasuredContent(
-            availableWidthPx = with(density) { maxWidth.roundToPx() },
-            fullWidthPx = fullWidthPx,
-            settingsCompactWidthPx = settingsCompactWidthPx,
-        )
-        val showPrimaryLabels = presentation != TabletDockPresentation.Compact
-        val showSettingsLabel = presentation == TabletDockPresentation.Full
-
-        Surface(
-            color = tokens.colors.surface.copy(alpha = tokens.opacity.visible - tokens.opacity.subtle),
-            shape = tokens.shapes.chip,
-            tonalElevation = tokens.elevation.playerControls,
-            shadowElevation = tokens.elevation.overlay,
-        ) {
-            Row(
-                modifier = Modifier.padding(
-                    horizontal = dockHorizontalPadding,
-                    vertical = tokens.spacing.controlGap,
-                ),
-                horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TabletDockDestination(
-                    label = homeLabel,
-                    showLabel = showPrimaryLabels,
-                    reserveLabelSpace = showPrimaryLabels,
-                    selected = selectedTab == AppScreenTab.Home,
-                    onClick = { onTabSelected(AppScreenTab.Home) },
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Filled.Home,
-                            contentDescription = stringResource(Res.string.compose_nav_home),
-                            modifier = Modifier.size(NuvioTokens.Space.s18),
-                            tint = if (selectedTab == AppScreenTab.Home) {
-                                tokens.colors.textPrimary
-                            } else {
-                                tokens.colors.textMuted
-                            },
-                        )
-                    },
-                )
-                TabletDockDestination(
-                    label = searchLabel,
-                    showLabel = showPrimaryLabels,
-                    reserveLabelSpace = showPrimaryLabels,
-                    selected = selectedTab == AppScreenTab.Search,
-                    onClick = { onTabSelected(AppScreenTab.Search) },
-                    icon = {
-                        Icon(
-                            painter = painterResource(Res.drawable.sidebar_search),
-                            contentDescription = stringResource(Res.string.compose_nav_search),
-                            modifier = Modifier.size(NuvioTokens.Space.s18),
-                            tint = if (selectedTab == AppScreenTab.Search) {
-                                tokens.colors.textPrimary
-                            } else {
-                                tokens.colors.textMuted
-                            },
-                        )
-                    },
-                )
-                TabletDockDestination(
-                    label = libraryLabel,
-                    showLabel = showPrimaryLabels,
-                    reserveLabelSpace = showPrimaryLabels,
-                    selected = selectedTab == AppScreenTab.Library,
-                    onClick = { onTabSelected(AppScreenTab.Library) },
-                    icon = {
-                        Icon(
-                            painter = painterResource(Res.drawable.sidebar_library),
-                            contentDescription = stringResource(Res.string.compose_nav_library),
-                            modifier = Modifier.size(NuvioTokens.Space.s18),
-                            tint = if (selectedTab == AppScreenTab.Library) {
-                                tokens.colors.textPrimary
-                            } else {
-                                tokens.colors.textMuted
-                            },
-                        )
-                    },
-                )
-                ProfileSwitcherTab(
-                    selected = selectedTab == AppScreenTab.Settings,
-                    onClick = { onTabSelected(AppScreenTab.Settings) },
-                    onProfileSelected = onProfileSelected,
-                    onAddProfileRequested = onAddProfileRequested,
-                    triggerContent = { selected ->
-                        TabletDockDestinationContent(
-                            label = settingsLabel,
-                            showLabel = showSettingsLabel,
-                            reserveLabelSpace = showPrimaryLabels,
-                            selected = selected,
-                            icon = {
-                                ActiveProfileMiniAvatar(
-                                    profile = profileState.activeProfile,
-                                    avatars = avatars,
-                                    selected = selected,
-                                    size = 24,
-                                )
-                            },
-                        )
-                    },
-                )
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RootConnectionControl(
@@ -597,77 +420,6 @@ internal fun RootConnectionControl(
 
 internal fun ContinueWatchingItem.isCloudLibraryContinueWatchingItem(): Boolean =
     parentMetaType.equals(CloudLibraryContentType, ignoreCase = true)
-
-@Composable
-private fun TabletDockDestination(
-    label: String,
-    showLabel: Boolean,
-    reserveLabelSpace: Boolean,
-    selected: Boolean,
-    onClick: () -> Unit,
-    icon: @Composable () -> Unit,
-) {
-    val tokens = MaterialTheme.nuvio
-    Box(
-        modifier = Modifier
-            .clip(tokens.shapes.compactCard)
-            .clickable(
-                role = Role.Button,
-                onClick = onClick,
-            ),
-    ) {
-        TabletDockDestinationContent(
-            label = label,
-            showLabel = showLabel,
-            reserveLabelSpace = reserveLabelSpace,
-            selected = selected,
-            icon = icon,
-        )
-    }
-}
-
-@Composable
-private fun TabletDockDestinationContent(
-    label: String,
-    showLabel: Boolean,
-    reserveLabelSpace: Boolean,
-    selected: Boolean,
-    icon: @Composable () -> Unit,
-) {
-    val tokens = MaterialTheme.nuvio
-    Column(
-        modifier = Modifier
-            .widthIn(min = NuvioTokens.Space.s56)
-            .padding(horizontal = NuvioTokens.Space.s6, vertical = NuvioTokens.Space.s4),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Surface(
-            color = if (selected) tokens.colors.overlaySelected else Color.Transparent,
-            shape = tokens.shapes.chip,
-            tonalElevation = if (selected) tokens.elevation.raised else tokens.elevation.flat,
-            modifier = Modifier
-                .width(NuvioTokens.Space.s48)
-                .height(NuvioTokens.Space.s28),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                icon()
-            }
-        }
-        if (reserveLabelSpace) {
-            Spacer(modifier = Modifier.height(NuvioTokens.Space.s2))
-            if (showLabel) {
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = if (selected) tokens.colors.textPrimary else tokens.colors.textMuted,
-                    maxLines = 1,
-                )
-            } else {
-                Spacer(modifier = Modifier.height(NuvioTokens.Space.s18))
-            }
-        }
-    }
-}
 
 @Composable
 internal fun AppLoadingContent(

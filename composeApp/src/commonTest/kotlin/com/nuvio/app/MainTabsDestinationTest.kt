@@ -1,6 +1,7 @@
 package com.nuvio.app
 
 import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.ui.NuvioNavBarScrollState
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.NetworkRecoveryPhase
 import com.nuvio.app.core.network.NetworkRecoveryUiState
@@ -8,17 +9,19 @@ import com.nuvio.app.core.network.NetworkStatusUiState
 import com.nuvio.app.features.home.shouldShowOfflineHomeConnectionCard
 import com.nuvio.app.features.settings.NavBarStyle
 import com.nuvio.app.core.ui.NuvioAdaptiveHeaderPresentation
+import com.nuvio.app.core.ui.keyboardLayoutOccludesContent
+import com.nuvio.app.core.ui.reconciledIosImeVisibility
 import com.nuvio.app.core.ui.resolveAdaptiveHeaderPresentation
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class MainTabsDestinationTest {
 
     @Test
     fun `tablet floating navigation reserves only bottom overlay space`() {
         val padding = rootNavigationOverlayPadding(
-            isTabletLayout = true,
             useNativeBottomTabs = false,
             navBarStyle = NavBarStyle.ADAPTIVE,
         )
@@ -32,7 +35,6 @@ class MainTabsDestinationTest {
         assertEquals(
             RootNavigationOverlayPadding(top = 0.dp, bottom = 49.dp),
             rootNavigationOverlayPadding(
-                isTabletLayout = false,
                 useNativeBottomTabs = true,
                 navBarStyle = NavBarStyle.CLASSIC,
             ),
@@ -40,7 +42,6 @@ class MainTabsDestinationTest {
         assertEquals(
             RootNavigationOverlayPadding(top = 0.dp, bottom = 72.dp),
             rootNavigationOverlayPadding(
-                isTabletLayout = false,
                 useNativeBottomTabs = false,
                 navBarStyle = NavBarStyle.ADAPTIVE,
             ),
@@ -48,7 +49,6 @@ class MainTabsDestinationTest {
         assertEquals(
             RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp),
             rootNavigationOverlayPadding(
-                isTabletLayout = false,
                 useNativeBottomTabs = false,
                 navBarStyle = NavBarStyle.CLASSIC,
             ),
@@ -60,12 +60,135 @@ class MainTabsDestinationTest {
         assertEquals(
             RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp),
             rootNavigationOverlayPadding(
-                isTabletLayout = true,
                 useNativeBottomTabs = false,
                 navBarStyle = NavBarStyle.ADAPTIVE,
                 navigationVisible = false,
             ),
         )
+    }
+
+    @Test
+    fun `tablet classic navigation uses scaffold clearance instead of overlay clearance`() {
+        assertEquals(
+            RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp),
+            rootNavigationOverlayPadding(
+                useNativeBottomTabs = false,
+                navBarStyle = NavBarStyle.CLASSIC,
+            ),
+        )
+    }
+
+    @Test
+    fun `iPad keeps stable expanded labels while Android tablets honor stored navigation style`() {
+        NavBarStyle.entries.forEach { storedStyle ->
+            assertEquals(
+                NavBarStyle.EXPANDED,
+                effectiveRootNavigationStyle(
+                    isTabletLayout = true,
+                    isIosPlatform = true,
+                    storedStyle = storedStyle,
+                ),
+            )
+            assertEquals(
+                storedStyle,
+                effectiveRootNavigationStyle(
+                    isTabletLayout = true,
+                    isIosPlatform = false,
+                    storedStyle = storedStyle,
+                ),
+            )
+            assertEquals(
+                storedStyle,
+                effectiveRootNavigationStyle(
+                    isTabletLayout = false,
+                    isIosPlatform = true,
+                    storedStyle = storedStyle,
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun `navigation scroll state supports deterministic expanded and compact targets`() {
+        val state = NuvioNavBarScrollState()
+
+        state.collapse()
+        assertEquals(0f, state.labelVisibility)
+
+        state.expand()
+        assertEquals(1f, state.labelVisibility)
+    }
+
+    @Test
+    fun `IME dismissal restores root navigation`() {
+        val state = RootNavigationSuppressionState()
+
+        assertTrue(state.isSuppressed(AppScreenTab.Search, imeVisible = true))
+        assertFalse(state.isSuppressed(AppScreenTab.Search, imeVisible = false))
+    }
+
+    @Test
+    fun `download management exit restores Library navigation`() {
+        val state = RootNavigationSuppressionState()
+
+        state.onLibraryDownloadManagementActiveChanged(true)
+        assertTrue(state.isSuppressed(AppScreenTab.Library, imeVisible = false))
+
+        state.onLibraryDownloadManagementActiveChanged(false)
+        assertFalse(state.isSuppressed(AppScreenTab.Library, imeVisible = false))
+    }
+
+    @Test
+    fun `tab change releases Library management while preserving active IME suppression`() {
+        val state = RootNavigationSuppressionState()
+        state.onLibraryDownloadManagementActiveChanged(true)
+
+        state.onTabChanged(AppScreenTab.Library, AppScreenTab.Home)
+        assertTrue(state.isSuppressed(AppScreenTab.Home, imeVisible = true))
+
+        assertFalse(state.isSuppressed(AppScreenTab.Home, imeVisible = false))
+    }
+
+    @Test
+    fun `active IME remains authoritative until a hide signal arrives`() {
+        val state = RootNavigationSuppressionState()
+        assertTrue(state.isSuppressed(AppScreenTab.Home, imeVisible = true))
+        assertFalse(state.isSuppressed(AppScreenTab.Home, imeVisible = false))
+    }
+
+    @Test
+    fun `iOS IME reconciliation clears stale visibility from either source`() {
+        assertFalse(
+            reconciledIosImeVisibility(
+                windowInsetsVisible = true,
+                nativeVisibility = false,
+            ),
+        )
+        assertFalse(
+            reconciledIosImeVisibility(
+                windowInsetsVisible = false,
+                nativeVisibility = true,
+            ),
+        )
+        assertTrue(
+            reconciledIosImeVisibility(
+                windowInsetsVisible = true,
+                nativeVisibility = null,
+            ),
+        )
+        assertTrue(
+            reconciledIosImeVisibility(
+                windowInsetsVisible = true,
+                nativeVisibility = true,
+            ),
+        )
+    }
+
+    @Test
+    fun `iOS keyboard layout ignores safe-area and accessory-only heights`() {
+        assertFalse(keyboardLayoutOccludesContent(layoutHeight = 21.0, bottomSafeArea = 20.0))
+        assertFalse(keyboardLayoutOccludesContent(layoutHeight = 68.5, bottomSafeArea = 20.0))
+        assertTrue(keyboardLayoutOccludesContent(layoutHeight = 320.0, bottomSafeArea = 20.0))
     }
 
     @Test

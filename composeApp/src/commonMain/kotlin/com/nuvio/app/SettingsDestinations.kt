@@ -77,13 +77,11 @@ internal fun DownloadsDestination(
     route: DownloadsSettingsRoute,
     navController: NuvioNavigator,
     onOpenDownload: (DownloadItem) -> Unit,
-    onManageCompletedDownloads: () -> Unit,
 ) {
     DownloadRouteDestination(
         route = route,
         navController = navController,
         onOpenDownload = onOpenDownload,
-        onManageCompletedDownloads = onManageCompletedDownloads,
         mode = when (
             resolveDownloadNavigationTarget(
                 source = DownloadEntrySource.Settings,
@@ -116,14 +114,12 @@ private fun DownloadRouteDestination(
     route: AppRoute,
     navController: NuvioNavigator,
     onOpenDownload: (DownloadItem) -> Unit,
-    onManageCompletedDownloads: (() -> Unit)? = null,
     mode: DownloadsScreenMode,
 ) {
     val onBack = rememberGuardedPopBackStack(navController, route)
     DownloadsScreen(
         onBack = onBack,
         onOpenDownload = onOpenDownload,
-        onManageCompletedDownloads = onManageCompletedDownloads,
         onNavigateToShow = { showId, title ->
             navController.navigate(DetailRoute(type = "series", id = showId, title = title))
         },

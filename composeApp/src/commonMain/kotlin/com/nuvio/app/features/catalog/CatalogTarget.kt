@@ -18,6 +18,7 @@ sealed interface CatalogTarget {
     data class Library(
         override val contentType: String,
         val sectionType: String,
+        val membershipListKey: String? = null,
         val sortOption: LibrarySortOption = LibrarySortOption.DEFAULT,
     ) : CatalogTarget {
         override val supportsPagination: Boolean = false

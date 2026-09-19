@@ -103,6 +103,7 @@ class DownloadEnqueueModelsTest {
             decideDownloadEnqueue(listOf(exact), requested, activeProfileId = 2),
         )
     }
+
 }
 
 private fun request(

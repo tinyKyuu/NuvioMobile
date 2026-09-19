@@ -1,61 +1,68 @@
 package com.nuvio.app.core.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.episodes_cd_watched
+import nuvio.composeapp.generated.resources.library_availability_downloaded
+import nuvio.composeapp.generated.resources.library_availability_internet_required
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
 fun NuvioWatchedBadge(
     modifier: Modifier = Modifier,
+    size: NuvioMediaBadgeSize = NuvioMediaBadgeSize.Compact,
 ) {
-    val tokens = MaterialTheme.nuvio
-    val palette = ThemeColors.getColorPalette(MaterialTheme.appTheme)
-    Box(
-        modifier = modifier
-            .size(NuvioTokens.Icon.md)
-            .clip(tokens.shapes.avatar)
-            .background(palette.accentBrush()),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = Icons.Default.Check,
-            contentDescription = stringResource(Res.string.episodes_cd_watched),
-            tint = palette.onSecondary,
-            modifier = Modifier.size(NuvioTokens.Icon.xs),
-        )
-    }
+    NuvioMediaBadge(
+        imageVector = Icons.Default.Check,
+        contentDescription = stringResource(Res.string.episodes_cd_watched),
+        tone = NuvioMediaBadgeTone.Accent,
+        size = size,
+        modifier = modifier,
+    )
 }
 
 @Composable
 fun NuvioAnimatedWatchedBadge(
     isVisible: Boolean,
     modifier: Modifier = Modifier,
+    size: NuvioMediaBadgeSize = NuvioMediaBadgeSize.Compact,
 ) {
     AnimatedVisibility(
         visible = isVisible,
@@ -63,7 +70,7 @@ fun NuvioAnimatedWatchedBadge(
         exit = fadeOut(),
         modifier = modifier,
     ) {
-        NuvioWatchedBadge()
+        NuvioWatchedBadge(size = size)
     }
 }
 
@@ -78,55 +85,263 @@ fun NuvioAnimatedWatchedBadge(
 fun BoxScope.NuvioPosterWatchedOverlay(
     isWatched: Boolean,
     modifier: Modifier = Modifier,
-    padding: Dp = NuvioTokens.Space.s6,
+    scale: NuvioPosterOverlayScale = NuvioPosterOverlayScale.Regular,
 ) {
-    NuvioAnimatedWatchedBadge(
-        isVisible = isWatched,
+    AnimatedVisibility(
+        visible = isWatched,
+        enter = fadeIn(),
+        exit = fadeOut(),
         modifier = modifier
             .align(Alignment.TopStart)
-            .padding(padding),
+            .padding(scale.overlayPadding),
+    ) {
+        NuvioWatchedBadge(size = scale.statusBadgeSize)
+    }
+}
+
+enum class NuvioPosterAvailability {
+    None,
+    Downloaded,
+    InternetRequired,
+}
+
+enum class NuvioPosterAvailabilityPlacement {
+    BottomStart,
+    BottomEnd,
+}
+
+@Composable
+fun BoxScope.NuvioPosterAvailabilityOverlay(
+    availability: NuvioPosterAvailability,
+    modifier: Modifier = Modifier,
+    scale: NuvioPosterOverlayScale = NuvioPosterOverlayScale.Regular,
+    placement: NuvioPosterAvailabilityPlacement = NuvioPosterAvailabilityPlacement.BottomStart,
+) {
+    if (availability == NuvioPosterAvailability.None) return
+    val isDownloaded = availability == NuvioPosterAvailability.Downloaded
+    NuvioMediaBadge(
+        imageVector = if (isDownloaded) Icons.Rounded.Download else Icons.Rounded.WifiOff,
+        contentDescription = stringResource(
+            if (isDownloaded) {
+                Res.string.library_availability_downloaded
+            } else {
+                Res.string.library_availability_internet_required
+            },
+        ),
+        modifier = modifier
+            .align(
+                when (placement) {
+                    NuvioPosterAvailabilityPlacement.BottomStart -> Alignment.BottomStart
+                    NuvioPosterAvailabilityPlacement.BottomEnd -> Alignment.BottomEnd
+                },
+            )
+            .padding(scale.overlayPadding),
+        size = scale.statusBadgeSize,
     )
 }
 
+internal fun posterAvailabilityPlacement(
+    isLandscape: Boolean,
+    hasBottomStartContent: Boolean,
+): NuvioPosterAvailabilityPlacement = if (isLandscape && hasBottomStartContent) {
+    NuvioPosterAvailabilityPlacement.BottomEnd
+} else {
+    NuvioPosterAvailabilityPlacement.BottomStart
+}
+
 /**
- * Draws the standard poster selection mark in the corner opposite the watched
- * badge and the poster menu. The solid accent keeps the on-accent icon
- * predictable across every theme, while the dark edge separates bright
- * accents from light artwork.
+ * Keeps poster menus visually aligned with status badges while preserving a
+ * full touch target. Only the 24 dp badge is painted; the 48 dp hit area stays
+ * transparent and inside the poster.
  */
 @Composable
-fun BoxScope.NuvioPosterSelectionOverlay(
-    state: NuvioPosterSelectionState,
+fun BoxScope.NuvioPosterMenuOverlay(
+    onClick: () -> Unit,
+    contentDescription: String?,
     modifier: Modifier = Modifier,
-    padding: Dp = NuvioTokens.Space.s6,
+    scale: NuvioPosterOverlayScale = NuvioPosterOverlayScale.Regular,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    Box(
+        modifier = modifier
+            .align(Alignment.TopEnd)
+            .size(scale.menuTouchTarget)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick,
+            ),
+    ) {
+        NuvioMediaBadge(
+            imageVector = Icons.Default.MoreHoriz,
+            contentDescription = contentDescription,
+            size = scale.actionBadgeSize,
+            pressed = isPressed,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(scale.overlayPadding),
+        )
+    }
+}
+
+enum class NuvioMediaBadgeTone {
+    Neutral,
+    Accent,
+}
+
+enum class NuvioMediaBadgeSize {
+    Compact,
+    Action,
+    LargeCompact,
+    LargeAction,
+}
+
+enum class NuvioPosterOverlayScale {
+    Regular,
+    Large,
+}
+
+internal fun posterOverlayScaleForWidth(width: Dp): NuvioPosterOverlayScale =
+    if (width >= 150.dp) NuvioPosterOverlayScale.Large else NuvioPosterOverlayScale.Regular
+
+private val NuvioPosterOverlayScale.statusBadgeSize: NuvioMediaBadgeSize
+    get() = when (this) {
+        NuvioPosterOverlayScale.Regular -> NuvioMediaBadgeSize.Compact
+        NuvioPosterOverlayScale.Large -> NuvioMediaBadgeSize.LargeCompact
+    }
+
+private val NuvioPosterOverlayScale.actionBadgeSize: NuvioMediaBadgeSize
+    get() = when (this) {
+        NuvioPosterOverlayScale.Regular -> NuvioMediaBadgeSize.Action
+        NuvioPosterOverlayScale.Large -> NuvioMediaBadgeSize.LargeAction
+    }
+
+private val NuvioPosterOverlayScale.overlayPadding: Dp
+    get() = when (this) {
+        NuvioPosterOverlayScale.Regular -> NuvioTokens.Space.s6
+        NuvioPosterOverlayScale.Large -> NuvioTokens.Space.s8
+    }
+
+private val NuvioPosterOverlayScale.menuTouchTarget: Dp
+    get() = when (this) {
+        NuvioPosterOverlayScale.Regular -> NuvioTokens.Space.s48
+        NuvioPosterOverlayScale.Large -> NuvioTokens.Space.s48 + NuvioTokens.Space.s4
+    }
+
+/**
+ * Shared visual treatment for media status and overlay actions. Regular badges
+ * use 20/12 dp and 24/16 dp container/icon pairs; large posters use 24/14 dp
+ * and 28/18 dp pairs. Callers still own the larger touch target required for
+ * interactive controls.
+ */
+@Composable
+fun NuvioMediaBadge(
+    imageVector: ImageVector,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    tone: NuvioMediaBadgeTone = NuvioMediaBadgeTone.Neutral,
+    size: NuvioMediaBadgeSize = NuvioMediaBadgeSize.Compact,
+    pressed: Boolean = false,
 ) {
     val tokens = MaterialTheme.nuvio
-    AnimatedVisibility(
-        visible = state != NuvioPosterSelectionState.None,
-        enter = fadeIn() + scaleIn(initialScale = 0.82f),
-        exit = fadeOut() + scaleOut(targetScale = 0.82f),
+    val palette = ThemeColors.getColorPalette(MaterialTheme.appTheme)
+    val containerSize = when (size) {
+        NuvioMediaBadgeSize.Compact -> NuvioTokens.Icon.md
+        NuvioMediaBadgeSize.Action -> NuvioTokens.Icon.lg
+        NuvioMediaBadgeSize.LargeCompact -> NuvioTokens.Icon.lg
+        NuvioMediaBadgeSize.LargeAction -> NuvioTokens.Space.s28
+    }
+    val iconSize = when (size) {
+        NuvioMediaBadgeSize.Compact -> NuvioTokens.Icon.xs
+        NuvioMediaBadgeSize.Action -> NuvioTokens.Icon.sm
+        NuvioMediaBadgeSize.LargeCompact -> NuvioTokens.Space.s14
+        NuvioMediaBadgeSize.LargeAction -> NuvioTokens.Space.s18
+    }
+    val neutralContainer = if (pressed) {
+        tokens.colors.overlayPressed.compositeOver(tokens.colors.overlayScrim)
+    } else {
+        tokens.colors.overlayScrim
+    }
+    val containerColor by animateColorAsState(
+        targetValue = neutralContainer,
+        label = "MediaBadgeContainer",
+    )
+    val contentColor = when (tone) {
+        NuvioMediaBadgeTone.Neutral -> tokens.colors.textPrimary
+        NuvioMediaBadgeTone.Accent -> palette.onSecondary
+    }
+    Box(
         modifier = modifier
-            .align(Alignment.BottomEnd)
-            .padding(padding),
-    ) {
-        Box(
-            modifier = Modifier
-                .size(NuvioTokens.Icon.md)
-                .clip(tokens.shapes.avatar)
-                .background(tokens.colors.accent)
-                .border(tokens.borders.thin, tokens.colors.overlayScrim, tokens.shapes.avatar),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = if (state == NuvioPosterSelectionState.Full) {
-                    Icons.Default.Check
-                } else {
-                    Icons.Default.Remove
+            .size(containerSize)
+            .clip(tokens.shapes.avatar)
+            .then(
+                when (tone) {
+                    NuvioMediaBadgeTone.Neutral -> Modifier.background(containerColor)
+                    NuvioMediaBadgeTone.Accent -> Modifier
+                        .background(palette.accentBrush())
                 },
-                contentDescription = null,
-                tint = tokens.colors.onAccent,
-                modifier = Modifier.size(NuvioTokens.Icon.xs),
-            )
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = imageVector,
+            contentDescription = contentDescription,
+            tint = contentColor,
+            modifier = Modifier.size(iconSize),
+        )
+    }
+}
+
+data class NuvioMediaStatusItem(
+    val imageVector: ImageVector,
+    val contentDescription: String?,
+    val accent: Boolean = false,
+)
+
+/**
+ * Groups related media states in one quiet surface. This is intended for
+ * compact artwork such as episode thumbnails where stacking separate colored
+ * circles makes the statuses look like competing actions.
+ */
+@Composable
+fun NuvioMediaStatusGroup(
+    items: List<NuvioMediaStatusItem>,
+    modifier: Modifier = Modifier,
+) {
+    if (items.isEmpty()) return
+    val tokens = MaterialTheme.nuvio
+    val palette = ThemeColors.getColorPalette(MaterialTheme.appTheme)
+    val grouped = items.size > 1
+    Column(
+        modifier = modifier
+            .clip(tokens.shapes.avatar)
+            .background(tokens.colors.overlayScrim)
+            .then(
+                if (grouped) {
+                    Modifier.padding(vertical = NuvioTokens.Space.s2)
+                } else {
+                    Modifier
+                },
+            ),
+        verticalArrangement = Arrangement.spacedBy(
+            if (grouped) NuvioTokens.Space.s2 else NuvioTokens.Space.none,
+        ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        items.forEach { item ->
+            Box(
+                modifier = Modifier.size(NuvioTokens.Icon.md),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = item.imageVector,
+                    contentDescription = item.contentDescription,
+                    tint = if (item.accent) palette.secondary else tokens.colors.textPrimary,
+                    modifier = Modifier.size(NuvioTokens.Icon.xs),
+                )
+            }
         }
     }
 }
@@ -142,7 +357,16 @@ fun Modifier.nuvioPosterStateOutline(
     cornerRadius: Dp,
 ): Modifier {
     val tokens = MaterialTheme.nuvio
-    val selectionColor = tokens.colors.borderSelected
+    val selectionColor = when (selectionState) {
+        NuvioPosterSelectionState.Full -> tokens.colors.borderSelected
+        NuvioPosterSelectionState.Partial -> tokens.colors.borderSelected.copy(alpha = 0.62f)
+        NuvioPosterSelectionState.None -> Color.Transparent
+    }
+    val selectionWashColor = when (selectionState) {
+        NuvioPosterSelectionState.Full -> tokens.colors.accent.copy(alpha = 0.18f)
+        NuvioPosterSelectionState.Partial -> tokens.colors.accent.copy(alpha = 0.09f)
+        NuvioPosterSelectionState.None -> Color.Transparent
+    }
     val selectionSeparatorColor = tokens.colors.overlayScrim
     val focusColor = tokens.colors.borderFocus
     val selectionStroke = tokens.borders.medium
@@ -160,6 +384,11 @@ fun Modifier.nuvioPosterStateOutline(
         onDrawWithContent {
             drawContent()
             if (selectionState != NuvioPosterSelectionState.None) {
+                drawRoundRect(
+                    color = selectionWashColor,
+                    size = size,
+                    cornerRadius = CornerRadius(radiusPx, radiusPx),
+                )
                 val separatorInset = separatorStrokePx / 2f
                 drawRoundRect(
                     color = selectionSeparatorColor,

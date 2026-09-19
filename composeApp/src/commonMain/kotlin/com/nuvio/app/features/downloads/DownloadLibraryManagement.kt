@@ -26,6 +26,11 @@ internal val DownloadLibraryManagementStateSaver = listSaver<DownloadLibraryMana
     restore = ::restoreDownloadLibraryManagementState,
 )
 
+internal fun shouldResetDownloadManagementForProfile(
+    restoredProfileId: Int,
+    activeProfileId: Int?,
+): Boolean = activeProfileId != null && restoredProfileId != activeProfileId
+
 internal fun DownloadLibraryManagementState.toSavePayload(): List<Any?> {
     val routeKind: String
     val showId: String?
@@ -283,10 +288,17 @@ internal fun summarizeCompletedDownloadSelection(
 internal fun applyDownloadRemovalResult(
     state: DownloadLibraryManagementState,
     result: DownloadBatchRemovalResult,
-): DownloadLibraryManagementState = state.copy(
-    isManaging = state.isManaging || result.failedIds.isNotEmpty(),
-    selectedIds = (state.selectedIds - result.successfulIds) + result.failedIds,
-)
+): DownloadLibraryManagementState {
+    val retainedIds = (state.selectedIds - result.successfulIds) + result.failedIds
+    return if (retainedIds.isEmpty()) {
+        DownloadLibraryManagementState()
+    } else {
+        state.copy(
+            isManaging = true,
+            selectedIds = retainedIds,
+        )
+    }
+}
 
 internal fun findExactDownloadedEpisode(
     items: Collection<DownloadItem>,

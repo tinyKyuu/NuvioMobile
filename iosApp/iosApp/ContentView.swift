@@ -547,6 +547,7 @@ final class AppNavigationCoordinator: ObservableObject {
     @Published private(set) var localizedSwitchProfileTitle = ""
     @Published private(set) var localizedAddProfileTitle = ""
     @Published var isProfileSwitcherPresented = false
+    @Published private(set) var isRootTabBarSuppressed = false
 
     let homeCoordinator = TabNavigationCoordinator()
     let searchCoordinator = TabNavigationCoordinator()
@@ -625,6 +626,10 @@ final class AppNavigationCoordinator: ObservableObject {
         isMainContentVisible = visible
     }
 
+    func setRootTabBarSuppressed(_ suppressed: Bool) {
+        isRootTabBarSuppressed = suppressed
+    }
+
     func openProfileManagement() {
         isProfileSwitcherPresented = false
         profileSwitcherController.requestManageProfiles()
@@ -701,6 +706,9 @@ struct NativeNavComposeView: UIViewControllerRepresentable {
                     switchProfile: switchProfile,
                     addProfile: addProfile
                 )
+            },
+            onRootNavigationSuppressedChange: { suppressed in
+                appCoordinator.setRootTabBarSuppressed(suppressed.boolValue)
             },
             appGateController: appCoordinator.appGateController
         )
@@ -826,7 +834,8 @@ struct TabContentView: View {
         // stack. Applying it here keeps the authentication/profile gate truly
         // full-screen on iOS 26, where a modifier on TabView itself is ignored.
         .toolbar(
-            usesNativeTabBar && appCoordinator.isMainContentVisible && coordinator.path.isEmpty
+            usesNativeTabBar && appCoordinator.isMainContentVisible && coordinator.path.isEmpty &&
+                !appCoordinator.isRootTabBarSuppressed
                 ? Visibility.visible
                 : Visibility.hidden,
             for: .tabBar

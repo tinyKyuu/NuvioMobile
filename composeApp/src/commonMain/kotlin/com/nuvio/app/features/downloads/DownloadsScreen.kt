@@ -7,6 +7,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,13 +26,14 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Storage
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -61,6 +63,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.core.i18n.localizedByteUnit
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
+import com.nuvio.app.core.ui.NuvioQuietActionButton
+import com.nuvio.app.core.ui.NuvioQuietActionTone
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.NuvioToastController
@@ -80,7 +84,6 @@ enum class DownloadsScreenMode {
 fun DownloadsScreen(
     onBack: () -> Unit,
     onOpenDownload: (DownloadItem) -> Unit,
-    onManageCompletedDownloads: (() -> Unit)? = null,
     initialShowId: String? = null,
     onNavigateToShow: ((showId: String, title: String) -> Unit)? = null,
     onBackFromShow: (() -> Unit)? = null,
@@ -98,6 +101,7 @@ fun DownloadsScreen(
     var selectionMode by rememberSaveable { mutableStateOf(false) }
     var selectedDownloadIds by remember { mutableStateOf(emptySet<String>()) }
     var showManagement by rememberSaveable { mutableStateOf(false) }
+    var activityPolicyExpanded by rememberSaveable { mutableStateOf(false) }
     var completedSortName by rememberSaveable {
         mutableStateOf(CompletedDownloadSort.RecentlyAdded.name)
     }
@@ -143,7 +147,7 @@ fun DownloadsScreen(
     }
     val allVisibleDownloadsSelected = visibleSelectionIds.isNotEmpty() &&
         visibleSelectionIds.all(selectionSummary.selectedIds::contains)
-    val selectionBarVisible = selectionSupported && selectionMode && selectionSummary.fileCount > 0
+    val selectionBarVisible = selectionSupported && selectionMode
     val bottomInset = nuvioSafeBottomPadding()
     val density = LocalDensity.current
     var selectionBarHeightPx by remember { mutableStateOf(0) }
@@ -205,15 +209,17 @@ fun DownloadsScreen(
                     actions = {
                         if (selectionSupported) {
                             if (selectionMode) {
-                                TextButton(onClick = ::leaveSelection) {
-                                    Text(stringResource(Res.string.action_done))
-                                }
+                                NuvioQuietActionButton(
+                                    icon = Icons.Rounded.Close,
+                                    contentDescription = stringResource(Res.string.downloads_exit_selection),
+                                    onClick = ::leaveSelection,
+                                )
                             } else if (selectedShowId == null) {
-                                TextButton(
-                                    enabled = visibleSelectionIds.isNotEmpty(),
-                                    onClick = { selectionMode = true },
-                                ) {
-                                    Text(stringResource(Res.string.downloads_select))
+                                if (visibleSelectionIds.isNotEmpty()) {
+                                    NuvioQuietActionButton(
+                                        label = stringResource(Res.string.downloads_select),
+                                        onClick = { selectionMode = true },
+                                    )
                                 }
                                 if (mode == DownloadsScreenMode.Legacy) {
                                     IconButton(onClick = { showManagement = !showManagement }) {
@@ -272,7 +278,8 @@ fun DownloadsScreen(
                             NuvioToastController.show(exportFailedText)
                         }
                     },
-                    onManageCompletedDownloads = onManageCompletedDownloads,
+                    activityPolicyExpanded = activityPolicyExpanded,
+                    onActivityPolicyExpandedChanged = { activityPolicyExpanded = it },
                     mode = mode,
                 )
             } else {
@@ -338,6 +345,7 @@ fun DownloadsScreen(
                         allVisibleSelected = allVisibleDownloadsSelected,
                         onSelectAll = { selectedDownloadIds = visibleSelectionIds },
                         onClearSelection = { selectedDownloadIds = emptySet() },
+                        onExitSelection = ::leaveSelection,
                         onDeleteSelection = {
                             downloadsPendingBulkDeletion = selectionSummary.selectedIds
                         },
@@ -424,7 +432,8 @@ private fun LazyListScope.downloadsRootContent(
     onEnterSelection: (Collection<String>) -> Unit,
     onToggleSelection: (Collection<String>) -> Unit,
     onExportDownload: (DownloadItem) -> Unit,
-    onManageCompletedDownloads: (() -> Unit)?,
+    activityPolicyExpanded: Boolean,
+    onActivityPolicyExpandedChanged: (Boolean) -> Unit,
     mode: DownloadsScreenMode,
 ) {
     val currentDownloads = currentDownloadsForDisplay(uiState.items)
@@ -437,7 +446,7 @@ private fun LazyListScope.downloadsRootContent(
                 items = uiState.items,
                 policy = networkPolicy,
                 onPolicyChanged = onNetworkPolicyChanged,
-                onManageCompletedDownloads = onManageCompletedDownloads,
+                expanded = true,
             )
         }
         return
@@ -449,6 +458,19 @@ private fun LazyListScope.downloadsRootContent(
                 items = uiState.items,
                 policy = networkPolicy,
                 onPolicyChanged = onNetworkPolicyChanged,
+            )
+        }
+    }
+
+    if (mode == DownloadsScreenMode.Activity) {
+        item(key = "downloads-activity-settings") {
+            DownloadsManagementCard(
+                items = uiState.items,
+                policy = networkPolicy,
+                onPolicyChanged = onNetworkPolicyChanged,
+                collapsible = true,
+                expanded = activityPolicyExpanded,
+                onExpandedChanged = onActivityPolicyExpandedChanged,
             )
         }
     }
@@ -483,12 +505,12 @@ private fun LazyListScope.downloadsRootContent(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp, vertical = 40.dp),
+                        .padding(horizontal = 20.dp, vertical = 24.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         text = stringResource(Res.string.downloads_activity_empty),
-                        style = MaterialTheme.typography.titleMedium,
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -918,6 +940,7 @@ private fun DownloadSelectionBar(
     allVisibleSelected: Boolean,
     onSelectAll: () -> Unit,
     onClearSelection: () -> Unit,
+    onExitSelection: () -> Unit,
     onDeleteSelection: () -> Unit,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -949,7 +972,9 @@ private fun DownloadSelectionBar(
                 horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s8),
             ) {
                 Text(
-                    text = if (compactSummary) {
+                    text = if (summary.fileCount == 0) {
+                        stringResource(Res.string.downloads_select_prompt)
+                    } else if (compactSummary) {
                         stringResource(
                             Res.string.downloads_selection_count,
                             summary.fileCount,
@@ -973,74 +998,35 @@ private fun DownloadSelectionBar(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
                 ) {
-                    DownloadSelectionAction(
-                        label = stringResource(Res.string.downloads_select_all),
-                        enabled = !allVisibleSelected,
-                        onClick = onSelectAll,
-                    )
-                    DownloadSelectionAction(
-                        label = stringResource(Res.string.action_clear),
-                        enabled = summary.fileCount > 0,
-                        onClick = onClearSelection,
-                    )
-                    DownloadSelectionAction(
-                        label = stringResource(Res.string.downloads_delete_selected),
-                        enabled = summary.fileCount > 0,
-                        onClick = onDeleteSelection,
-                        destructive = true,
-                        showDeleteIcon = !compactSummary,
-                    )
+                    if (summary.fileCount == 0) {
+                        NuvioQuietActionButton(
+                            label = stringResource(Res.string.downloads_select_all),
+                            enabled = !allVisibleSelected,
+                            onClick = onSelectAll,
+                        )
+                    } else {
+                        NuvioQuietActionButton(
+                            label = stringResource(Res.string.downloads_deselect_all),
+                            onClick = onClearSelection,
+                        )
+                        NuvioQuietActionButton(
+                            label = stringResource(
+                                Res.string.downloads_remove_selected_count,
+                                summary.fileCount,
+                            ),
+                            icon = if (compactSummary) null else Icons.Rounded.Delete,
+                            tone = NuvioQuietActionTone.Destructive,
+                            onClick = onDeleteSelection,
+                        )
+                    }
                 }
+                NuvioQuietActionButton(
+                    icon = Icons.Rounded.Close,
+                    contentDescription = stringResource(Res.string.downloads_exit_selection),
+                    onClick = onExitSelection,
+                )
             }
         }
-    }
-}
-
-@Composable
-private fun DownloadSelectionAction(
-    label: String,
-    enabled: Boolean,
-    onClick: () -> Unit,
-    destructive: Boolean = false,
-    showDeleteIcon: Boolean = false,
-) {
-    val tokens = MaterialTheme.nuvio
-    val containerColor = if (destructive) {
-        tokens.colors.danger.copy(alpha = tokens.opacity.selected)
-    } else {
-        tokens.colors.overlayHover
-    }
-    val contentColor = if (destructive) tokens.colors.danger else tokens.colors.textPrimary
-
-    TextButton(
-        enabled = enabled,
-        onClick = onClick,
-        shape = tokens.shapes.chip,
-        colors = ButtonDefaults.textButtonColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
-            disabledContainerColor = containerColor.copy(
-                alpha = containerColor.alpha * tokens.opacity.disabled,
-            ),
-            disabledContentColor = tokens.colors.textDisabled,
-        ),
-        contentPadding = PaddingValues(
-            horizontal = NuvioTokens.Space.s12,
-            vertical = NuvioTokens.Space.s8,
-        ),
-    ) {
-        if (showDeleteIcon) {
-            Icon(
-                imageVector = Icons.Rounded.Delete,
-                contentDescription = null,
-                modifier = Modifier.size(NuvioTokens.Icon.sm),
-            )
-            Spacer(modifier = Modifier.size(NuvioTokens.Space.s6))
-        }
-        Text(
-            text = label,
-            maxLines = 1,
-        )
     }
 }
 
@@ -1093,9 +1079,16 @@ private fun DownloadsManagementCard(
     items: List<DownloadItem>,
     policy: DownloadNetworkPolicy,
     onPolicyChanged: (DownloadNetworkPolicy) -> Unit,
-    onManageCompletedDownloads: (() -> Unit)? = null,
+    collapsible: Boolean = false,
+    expanded: Boolean = true,
+    onExpandedChanged: (Boolean) -> Unit = {},
 ) {
     val storedBytes = items.sumOf { it.downloadedBytes.coerceAtLeast(0L) }
+    val summary = stringResource(
+        Res.string.downloads_manage_storage_summary,
+        items.size,
+        formatBytes(storedBytes),
+    )
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1104,61 +1097,98 @@ private fun DownloadsManagementCard(
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            modifier = Modifier.padding(
+                horizontal = 16.dp,
+                vertical = if (collapsible && !expanded) 10.dp else 14.dp,
+            ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = stringResource(Res.string.downloads_policy_title),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = stringResource(
-                    Res.string.downloads_manage_storage_description,
-                    items.size,
-                    formatBytes(storedBytes),
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (collapsible) {
+                            Modifier.clickable { onExpandedChanged(!expanded) }
+                        } else {
+                            Modifier
+                        },
                 ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (onManageCompletedDownloads != null) {
-                TextButton(
-                    onClick = onManageCompletedDownloads,
-                    modifier = Modifier.align(Alignment.End),
-                ) {
-                    Text(stringResource(Res.string.downloads_manage_storage))
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(Res.string.downloads_settings_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    if (collapsible) {
+                        Text(
+                            text = summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                if (collapsible) {
+                    Icon(
+                        imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = stringResource(
+                            if (expanded) {
+                                Res.string.downloads_policy_collapse
+                            } else {
+                                Res.string.downloads_policy_expand
+                            },
+                        ),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
-            DownloadPolicySwitch(
-                title = stringResource(Res.string.downloads_network_wifi_only),
-                description = stringResource(Res.string.downloads_network_wifi_only_description),
-                checked = policy.wifiOnly,
-                onCheckedChange = { onPolicyChanged(policy.copy(wifiOnly = it)) },
-            )
-            DownloadPolicySwitch(
-                title = stringResource(Res.string.downloads_network_allow_cellular),
-                description = stringResource(Res.string.downloads_network_allow_cellular_description),
-                checked = policy.allowCellular,
-                enabled = !policy.wifiOnly,
-                onCheckedChange = { onPolicyChanged(policy.copy(allowCellular = it)) },
-            )
-            DownloadPolicySwitch(
-                title = stringResource(Res.string.downloads_network_allow_expensive),
-                description = stringResource(Res.string.downloads_network_allow_expensive_description),
-                checked = policy.allowExpensiveNetworks,
-                onCheckedChange = { onPolicyChanged(policy.copy(allowExpensiveNetworks = it)) },
-            )
-            DownloadPolicySwitch(
-                title = stringResource(Res.string.downloads_network_allow_constrained),
-                description = stringResource(Res.string.downloads_network_allow_constrained_description),
-                checked = policy.allowConstrainedNetworks,
-                onCheckedChange = { onPolicyChanged(policy.copy(allowConstrainedNetworks = it)) },
-            )
-            Text(
-                text = stringResource(Res.string.downloads_network_policy_note),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            if (!collapsible) {
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (expanded) {
+                DownloadPolicySwitch(
+                    title = stringResource(Res.string.downloads_network_wifi_only),
+                    description = stringResource(Res.string.downloads_network_wifi_only_description),
+                    checked = policy.wifiOnly,
+                    onCheckedChange = { onPolicyChanged(policy.copy(wifiOnly = it)) },
+                )
+                DownloadPolicySwitch(
+                    title = stringResource(Res.string.downloads_network_allow_cellular),
+                    description = stringResource(Res.string.downloads_network_allow_cellular_description),
+                    checked = policy.allowCellular,
+                    enabled = !policy.wifiOnly,
+                    onCheckedChange = { onPolicyChanged(policy.copy(allowCellular = it)) },
+                )
+                DownloadPolicySwitch(
+                    title = stringResource(Res.string.downloads_network_allow_expensive),
+                    description = stringResource(Res.string.downloads_network_allow_expensive_description),
+                    checked = policy.allowExpensiveNetworks,
+                    onCheckedChange = { onPolicyChanged(policy.copy(allowExpensiveNetworks = it)) },
+                )
+                DownloadPolicySwitch(
+                    title = stringResource(Res.string.downloads_network_allow_constrained),
+                    description = stringResource(Res.string.downloads_network_allow_constrained_description),
+                    checked = policy.allowConstrainedNetworks,
+                    onCheckedChange = { onPolicyChanged(policy.copy(allowConstrainedNetworks = it)) },
+                )
+                Text(
+                    text = stringResource(Res.string.downloads_network_policy_note),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = stringResource(Res.string.downloads_concurrency_note),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

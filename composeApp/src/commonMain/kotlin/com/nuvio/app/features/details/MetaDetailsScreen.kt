@@ -38,7 +38,6 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -1211,14 +1210,6 @@ fun MetaDetailsScreen(
                             backgroundColor = dominantBackdropColor.takeIf { dominantColorEnabled },
                             onBack = onBackFromDetails,
                             onToggleSaved = toggleSaved,
-                            onRefresh = if (offlineMeta != null) {
-                                {
-                                    OfflineLibraryRepository.refresh(type, id, manual = true)
-                                    NetworkStatusRepository.requestRefresh(force = true)
-                                }
-                            } else {
-                                null
-                            },
                         )
 
                         selectedEpisodeForActions
@@ -1736,7 +1727,6 @@ private fun DetailHeaderOverlay(
     backgroundColor: Color?,
     onBack: () -> Unit,
     onToggleSaved: () -> Unit,
-    onRefresh: (() -> Unit)?,
 ) {
     val headerTarget = if (isHeroCollapsed.value) 1f else 0f
     val headerProgress by animateFloatAsState(
@@ -1761,24 +1751,6 @@ private fun DetailHeaderOverlay(
                 containerColor = Color.Transparent,
                 contentColor = MaterialTheme.colorScheme.onBackground,
             )
-            if (onRefresh != null) {
-                IconButton(
-                    onClick = onRefresh,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(
-                            end = 12.dp,
-                            top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp,
-                        )
-                        .zIndex(2f),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Refresh,
-                        contentDescription = stringResource(Res.string.offline_metadata_refresh),
-                        tint = MaterialTheme.colorScheme.onBackground,
-                    )
-                }
-            }
         }
 
         DetailFloatingHeader(

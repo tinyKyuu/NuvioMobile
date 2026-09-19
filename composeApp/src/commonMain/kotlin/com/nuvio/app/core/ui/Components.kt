@@ -8,8 +8,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,13 +57,19 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
@@ -74,6 +83,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import com.nuvio.app.navigation.LocalNativeNavigationBarHidden
 import com.nuvio.app.navigation.LocalUseNativeNavigation
+import kotlin.math.max
 
 @Composable
 fun NuvioScreen(
@@ -141,7 +151,9 @@ fun NuvioScreenHeader(
     includeStatusBarPadding: Boolean = true,
     topPadding: Dp? = null,
     onBack: (() -> Unit)? = null,
+    actionsLayout: NuvioScreenHeaderActionsLayout = NuvioScreenHeaderActionsLayout.Inline,
     actions: @Composable RowScope.() -> Unit = {},
+    compactActions: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
@@ -169,14 +181,10 @@ fun NuvioScreenHeader(
                 .background(tokens.colors.background)
                 .nuvioConsumePointerEvents(),
         ) {}
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = resolvedTopPadding, bottom = NuvioTokens.Space.s4),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Bottom,
-        ) {
+        @Composable
+        fun HeaderTitle(modifier: Modifier = Modifier) {
             Row(
+                modifier = modifier,
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
             ) {
@@ -198,16 +206,187 @@ fun NuvioScreenHeader(
                         text = currentTitle,
                         style = MaterialTheme.typography.displayLarge,
                         color = tokens.colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
+        }
+
+        if (actionsLayout == NuvioScreenHeaderActionsLayout.Adaptive) {
+            val titleStyle = MaterialTheme.typography.displayLarge
+            val textMeasurer = rememberTextMeasurer()
+            val titleNaturalWidth = textMeasurer.measure(
+                text = AnnotatedString(title),
+                style = titleStyle,
+                maxLines = 1,
+            ).size.width
+            val backWidth = if (onBack == null) 0 else with(androidx.compose.ui.platform.LocalDensity.current) {
+                (NuvioTokens.Space.s48 + tokens.spacing.controlGap).roundToPx()
+            }
+            val minimumInlineTitleWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
+                NuvioTokens.Space.s96.roundToPx()
+            }
+            val inlineSpacing = with(androidx.compose.ui.platform.LocalDensity.current) {
+                NuvioTokens.Space.s2.roundToPx()
+            }
+            val stackedSpacing = with(androidx.compose.ui.platform.LocalDensity.current) {
+                NuvioTokens.Space.s4.roundToPx()
+            }
+
+            SubcomposeLayout(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = resolvedTopPadding, bottom = NuvioTokens.Space.s4),
+            ) { constraints ->
+                val looseConstraints = constraints.copy(
+                    minWidth = 0,
+                    minHeight = 0,
+                    maxWidth = Constraints.Infinity,
+                )
+                val fullActionsPlaceable = subcompose(NuvioHeaderSlot.FullActions) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
+                        verticalAlignment = Alignment.CenterVertically,
+                        content = actions,
+                    )
+                }.single().measure(looseConstraints)
+                val compactActionsPlaceable = compactActions?.let { compactContent ->
+                    subcompose(NuvioHeaderSlot.CompactActions) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
+                            verticalAlignment = Alignment.CenterVertically,
+                            content = compactContent,
+                        )
+                    }.single().measure(looseConstraints)
+                }
+                val presentation = resolveAdaptiveHeaderPresentation(
+                    availableWidthPx = constraints.maxWidth,
+                    naturalTitleWidthPx = titleNaturalWidth + backWidth,
+                    fullActionsWidthPx = fullActionsPlaceable.width,
+                    compactActionsWidthPx = compactActionsPlaceable?.width,
+                    minimumInlineTitleWidthPx = minimumInlineTitleWidth,
+                    spacingPx = inlineSpacing,
+                )
+                val selectedActions = when (presentation) {
+                    NuvioAdaptiveHeaderPresentation.FullInline -> fullActionsPlaceable
+                    NuvioAdaptiveHeaderPresentation.CompactInline,
+                    NuvioAdaptiveHeaderPresentation.CompactStacked,
+                    -> compactActionsPlaceable ?: fullActionsPlaceable
+                }
+                val isStacked = presentation == NuvioAdaptiveHeaderPresentation.CompactStacked
+                val actionSpacing = if (selectedActions.width == 0) 0 else inlineSpacing
+                val titleMaxWidth = if (isStacked) {
+                    constraints.maxWidth
+                } else {
+                    (constraints.maxWidth - selectedActions.width - actionSpacing).coerceAtLeast(0)
+                }
+                val titlePlaceable = subcompose(NuvioHeaderSlot.Title) {
+                    HeaderTitle()
+                }.single().measure(
+                    constraints.copy(
+                        minWidth = 0,
+                        minHeight = 0,
+                        maxWidth = titleMaxWidth,
+                    ),
+                )
+                val contentHeight = if (isStacked) {
+                    titlePlaceable.height + stackedSpacing + selectedActions.height
+                } else {
+                    max(titlePlaceable.height, selectedActions.height)
+                }
+
+                layout(constraints.maxWidth, contentHeight) {
+                    if (isStacked) {
+                        titlePlaceable.placeRelative(0, 0)
+                        selectedActions.placeRelative(
+                            x = (constraints.maxWidth - selectedActions.width).coerceAtLeast(0),
+                            y = titlePlaceable.height + stackedSpacing,
+                        )
+                    } else {
+                        titlePlaceable.placeRelative(
+                            x = 0,
+                            y = contentHeight - titlePlaceable.height,
+                        )
+                        selectedActions.placeRelative(
+                            x = (constraints.maxWidth - selectedActions.width).coerceAtLeast(0),
+                            y = contentHeight - selectedActions.height,
+                        )
+                    }
+                }
+            }
+        } else if (actionsLayout == NuvioScreenHeaderActionsLayout.Stacked) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = resolvedTopPadding, bottom = NuvioTokens.Space.s4),
+                verticalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s4),
+            ) {
+                HeaderTitle()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = actions,
+                )
+            }
+        } else {
             Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = resolvedTopPadding, bottom = NuvioTokens.Space.s4),
                 horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
-                verticalAlignment = Alignment.CenterVertically,
-                content = actions,
-            )
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                HeaderTitle(modifier = Modifier.weight(1f))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(NuvioTokens.Space.s2),
+                    verticalAlignment = Alignment.CenterVertically,
+                    content = actions,
+                )
+            }
         }
     }
+}
+
+enum class NuvioScreenHeaderActionsLayout {
+    Adaptive,
+    Inline,
+    Stacked,
+}
+
+internal enum class NuvioAdaptiveHeaderPresentation {
+    FullInline,
+    CompactInline,
+    CompactStacked,
+}
+
+internal fun resolveAdaptiveHeaderPresentation(
+    availableWidthPx: Int,
+    naturalTitleWidthPx: Int,
+    fullActionsWidthPx: Int,
+    compactActionsWidthPx: Int?,
+    minimumInlineTitleWidthPx: Int,
+    spacingPx: Int,
+): NuvioAdaptiveHeaderPresentation {
+    val fullSpacing = if (fullActionsWidthPx == 0) 0 else spacingPx
+    if (naturalTitleWidthPx + fullSpacing + fullActionsWidthPx <= availableWidthPx) {
+        return NuvioAdaptiveHeaderPresentation.FullInline
+    }
+
+    val compactWidth = compactActionsWidthPx ?: fullActionsWidthPx
+    val compactSpacing = if (compactWidth == 0) 0 else spacingPx
+    return if (minimumInlineTitleWidthPx + compactSpacing + compactWidth <= availableWidthPx) {
+        NuvioAdaptiveHeaderPresentation.CompactInline
+    } else {
+        NuvioAdaptiveHeaderPresentation.CompactStacked
+    }
+}
+
+private enum class NuvioHeaderSlot {
+    Title,
+    FullActions,
+    CompactActions,
 }
 
 @Composable
@@ -270,6 +449,129 @@ fun NuvioIconActionButton(
 }
 
 @Composable
+fun NuvioQuietActionButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    label: String? = null,
+    icon: ImageVector? = null,
+    contentDescription: String? = label,
+    enabled: Boolean = true,
+    tone: NuvioQuietActionTone = NuvioQuietActionTone.Neutral,
+    style: NuvioQuietActionStyle = NuvioQuietActionStyle.Compact,
+) {
+    require(label != null || icon != null)
+    val tokens = MaterialTheme.nuvio
+    val iconOnly = label == null
+    val destructiveColor = ThemeColors.Crimson.secondary
+    val selected = style == NuvioQuietActionStyle.Selected
+    val containerColor = when {
+        selected && tone == NuvioQuietActionTone.Neutral -> MaterialTheme.colorScheme.primaryContainer
+        tone == NuvioQuietActionTone.Neutral -> tokens.colors.overlayHover
+        else -> destructiveColor.copy(alpha = tokens.opacity.selected)
+    }
+    val contentColor = when {
+        selected && tone == NuvioQuietActionTone.Neutral -> MaterialTheme.colorScheme.onPrimaryContainer
+        tone == NuvioQuietActionTone.Neutral -> tokens.colors.textSecondary
+        else -> destructiveColor
+    }
+    val borderColor = when {
+        selected && tone == NuvioQuietActionTone.Neutral ->
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+        tone == NuvioQuietActionTone.Neutral -> tokens.colors.borderStrong
+        else -> destructiveColor.copy(alpha = tokens.opacity.medium)
+    }.let { color ->
+        if (enabled) color else color.copy(alpha = color.alpha * tokens.opacity.disabled)
+    }
+    val resolvedContainerColor = if (enabled) {
+        containerColor
+    } else {
+        containerColor.copy(alpha = containerColor.alpha * tokens.opacity.disabled)
+    }
+    val resolvedContentColor = if (enabled) contentColor else tokens.colors.textDisabled
+    val border = if (style == NuvioQuietActionStyle.Outlined || selected) {
+        BorderStroke(tokens.borders.thin, borderColor)
+    } else {
+        null
+    }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val visibleContainerColor = if (enabled && isPressed) {
+        tokens.colors.overlayPressed.compositeOver(resolvedContainerColor)
+    } else {
+        resolvedContainerColor
+    }
+    Box(
+        modifier = modifier.then(
+            if (iconOnly) {
+                Modifier.size(NuvioTokens.Space.s40 + NuvioTokens.Space.s4)
+            } else {
+                Modifier.height(NuvioTokens.Space.s40 + NuvioTokens.Space.s4)
+            },
+        ).clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            enabled = enabled,
+            role = Role.Button,
+            onClick = onClick,
+        ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            modifier = if (iconOnly) {
+                Modifier.size(NuvioTokens.Space.s32)
+            } else {
+                Modifier.height(NuvioTokens.Space.s32)
+            },
+            shape = tokens.shapes.chip,
+            color = visibleContainerColor,
+            contentColor = resolvedContentColor,
+            border = border,
+        ) {
+            Row(
+                modifier = if (iconOnly) {
+                    Modifier.fillMaxSize()
+                } else {
+                    Modifier.padding(horizontal = NuvioTokens.Space.s10)
+                },
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (icon != null) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = contentDescription,
+                        modifier = Modifier.size(
+                            if (iconOnly) NuvioTokens.Icon.md else NuvioTokens.Icon.sm,
+                        ),
+                    )
+                }
+                if (icon != null && label != null) {
+                    Spacer(Modifier.width(NuvioTokens.Space.s6))
+                }
+                if (label != null) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+    }
+}
+
+enum class NuvioQuietActionTone {
+    Neutral,
+    Destructive,
+}
+
+enum class NuvioQuietActionStyle {
+    Compact,
+    Outlined,
+    Selected,
+}
+
+@Composable
 fun NuvioBackButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -279,8 +581,13 @@ fun NuvioBackButton(
     buttonSize: Dp = NuvioTokens.Space.s40,
     iconSize: Dp = NuvioTokens.Icon.md,
     contentDescription: String = stringResource(Res.string.action_back),
+    hideWhenNativeNavigationVisible: Boolean = true,
 ) {
-    if (LocalUseNativeNavigation.current && !LocalNativeNavigationBarHidden.current) return
+    if (
+        hideWhenNativeNavigationVisible &&
+        LocalUseNativeNavigation.current &&
+        !LocalNativeNavigationBarHidden.current
+    ) return
 
     Box(
         modifier = modifier

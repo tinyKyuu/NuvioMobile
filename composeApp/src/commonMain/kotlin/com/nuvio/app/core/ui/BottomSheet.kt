@@ -85,9 +85,11 @@ fun NuvioBottomSheetActionRow(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     destructive: Boolean = false,
+    actionColor: Color? = null,
     trailingContent: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val tokens = MaterialTheme.nuvio
+    val resolvedActionColor = actionColor ?: if (destructive) tokens.colors.danger else tokens.colors.accent
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -100,7 +102,7 @@ fun NuvioBottomSheetActionRow(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = if (destructive) tokens.colors.danger else tokens.colors.accent,
+                tint = resolvedActionColor,
                 modifier = Modifier.size(NuvioTokens.Icon.md),
             )
         }
@@ -108,7 +110,7 @@ fun NuvioBottomSheetActionRow(
             text = title,
             modifier = Modifier.weight(1f),
             style = MaterialTheme.typography.titleMedium,
-            color = if (destructive) tokens.colors.danger else tokens.colors.textPrimary,
+            color = if (destructive) resolvedActionColor else tokens.colors.textPrimary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )

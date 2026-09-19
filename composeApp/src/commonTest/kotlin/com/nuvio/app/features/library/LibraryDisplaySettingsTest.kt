@@ -1,5 +1,6 @@
 package com.nuvio.app.features.library
 
+import com.nuvio.app.features.watched.watchedItemKeys
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -252,6 +253,7 @@ class LibraryDisplaySettingsTest {
         val state = LibraryDisplaySettingsUiState(
             layoutMode = LibraryLayoutMode.VERTICAL,
             sortOption = LibrarySortOption.TITLE_DESC,
+            watchedFilter = LibraryWatchedFilter.UNWATCHED,
         )
 
         assertEquals(state, decodeLibraryDisplaySettings(encodeLibraryDisplaySettings(state)))
@@ -259,6 +261,157 @@ class LibraryDisplaySettingsTest {
             LibraryDisplaySettingsUiState(),
             decodeLibraryDisplaySettings("""{"layout_mode":"unknown","sort_option":"unknown"}"""),
         )
+    }
+
+    @Test
+    fun `All titles merges saved and downloaded aliases without duplicate posters`() {
+        val saved = item("show-1", type = "show", name = "Saved title")
+        val downloaded = item("show-1", type = "series", name = "Downloaded title").copy(
+            poster = "file:///offline/poster.jpg",
+        )
+
+        val merged = mergeLibraryTitleItems(
+            savedItems = listOf(saved),
+            downloadedItems = listOf(downloaded, item("movie-2", name = "Download only")),
+        )
+
+        assertEquals(listOf("show-1", "movie-2"), merged.map { it.id })
+        assertEquals("Saved title", merged.first().name)
+        assertEquals("file:///offline/poster.jpg", merged.first().poster)
+    }
+
+    @Test
+    fun `All titles combines local selected source and downloads without changing membership`() {
+        val localOnly = item("local-only", name = "Local")
+        val sharedLocal = item("shared", name = "Local metadata")
+        val selectedOnly = item("selected-only", name = "Tracked")
+        val sharedSelected = item("shared", name = "Tracked metadata")
+        val downloadOnly = item("download-only", name = "Downloaded")
+        val sharedDownload = item("shared", name = "Downloaded metadata").copy(
+            poster = "file:///offline/shared.jpg",
+        )
+
+        val merged = mergeAllLibraryTitleItems(
+            localItems = listOf(localOnly, sharedLocal),
+            selectedSourceItems = listOf(selectedOnly, sharedSelected),
+            downloadedItems = listOf(downloadOnly, sharedDownload),
+        )
+
+        assertEquals(listOf("local-only", "shared", "selected-only", "download-only"), merged.map { it.id })
+        assertEquals("Tracked metadata", merged.first { it.id == "shared" }.name)
+        assertEquals("file:///offline/shared.jpg", merged.first { it.id == "shared" }.poster)
+        assertEquals(listOf("local-only", "shared"), listOf(localOnly, sharedLocal).map { it.id })
+    }
+
+    @Test
+    fun `watched filter keeps fully watched series separate from partial progress`() {
+        val watchedMovie = item("movie-watched")
+        val unwatchedMovie = item("movie-unwatched")
+        val completeSeries = item("series-complete", type = "series")
+        val partialSeries = item("series-partial", type = "series")
+        val sections = listOf(
+            LibrarySection("movie", "Movies", listOf(watchedMovie, unwatchedMovie)),
+            LibrarySection("series", "Series", listOf(completeSeries, partialSeries)),
+        )
+        val watchedKeys = watchedItemKeys(type = "movie", id = watchedMovie.id)
+        val fullyWatchedSeriesKeys = watchedItemKeys(type = "series", id = completeSeries.id)
+
+        assertEquals(
+            listOf("movie-watched", "series-complete"),
+            filterLibrarySectionsByWatchedState(
+                sections = sections,
+                filter = LibraryWatchedFilter.WATCHED,
+                watchedKeys = watchedKeys,
+                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+            ).flatMap(LibrarySection::items).map { it.id },
+        )
+        assertEquals(
+            listOf("movie-unwatched", "series-partial"),
+            filterLibrarySectionsByWatchedState(
+                sections = sections,
+                filter = LibraryWatchedFilter.UNWATCHED,
+                watchedKeys = watchedKeys,
+                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+            ).flatMap(LibrarySection::items).map { it.id },
+        )
+    }
+
+    @Test
+    fun `available genres are normalized deduplicated and sorted`() {
+        val sections = listOf(
+            LibrarySection(
+                type = "movie",
+                displayTitle = "Movies",
+                items = listOf(
+                    item("movie").copy(genres = listOf(" Drama ", "Action", "")),
+                ),
+            ),
+            LibrarySection(
+                type = "series",
+                displayTitle = "Series",
+                items = listOf(
+                    item("series", type = "series").copy(genres = listOf("action", "Comedy")),
+                ),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                LibraryGenreOption(key = "action", label = "Action"),
+                LibraryGenreOption(key = "comedy", label = "Comedy"),
+                LibraryGenreOption(key = "drama", label = "Drama"),
+            ),
+            availableLibraryGenreOptions(sections),
+        )
+    }
+
+    @Test
+    fun `genre filter preserves section and item order while dropping empty sections`() {
+        val sections = listOf(
+            LibrarySection(
+                type = "movie",
+                displayTitle = "Movies",
+                items = listOf(
+                    item("movie-drama").copy(genres = listOf("Drama")),
+                    item("movie-comedy").copy(genres = listOf("Comedy")),
+                ),
+            ),
+            LibrarySection(
+                type = "series",
+                displayTitle = "Series",
+                items = listOf(
+                    item("series-drama", type = "series").copy(genres = listOf("Crime", "drama")),
+                ),
+            ),
+            LibrarySection(
+                type = "documentary",
+                displayTitle = "Documentaries",
+                items = listOf(item("documentary").copy(genres = listOf("Documentary"))),
+            ),
+        )
+
+        val filtered = filterLibrarySectionsByGenre(sections, selectedGenreKey = "DRAMA")
+
+        assertEquals(listOf("movie", "series"), filtered.map { section -> section.type })
+        assertEquals(
+            listOf("movie-drama", "series-drama"),
+            filtered.flatMap(LibrarySection::items).map { item -> item.id },
+        )
+    }
+
+    @Test
+    fun `genre selection temporarily falls back when the current scope lacks it`() {
+        val allTitleGenres = listOf(
+            LibraryGenreOption(key = "action", label = "Action"),
+            LibraryGenreOption(key = "drama", label = "Drama"),
+        )
+        val downloadedGenres = listOf(
+            LibraryGenreOption(key = "action", label = "Action"),
+        )
+
+        assertEquals("drama", effectiveLibraryGenreSelection(" Drama ", allTitleGenres))
+        assertEquals(null, effectiveLibraryGenreSelection("drama", downloadedGenres))
+        assertEquals("drama", effectiveLibraryGenreSelection("drama", allTitleGenres))
     }
 
     private fun item(

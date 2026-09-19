@@ -63,6 +63,23 @@ class DownloadLibraryManagementTest {
     }
 
     @Test
+    fun `clear deselects everything without leaving management`() {
+        val state = DownloadLibraryManagementState(
+            isManaging = true,
+            selectedIds = setOf("movie"),
+            isExpanded = true,
+            route = DownloadManagerRoute.Show("show"),
+        )
+
+        val cleared = reduceDownloadLibraryManagement(state, DownloadLibraryManagementEvent.Clear)
+
+        assertTrue(cleared.isManaging)
+        assertTrue(cleared.isExpanded)
+        assertEquals(DownloadManagerRoute.Show("show"), cleared.route)
+        assertEquals(emptySet(), cleared.selectedIds)
+    }
+
+    @Test
     fun `management state restores expanded chooser and selection after recreation`() {
         val state = DownloadLibraryManagementState(
             isManaging = true,
@@ -75,6 +92,33 @@ class DownloadLibraryManagementTest {
 
         assertEquals(state, restored)
         assertNull(restoreDownloadLibraryManagementState(listOf(true, emptyList<String>(), true, "season")))
+    }
+
+    @Test
+    fun `restored management survives same-profile composition and clears on a real profile switch`() {
+        val restored = DownloadLibraryManagementState(
+            isManaging = true,
+            selectedIds = setOf("movie"),
+            isExpanded = true,
+            route = DownloadManagerRoute.Root,
+        )
+        var state = restored
+        var rememberedProfileId = 4
+
+        assertFalse(shouldResetDownloadManagementForProfile(rememberedProfileId, activeProfileId = null))
+        if (shouldResetDownloadManagementForProfile(rememberedProfileId, activeProfileId = 4)) {
+            state = reduceDownloadLibraryManagement(state, DownloadLibraryManagementEvent.ProfileChanged)
+        }
+        assertEquals(restored, state)
+
+        val nextProfileId = 5
+        if (shouldResetDownloadManagementForProfile(rememberedProfileId, nextProfileId)) {
+            state = reduceDownloadLibraryManagement(state, DownloadLibraryManagementEvent.ProfileChanged)
+            rememberedProfileId = nextProfileId
+        }
+
+        assertEquals(DownloadLibraryManagementState(), state)
+        assertEquals(5, rememberedProfileId)
     }
 
     @Test
@@ -102,9 +146,9 @@ class DownloadLibraryManagementTest {
     }
 
     @Test
-    fun `narrow controls stack and reserve fixed grid clearance`() {
-        assertTrue(useStackedDownloadManagerControls(390.dp))
-        assertFalse(useStackedDownloadManagerControls(700.dp))
+    fun `narrow controls use compact labels without stacking the manager bar`() {
+        assertTrue(useCompactDownloadManagerControls(390.dp))
+        assertFalse(useCompactDownloadManagerControls(700.dp))
         assertEquals(112.dp, downloadManagerGridBottomClearance())
     }
 
@@ -175,6 +219,23 @@ class DownloadLibraryManagementTest {
 
         assertEquals(setOf("failed", "other"), next.selectedIds)
         assertTrue(next.isManaging)
+    }
+
+    @Test
+    fun `successful removal exits management and restores root navigation`() {
+        val state = DownloadLibraryManagementState(
+            isManaging = true,
+            selectedIds = setOf("first", "second"),
+            isExpanded = true,
+            route = DownloadManagerRoute.Show("show"),
+        )
+
+        val next = applyDownloadRemovalResult(
+            state,
+            DownloadBatchRemovalResult(successfulIds = state.selectedIds),
+        )
+
+        assertEquals(DownloadLibraryManagementState(), next)
     }
 
     @Test

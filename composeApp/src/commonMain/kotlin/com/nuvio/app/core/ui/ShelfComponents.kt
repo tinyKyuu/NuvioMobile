@@ -23,9 +23,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -140,6 +138,7 @@ fun NuvioPosterCard(
     bottomLeftLogoUrl: String? = null,
     bottomLeftText: String? = null,
     isWatched: Boolean = false,
+    availability: NuvioPosterAvailability = NuvioPosterAvailability.None,
     selectionState: NuvioPosterSelectionState = NuvioPosterSelectionState.None,
     selectionContentDescription: String? = null,
     menuContentDescription: String? = null,
@@ -150,6 +149,7 @@ fun NuvioPosterCard(
     val posterCardStyle = rememberPosterCardStyleUiState()
     val tokens = MaterialTheme.nuvio
     val cardWidth = shape.cardWidth(basePosterWidthDp = posterCardStyle.widthDp)
+    val overlayScale = posterOverlayScaleForWidth(cardWidth)
     val cardShape = RoundedCornerShape(posterCardStyle.cornerRadiusDp.dp)
     val catalogLogoOverlaySize = catalogLogoOverlaySize(
         basePosterWidthDp = posterCardStyle.widthDp,
@@ -238,26 +238,25 @@ fun NuvioPosterCard(
                 }
             }
 
-            NuvioPosterWatchedOverlay(isWatched = isWatched)
+            NuvioPosterWatchedOverlay(isWatched = isWatched, scale = overlayScale)
+            NuvioPosterAvailabilityOverlay(
+                availability = availability,
+                scale = overlayScale,
+                placement = posterAvailabilityPlacement(
+                    isLandscape = shape == NuvioPosterShape.Landscape,
+                    hasBottomStartContent = !bottomLeftLogoUrl.isNullOrBlank() ||
+                        !bottomLeftText.isNullOrBlank(),
+                ),
+            )
 
             if (onMenuClick != null) {
-                IconButton(
+                NuvioPosterMenuOverlay(
                     onClick = onMenuClick,
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(NuvioTokens.Space.s2)
-                        .clip(tokens.shapes.avatar)
-                        .background(tokens.colors.overlayScrim),
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = menuContentDescription,
-                        tint = tokens.colors.textPrimary,
-                    )
-                }
+                    contentDescription = menuContentDescription,
+                    scale = overlayScale,
+                )
             }
 
-            NuvioPosterSelectionOverlay(state = selectionState)
         }
         if (shouldShowTitleBelow) {
             Text(

@@ -89,6 +89,7 @@ fun ProfileSwitcherTab(
     onProfileSelected: (NuvioProfile) -> Unit,
     onAddProfileRequested: () -> Unit,
     triggerContent: (@Composable (selected: Boolean) -> Unit)? = null,
+    label: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val tokens = MaterialTheme.nuvio
@@ -235,12 +236,24 @@ fun ProfileSwitcherTab(
         if (triggerContent != null) {
             triggerContent(selected)
         } else {
-            ActiveProfileMiniAvatar(
-                profile = activeProfile,
-                avatars = avatars,
-                selected = selected,
-                size = 28,
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(tokens.spacing.controlGap),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ActiveProfileMiniAvatar(
+                    profile = activeProfile,
+                    avatars = avatars,
+                    selected = selected,
+                    size = 28,
+                )
+                label?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (selected) tokens.colors.textPrimary else tokens.colors.textMuted,
+                    )
+                }
+            }
         }
 
         // Floating profile popup (stays composed during exit animation)

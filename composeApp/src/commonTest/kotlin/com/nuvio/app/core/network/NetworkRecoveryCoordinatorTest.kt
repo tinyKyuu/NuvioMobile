@@ -148,6 +148,41 @@ class NetworkRecoveryCoordinatorTest {
     }
 
     @Test
+    fun `profile replacement cancels the pending Reconnect session`() {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+        var probeRequests = 0
+        var cancellations = 0
+        val controller = NetworkRecoveryController(
+            scope = scope,
+            activeProfileId = { 2 },
+            requestFreshProbe = { (++probeRequests).toLong() },
+            cancelConnectivitySession = { cancellations += 1 },
+            operations = object : NetworkRecoveryOperations {
+                override suspend fun recoverManifests(
+                    profileId: Int,
+                    generation: Long,
+                    forceAll: Boolean,
+                    onManifestEvent: suspend (ManifestRecoveryEvent) -> Unit,
+                ) = ManifestRecoveryOutcome()
+
+                override suspend fun refreshCatalogs(
+                    profileId: Int,
+                    generation: Long,
+                    readyManifestUrls: Set<String>?,
+                ) = Unit
+            },
+        )
+
+        controller.retry()
+        controller.onProfileChanged(2)
+        controller.retry()
+
+        assertEquals(2, probeRequests)
+        assertEquals(1, cancellations)
+        scope.cancel()
+    }
+
+    @Test
     fun `failed manual refresh does not turn a later ordinary Reconnect into force-all`() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val requestedProbeGenerations = listOf(2L, 5L)

@@ -4,19 +4,25 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -65,6 +71,7 @@ internal fun MainTabsDestination(
     onProfileSelected: (NuvioProfile) -> Unit,
     onAddProfileRequested: () -> Unit,
     onNetworkRetry: () -> Unit,
+    onRootNavigationSuppressedChange: ((Boolean) -> Unit)? = null,
 ) {
     PlatformBackHandler(enabled = true, onBack = onBack)
 
@@ -77,20 +84,32 @@ internal fun MainTabsDestination(
         }
         val tabsRouteActive = rootRouteActive
         val reconnectControlState = reconnectControlState(networkStatus, networkRecovery)
-        val offlineStatusPresentation = rootOfflineStatusPresentation(
+        val tabConnectionState = rootConnectionStateForTab(
+            selectedTab = selectedTab,
             rootRouteActive = tabsRouteActive,
             state = reconnectControlState,
-            isTabletLayout = isTabletLayout,
-            showRetryLabel = maxWidth >= 900.dp,
         )
         val navBarScrollState = rememberNuvioNavBarScrollState()
         val navBarHazeState = rememberHazeState()
         val navBarStyleSetting by remember { ThemeSettingsRepository.navBarStyle }.collectAsStateWithLifecycle()
+        var libraryDownloadManagementActive by remember { mutableStateOf(false) }
+        val isImeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+        val rootNavigationSuppressed = isImeVisible ||
+            (selectedTab == AppScreenTab.Library && libraryDownloadManagementActive)
+        val customNavigationVisible = !rootNavigationSuppressed
         val navigationOverlayPadding = rootNavigationOverlayPadding(
             isTabletLayout = isTabletLayout,
             useNativeBottomTabs = useNativeBottomTabs,
             navBarStyle = navBarStyleSetting,
+            navigationVisible = !rootNavigationSuppressed,
         )
+
+        LaunchedEffect(rootNavigationSuppressed, onRootNavigationSuppressedChange) {
+            onRootNavigationSuppressedChange?.invoke(rootNavigationSuppressed)
+        }
+        DisposableEffect(onRootNavigationSuppressedChange) {
+            onDispose { onRootNavigationSuppressedChange?.invoke(false) }
+        }
 
         Scaffold(
             modifier = Modifier
@@ -99,7 +118,7 @@ internal fun MainTabsDestination(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0),
             bottomBar = {
-                if (!isTabletLayout && !useNativeBottomTabs && navBarStyleSetting == NavBarStyle.CLASSIC) {
+                if (customNavigationVisible && !isTabletLayout && !useNativeBottomTabs && navBarStyleSetting == NavBarStyle.CLASSIC) {
                     NuvioClassicNavigationBar {
                         NavItem(
                             selected = selectedTab == AppScreenTab.Home,
@@ -146,6 +165,12 @@ internal fun MainTabsDestination(
                         requests = requests,
                         state = state,
                         actions = actions(isTabletLayout),
+                        networkCondition = networkStatus.condition,
+                        reconnectControlState = tabConnectionState,
+                        onNetworkRetry = onNetworkRetry,
+                        onLibraryDownloadManagementActiveChange = { active ->
+                            libraryDownloadManagementActive = active
+                        },
                         modifier = Modifier
                             .fillMaxSize()
                             .then(if (navBarStyleSetting != NavBarStyle.CLASSIC) Modifier.hazeSource(state = navBarHazeState) else Modifier)
@@ -154,7 +179,7 @@ internal fun MainTabsDestination(
                     )
                 }
 
-                if (isTabletLayout && !useNativeBottomTabs) {
+                if (customNavigationVisible && isTabletLayout && !useNativeBottomTabs) {
                     TabletFloatingBottomDock(
                         selectedTab = selectedTab,
                         onTabSelected = onTabSelected,
@@ -164,17 +189,7 @@ internal fun MainTabsDestination(
                     )
                 }
 
-                if (offlineStatusPresentation != RootOfflineStatusPresentation.Hidden) {
-                    RootOfflineStatusPill(
-                        condition = networkStatus.condition,
-                        state = reconnectControlState,
-                        showRetryLabel = offlineStatusPresentation == RootOfflineStatusPresentation.RetryPill,
-                        onRetry = onNetworkRetry,
-                        modifier = Modifier.align(Alignment.TopEnd),
-                    )
-                }
-
-                if (!isTabletLayout && !useNativeBottomTabs && navBarStyleSetting != NavBarStyle.CLASSIC) {
+                if (customNavigationVisible && !isTabletLayout && !useNativeBottomTabs && navBarStyleSetting != NavBarStyle.CLASSIC) {
                     when (navBarStyleSetting) {
                         NavBarStyle.EXPANDED -> navBarScrollState.expand()
                         NavBarStyle.COMPACT -> navBarScrollState.collapse()
@@ -234,19 +249,16 @@ internal fun rootNavigationOverlayPadding(
     isTabletLayout: Boolean,
     useNativeBottomTabs: Boolean,
     navBarStyle: NavBarStyle,
+    navigationVisible: Boolean = true,
 ): RootNavigationOverlayPadding = when {
+    !navigationVisible -> RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp)
     useNativeBottomTabs -> RootNavigationOverlayPadding(top = 0.dp, bottom = 49.dp)
-    isTabletLayout -> RootNavigationOverlayPadding(top = 0.dp, bottom = 64.dp)
+    isTabletLayout -> RootNavigationOverlayPadding(top = 0.dp, bottom = 72.dp)
     navBarStyle != NavBarStyle.CLASSIC -> RootNavigationOverlayPadding(top = 0.dp, bottom = 72.dp)
     else -> RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp)
 }
 
-internal fun shouldShowRootOfflineStatus(
-    rootRouteActive: Boolean,
-    state: ReconnectControlState,
-): Boolean = rootRouteActive && state != ReconnectControlState.Hidden
-
-internal enum class ReconnectControlState {
+enum class ReconnectControlState {
     Hidden,
     Offline,
     Probing,
@@ -254,32 +266,69 @@ internal enum class ReconnectControlState {
     Failed,
 }
 
+internal enum class RootConnectionVisual {
+    Hidden,
+    ReconnectWithIcon,
+    ReconnectText,
+    RestoringWithSpinner,
+    Spinner,
+}
+
+internal fun rootConnectionVisual(
+    state: ReconnectControlState,
+    showStatusGraphic: Boolean,
+): RootConnectionVisual = when {
+    state == ReconnectControlState.Hidden -> RootConnectionVisual.Hidden
+    state == ReconnectControlState.Probing || state == ReconnectControlState.Restoring -> {
+        if (showStatusGraphic) {
+            RootConnectionVisual.RestoringWithSpinner
+        } else {
+            RootConnectionVisual.Spinner
+        }
+    }
+    showStatusGraphic -> RootConnectionVisual.ReconnectWithIcon
+    else -> RootConnectionVisual.ReconnectText
+}
+
 internal fun reconnectControlState(
     networkStatus: NetworkStatusUiState,
     recovery: NetworkRecoveryUiState,
 ): ReconnectControlState = when {
     networkStatus.isProbing &&
-        (networkStatus.isOfflineLike || recovery.phase == NetworkRecoveryPhase.Failed) ->
+        (networkStatus.usesOfflinePresentation || recovery.phase == NetworkRecoveryPhase.Failed) ->
         ReconnectControlState.Probing
     recovery.phase == NetworkRecoveryPhase.Failed -> ReconnectControlState.Failed
-    recovery.isRecovering -> ReconnectControlState.Restoring
+    recovery.isRecovering ||
+        (networkStatus.isOnline && networkStatus.keepOfflinePresentation) ->
+        ReconnectControlState.Restoring
     networkStatus.isOfflineLike -> ReconnectControlState.Offline
     else -> ReconnectControlState.Hidden
 }
 
-internal enum class RootOfflineStatusPresentation {
-    Hidden,
-    CompactIcon,
-    RetryPill,
-}
-
-internal fun rootOfflineStatusPresentation(
+internal fun rootConnectionStateForTab(
+    selectedTab: AppScreenTab,
     rootRouteActive: Boolean,
     state: ReconnectControlState,
-    isTabletLayout: Boolean,
-    showRetryLabel: Boolean,
-): RootOfflineStatusPresentation = when {
-    !shouldShowRootOfflineStatus(rootRouteActive, state) -> RootOfflineStatusPresentation.Hidden
-    isTabletLayout && showRetryLabel -> RootOfflineStatusPresentation.RetryPill
-    else -> RootOfflineStatusPresentation.CompactIcon
+): ReconnectControlState = if (
+    rootRouteActive && selectedTab != AppScreenTab.Settings
+) {
+    state
+} else {
+    ReconnectControlState.Hidden
+}
+
+internal enum class TabletDockPresentation {
+    Full,
+    SettingsCompact,
+    Compact,
+}
+
+internal fun tabletDockPresentationForMeasuredContent(
+    availableWidthPx: Int,
+    fullWidthPx: Int,
+    settingsCompactWidthPx: Int,
+): TabletDockPresentation = when {
+    fullWidthPx <= availableWidthPx -> TabletDockPresentation.Full
+    settingsCompactWidthPx <= availableWidthPx -> TabletDockPresentation.SettingsCompact
+    else -> TabletDockPresentation.Compact
 }

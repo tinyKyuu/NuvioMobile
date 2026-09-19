@@ -246,11 +246,12 @@ object DownloadsRepository {
             )
         }
 
+        val parentMeta = MetaDetailsRepository.peek(
+            type = normalizedRequest.parentMetaType,
+            id = normalizedRequest.parentMetaId,
+        )
         val record = commit.record ?: return commit.result
-        MetaDetailsRepository.peek(
-            type = record.item.parentMetaType,
-            id = record.item.parentMetaId,
-        )?.let { meta ->
+        parentMeta?.let { meta ->
             OfflineLibraryRepository.captureNormalDetails(
                 requestedType = record.item.parentMetaType,
                 requestedId = record.item.parentMetaId,

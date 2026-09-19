@@ -26,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
 import com.nuvio.app.features.profiles.ProfileRepository
@@ -41,7 +42,10 @@ import nuvio.composeapp.generated.resources.settings_advanced_remember_last_prof
 import nuvio.composeapp.generated.resources.settings_advanced_remember_last_profile_description
 import nuvio.composeapp.generated.resources.settings_advanced_section_cache
 import nuvio.composeapp.generated.resources.settings_advanced_section_diagnostics
+import nuvio.composeapp.generated.resources.settings_advanced_section_network_testing
 import nuvio.composeapp.generated.resources.settings_advanced_section_startup
+import nuvio.composeapp.generated.resources.settings_advanced_simulate_offline
+import nuvio.composeapp.generated.resources.settings_advanced_simulate_offline_description
 import nuvio.composeapp.generated.resources.settings_advanced_sentry_reports
 import nuvio.composeapp.generated.resources.settings_advanced_sentry_reports_subtitle
 import nuvio.composeapp.generated.resources.sentry_disable_dialog_subtitle
@@ -112,6 +116,24 @@ internal fun LazyListScope.advancedSettingsContent(
                     onDismiss = {
                         showSentryDialog = false
                     },
+                )
+            }
+        }
+    }
+    item {
+        val offlineSimulationEnabled by NetworkStatusRepository.offlineSimulationEnabled
+            .collectAsStateWithLifecycle()
+        SettingsSection(
+            title = stringResource(Res.string.settings_advanced_section_network_testing),
+            isTablet = isTablet,
+        ) {
+            SettingsGroup(isTablet = isTablet) {
+                SettingsSwitchRow(
+                    title = stringResource(Res.string.settings_advanced_simulate_offline),
+                    description = stringResource(Res.string.settings_advanced_simulate_offline_description),
+                    checked = offlineSimulationEnabled,
+                    isTablet = isTablet,
+                    onCheckedChange = NetworkStatusRepository::setOfflineSimulationEnabled,
                 )
             }
         }

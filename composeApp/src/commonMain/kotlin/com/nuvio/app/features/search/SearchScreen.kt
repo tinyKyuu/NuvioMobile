@@ -47,6 +47,9 @@ import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.NuvioScreenHeader
+import com.nuvio.app.ReconnectControlState
+import com.nuvio.app.RootConnectionControl
+import com.nuvio.app.core.ui.NuvioScreenHeaderActionsLayout
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.core.ui.withDuplicateSafeLazyKeys
 import com.nuvio.app.features.addons.AddonRepository
@@ -94,6 +97,9 @@ fun SearchScreen(
     onPosterLongClick: ((MetaPreview) -> Unit)? = null,
     searchFocusRequestCount: Int = 0,
     scrollToTopRequests: Flow<Unit> = emptyFlow(),
+    networkCondition: NetworkCondition = NetworkCondition.Unknown,
+    reconnectControlState: ReconnectControlState = ReconnectControlState.Hidden,
+    onNetworkRetry: () -> Unit = {},
 ) {
     val focusRequester = remember { FocusRequester() }
 
@@ -223,6 +229,23 @@ fun SearchScreen(
                     NuvioScreenHeader(
                         title = headerTitle,
                         modifier = Modifier.padding(horizontal = 16.dp),
+                        actionsLayout = NuvioScreenHeaderActionsLayout.Adaptive,
+                        actions = {
+                            RootConnectionControl(
+                                condition = networkCondition,
+                                state = reconnectControlState,
+                                onRetry = onNetworkRetry,
+                                showStatusGraphic = true,
+                            )
+                        },
+                        compactActions = {
+                            RootConnectionControl(
+                                condition = networkCondition,
+                                state = reconnectControlState,
+                                onRetry = onNetworkRetry,
+                                showStatusGraphic = false,
+                            )
+                        },
                     )
                     androidx.compose.foundation.layout.Spacer(modifier = Modifier.height(6.dp))
                     androidx.compose.foundation.layout.Box(modifier = Modifier.padding(horizontal = 16.dp)) {

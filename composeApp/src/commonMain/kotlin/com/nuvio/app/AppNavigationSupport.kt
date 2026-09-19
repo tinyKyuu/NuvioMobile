@@ -9,6 +9,8 @@ import com.nuvio.app.features.collection.FolderDetailRepository
 import com.nuvio.app.features.collection.disposeCollectionEditorPage
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.library.LibraryItem
+import com.nuvio.app.features.library.LibrarySourceMode
+import com.nuvio.app.features.library.toMetaPreview
 import com.nuvio.app.features.player.ExternalPlayerPlaybackRequest
 import com.nuvio.app.features.player.PlayerLaunch
 import com.nuvio.app.features.player.PlayerLaunchStore
@@ -81,8 +83,48 @@ internal fun disposeRouteResources(route: AppRoute) {
 internal data class PosterActionTarget(
     val preview: MetaPreview,
     val libraryItem: LibraryItem? = null,
-    val libraryListKey: String? = null,
+    val libraryDisplaySectionKey: String? = null,
+    val libraryMembershipListKey: String? = null,
 )
+
+internal fun libraryPosterActionTarget(
+    item: LibraryItem,
+    displaySectionKey: String,
+    membershipListKey: String? = null,
+): PosterActionTarget = PosterActionTarget(
+    preview = item.toMetaPreview(),
+    libraryItem = item,
+    libraryDisplaySectionKey = displaySectionKey,
+    libraryMembershipListKey = membershipListKey,
+)
+
+internal fun libraryMembershipListKey(
+    sourceMode: LibrarySourceMode,
+    displaySectionKey: String,
+    providerSectionKeys: Set<String>,
+): String? = displaySectionKey.takeIf {
+    sourceMode != LibrarySourceMode.LOCAL && it in providerSectionKeys
+}
+
+internal enum class PosterLibraryMembershipAction {
+    AddLocal,
+    AddRemote,
+    RemoveLocal,
+    RemoveRemoteList,
+    RemoveRemoteSource,
+}
+
+internal fun posterLibraryMembershipAction(
+    isSaved: Boolean,
+    isRemoteLibrarySource: Boolean,
+    membershipListKey: String?,
+): PosterLibraryMembershipAction = when {
+    !isSaved && isRemoteLibrarySource -> PosterLibraryMembershipAction.AddRemote
+    !isSaved -> PosterLibraryMembershipAction.AddLocal
+    !isRemoteLibrarySource -> PosterLibraryMembershipAction.RemoveLocal
+    !membershipListKey.isNullOrBlank() -> PosterLibraryMembershipAction.RemoveRemoteList
+    else -> PosterLibraryMembershipAction.RemoveRemoteSource
+}
 
 internal fun PlayerLaunch.toExternalPlayerPlaybackRequest(): ExternalPlayerPlaybackRequest =
     ExternalPlayerPlaybackRequest(

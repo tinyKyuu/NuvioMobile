@@ -47,8 +47,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -62,8 +62,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -76,12 +78,21 @@ import com.nuvio.app.core.ui.NuvioDropdownChip
 import com.nuvio.app.core.ui.NuvioDropdownOption
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
+import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.NuvioScreenHeader
+import com.nuvio.app.core.ui.NuvioPosterAvailability
 import com.nuvio.app.core.ui.NuvioPosterSelectionState
+import com.nuvio.app.core.ui.NuvioQuietActionButton
+import com.nuvio.app.core.ui.NuvioQuietActionStyle
+import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.NuvioViewAllPillSize
 import com.nuvio.app.core.ui.NuvioShelfSection
 import com.nuvio.app.core.ui.ScopedDisintegrationTracker
 import com.nuvio.app.core.ui.nuvioConsumePointerEvents
+import com.nuvio.app.ReconnectControlState
+import com.nuvio.app.RootConnectionControl
+import com.nuvio.app.core.ui.NuvioScreenHeaderActionsLayout
 import com.nuvio.app.features.cloud.CloudLibraryFile
 import com.nuvio.app.features.cloud.CloudLibraryItem
 import com.nuvio.app.features.cloud.CloudLibraryItemType
@@ -97,7 +108,6 @@ import com.nuvio.app.features.downloads.DownloadLibraryManagementHost
 import com.nuvio.app.features.downloads.DownloadLibraryManagementState
 import com.nuvio.app.features.downloads.DownloadLibraryManagementStateSaver
 import com.nuvio.app.features.downloads.DownloadLibraryMenuTarget
-import com.nuvio.app.features.downloads.DownloadManagerToolbarSlotWidth
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.downloads.buildCompletedDownloadLibrary
 import com.nuvio.app.features.downloads.canonicalOfflineMetaType
@@ -106,6 +116,7 @@ import com.nuvio.app.features.downloads.downloadManagerGridBottomClearance
 import com.nuvio.app.features.downloads.formatDownloadBytes
 import com.nuvio.app.features.downloads.reduceDownloadLibraryManagement
 import com.nuvio.app.features.downloads.resolveDownloadManagerContainer
+import com.nuvio.app.features.downloads.shouldResetDownloadManagementForProfile
 import com.nuvio.app.features.downloads.toLibraryArtworkFallback
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.components.HomePosterCard
@@ -135,6 +146,10 @@ fun LibraryScreen(
     onPlayDownloaded: ((DownloadItem) -> Unit)? = null,
     openDownloadsRequest: Int = 0,
     disintegrationRequest: DisintegrationRequest<String>? = null,
+    networkCondition: NetworkCondition = NetworkCondition.Unknown,
+    reconnectControlState: ReconnectControlState = ReconnectControlState.Hidden,
+    onNetworkRetry: () -> Unit = {},
+    onDownloadManagementActiveChange: (Boolean) -> Unit = {},
 ) {
     val uiState by remember {
         LibraryRepository.ensureLoaded()
@@ -165,10 +180,10 @@ fun LibraryScreen(
     }.collectAsStateWithLifecycle()
     val profileState by ProfileRepository.state.collectAsStateWithLifecycle()
     var observedOfflineState by remember { mutableStateOf(false) }
-    var sourceModeName by rememberSaveable { mutableStateOf(LibraryViewMode.Saved.name) }
+    var sourceModeName by rememberSaveable { mutableStateOf(LibraryViewMode.All.name) }
     var lastHandledOpenDownloadsRequest by rememberSaveable { mutableIntStateOf(0) }
     val sourceMode = remember(sourceModeName) {
-        runCatching { LibraryViewMode.valueOf(sourceModeName) }.getOrDefault(LibraryViewMode.Saved)
+        runCatching { LibraryViewMode.valueOf(sourceModeName) }.getOrDefault(LibraryViewMode.All)
     }
     var selectedProviderId by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedTypeName by rememberSaveable { mutableStateOf<String?>(null) }
@@ -179,9 +194,13 @@ fun LibraryScreen(
     var selectedCloudItemKey by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedLibrarySectionKey by rememberSaveable { mutableStateOf<String?>(null) }
     var selectedLibraryType by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedLibraryGenreKey by rememberSaveable { mutableStateOf<String?>(null) }
     var downloadManagementState by rememberSaveable(
         stateSaver = DownloadLibraryManagementStateSaver,
     ) { mutableStateOf(DownloadLibraryManagementState()) }
+    var downloadManagementProfileId by rememberSaveable {
+        mutableIntStateOf(profileState.activeProfile?.profileIndex ?: ProfileRepository.activeProfileId)
+    }
     var downloadMenuTarget by remember { mutableStateOf<DownloadLibraryMenuTarget?>(null) }
     val coroutineScope = rememberCoroutineScope()
     val listState = rememberLazyListState()
@@ -189,38 +208,11 @@ fun LibraryScreen(
     val offlineArtworkFallbacks = remember(offlineLibraryUiState.titles) {
         offlineLibraryUiState.titles.mapNotNull { title -> title.toLibraryArtworkFallback() }
     }
-    val savedSections = remember(uiState.sections, offlineArtworkFallbacks) {
-        uiState.sections.map { section ->
-            section.copy(
-                items = section.items.map { item -> item.withArtworkFallback(offlineArtworkFallbacks) },
-            )
-        }
+    val selectedSourceItems = remember(uiState.items, offlineArtworkFallbacks) {
+        uiState.items.map { item -> item.withArtworkFallback(offlineArtworkFallbacks) }
     }
-    val effectiveSortOption = effectiveLibrarySortOption(
-        selected = displaySettings.sortOption,
-        sourceMode = uiState.sourceMode,
-    )
-    val sortedSections = remember(savedSections, displaySettings.sortOption, uiState.sourceMode) {
-        sortLibrarySections(
-            sections = savedSections,
-            selected = displaySettings.sortOption,
-            sourceMode = uiState.sourceMode,
-        )
-    }
-    val verticalProjection = remember(
-        savedSections,
-        uiState.sourceMode,
-        selectedLibrarySectionKey,
-        selectedLibraryType,
-        displaySettings.sortOption,
-    ) {
-        buildLibraryVerticalProjection(
-            sections = savedSections,
-            sourceMode = uiState.sourceMode,
-            selectedSectionKey = selectedLibrarySectionKey,
-            selectedType = selectedLibraryType,
-            sortOption = displaySettings.sortOption,
-        )
+    val localItems = remember(uiState.localItems, offlineArtworkFallbacks) {
+        uiState.localItems.map { item -> item.withArtworkFallback(offlineArtworkFallbacks) }
     }
     val completedDownloadLibrary = remember(downloadsUiState.completedItems) {
         buildCompletedDownloadLibrary(downloadsUiState.completedItems)
@@ -236,59 +228,110 @@ fun LibraryScreen(
     val downloadedMovieTitle = stringResource(Res.string.media_movies)
     val downloadedSeriesTitle = stringResource(Res.string.media_series)
     val downloadedSections = remember(downloadedItems, downloadedMovieTitle, downloadedSeriesTitle) {
-        downloadedItems
-            .groupBy { item -> canonicalOfflineMetaType(item.type) }
-            .map { (type, items) ->
-                LibrarySection(
-                    type = type,
-                    displayTitle = when (type) {
-                        "movie" -> downloadedMovieTitle
-                        "series", "show", "tv", "tvshow" -> downloadedSeriesTitle
-                        else -> type.toLibraryDisplayTitle()
-                    },
-                    items = items,
-                )
-            }
-            .sortedBy { section -> section.displayTitle }
+        buildTitleLibrarySections(downloadedItems, downloadedMovieTitle, downloadedSeriesTitle)
     }
-    val downloadedSortOption = LibrarySortOption.ADDED_DESC
-    val sortedDownloadedSections = remember(downloadedSections) {
+    val downloadedKeys = remember(downloadedItems) {
+        downloadedItems.mapTo(linkedSetOf(), ::libraryDisplayItemKey)
+    }
+    val allTitleItems = remember(localItems, selectedSourceItems, downloadedItems) {
+        mergeAllLibraryTitleItems(
+            localItems = localItems,
+            selectedSourceItems = selectedSourceItems,
+            downloadedItems = downloadedItems,
+        )
+    }
+    val allTitleSections = remember(allTitleItems, downloadedMovieTitle, downloadedSeriesTitle) {
+        buildTitleLibrarySections(allTitleItems, downloadedMovieTitle, downloadedSeriesTitle)
+    }
+    val titleSourceMode = LibrarySourceMode.LOCAL
+    val unfilteredTitleSections = when (sourceMode) {
+        LibraryViewMode.All -> allTitleSections
+        LibraryViewMode.Downloaded -> downloadedSections
+        LibraryViewMode.Cloud -> emptyList()
+    }
+    val availableGenreOptions = remember(unfilteredTitleSections) {
+        availableLibraryGenreOptions(unfilteredTitleSections)
+    }
+    val effectiveGenreKey = remember(selectedLibraryGenreKey, availableGenreOptions) {
+        effectiveLibraryGenreSelection(
+            selectedGenreKey = selectedLibraryGenreKey,
+            availableGenres = availableGenreOptions,
+        )
+    }
+    val watchedFilteredTitleSections = remember(
+        unfilteredTitleSections,
+        displaySettings.watchedFilter,
+        watchedUiState.watchedKeys,
+        fullyWatchedSeriesKeys,
+    ) {
+        filterLibrarySectionsByWatchedState(
+            sections = unfilteredTitleSections,
+            filter = displaySettings.watchedFilter,
+            watchedKeys = watchedUiState.watchedKeys,
+            fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+        )
+    }
+    val filteredTitleSections = remember(watchedFilteredTitleSections, effectiveGenreKey) {
+        filterLibrarySectionsByGenre(
+            sections = watchedFilteredTitleSections,
+            selectedGenreKey = effectiveGenreKey,
+        )
+    }
+    val effectiveSortOption = effectiveLibrarySortOption(
+        selected = displaySettings.sortOption,
+        sourceMode = titleSourceMode,
+    )
+    val sortedSections = remember(filteredTitleSections, displaySettings.sortOption, titleSourceMode) {
         sortLibrarySections(
-            sections = downloadedSections,
-            selected = downloadedSortOption,
-            sourceMode = LibrarySourceMode.LOCAL,
+            sections = filteredTitleSections,
+            selected = displaySettings.sortOption,
+            sourceMode = titleSourceMode,
         )
     }
-    val downloadedVerticalProjection = remember(downloadedSections) {
+    val verticalProjection = remember(
+        filteredTitleSections,
+        titleSourceMode,
+        selectedLibrarySectionKey,
+        selectedLibraryType,
+        displaySettings.sortOption,
+    ) {
         buildLibraryVerticalProjection(
-            sections = downloadedSections,
-            sourceMode = LibrarySourceMode.LOCAL,
-            selectedSectionKey = null,
-            selectedType = null,
-            sortOption = downloadedSortOption,
+            sections = filteredTitleSections,
+            sourceMode = titleSourceMode,
+            selectedSectionKey = selectedLibrarySectionKey,
+            selectedType = selectedLibraryType,
+            sortOption = displaySettings.sortOption,
         )
     }
-    val downloadedHorizontalSections = remember(sortedDownloadedSections) {
-        sortedDownloadedSections.map { section ->
-            LibraryDisplaySection(
-                source = section,
-                type = "downloaded:${section.type}",
-                displayTitle = section.displayTitle,
-                previewEntries = section.items.map { item ->
-                    LibraryDisplayEntry(
-                        globalKey = "downloaded|${item.type}|${item.id}",
-                        item = item,
-                        section = section,
-                        exiting = false,
-                    )
-                },
-            )
-        }
+    val staticHorizontalSections = remember(sortedSections, sourceMode) {
+        staticLibraryDisplaySections(
+            sections = sortedSections,
+            keyPrefix = sourceMode.name.lowercase(),
+        )
     }
     val downloadMenuDescription = stringResource(Res.string.downloads_menu_generic)
     val downloadSelectedDescription = stringResource(Res.string.downloads_selected)
     val downloadPartiallySelectedDescription = stringResource(Res.string.downloads_partial_selected)
     val downloadNotSelectedDescription = stringResource(Res.string.downloads_not_selected)
+    val offlineTitleRequiresInternetText = stringResource(Res.string.library_offline_title_requires_internet)
+    val titlePosterAvailability: (LibraryItem) -> NuvioPosterAvailability = { item ->
+        libraryPosterAvailability(
+            isOfflineLike = networkStatusUiState.isOfflineLike,
+            isDownloaded = libraryDisplayItemKey(item) in downloadedKeys,
+        )
+    }
+    val onTitlePosterClick: (LibraryItem) -> Unit = { item ->
+        if (
+            shouldOpenLibraryTitle(
+                isOfflineLike = networkStatusUiState.isOfflineLike,
+                isDownloaded = libraryDisplayItemKey(item) in downloadedKeys,
+            )
+        ) {
+            onPosterClick?.invoke(item)
+        } else {
+            NuvioToastController.show(offlineTitleRequiresInternetText)
+        }
+    }
     val retryLibraryLoad: () -> Unit = {
         NetworkStatusRepository.requestRefresh(force = true)
         coroutineScope.launch {
@@ -332,8 +375,12 @@ fun LibraryScreen(
 
     LaunchedEffect(sourceMode, cloudSettings.cloudLibraryEnabled, cloudSettings.providerApiKeys) {
         if (sourceMode == LibraryViewMode.Cloud) {
-            CloudLibraryRepository.ensureLoaded()
-            selectedCloudItemKey = null
+            if (cloudSettings.hasCloudLibraryProvider) {
+                CloudLibraryRepository.ensureLoaded()
+                selectedCloudItemKey = null
+            } else {
+                sourceModeName = LibraryViewMode.All.name
+            }
         }
     }
 
@@ -354,12 +401,16 @@ fun LibraryScreen(
         }
     }
 
-    LaunchedEffect(profileState.activeProfile?.profileIndex) {
-        downloadManagementState = reduceDownloadLibraryManagement(
-            downloadManagementState,
-            DownloadLibraryManagementEvent.ProfileChanged,
-        )
-        downloadMenuTarget = null
+    val activeProfileId = profileState.activeProfile?.profileIndex
+    LaunchedEffect(activeProfileId) {
+        if (shouldResetDownloadManagementForProfile(downloadManagementProfileId, activeProfileId)) {
+            downloadManagementState = reduceDownloadLibraryManagement(
+                downloadManagementState,
+                DownloadLibraryManagementEvent.ProfileChanged,
+            )
+            downloadMenuTarget = null
+        }
+        activeProfileId?.let { downloadManagementProfileId = it }
     }
 
     LaunchedEffect(downloadsUiState.completedItems) {
@@ -369,9 +420,24 @@ fun LibraryScreen(
         )
     }
 
+    LaunchedEffect(downloadManagementState.isManaging) {
+        onDownloadManagementActiveChange(downloadManagementState.isManaging)
+    }
+
+    PlatformBackHandler(enabled = downloadManagementState.isManaging) {
+        downloadManagementState = reduceDownloadLibraryManagement(
+            downloadManagementState,
+            DownloadLibraryManagementEvent.Done,
+        )
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { onDownloadManagementActiveChange(false) }
+    }
+
     val disintegration = remember { LibraryDisintegrationHolder() }
     val librarySectionsDisplay = if (
-        sourceMode != LibraryViewMode.Cloud &&
+        sourceMode == LibraryViewMode.All &&
         displaySettings.layoutMode == LibraryLayoutMode.HORIZONTAL &&
         uiState.isLoaded &&
         sortedSections.isNotEmpty()
@@ -384,7 +450,14 @@ fun LibraryScreen(
         )
     } else {
         disintegration.reset()
-        emptyList()
+        if (
+            sourceMode == LibraryViewMode.All &&
+            displaySettings.layoutMode == LibraryLayoutMode.HORIZONTAL
+        ) {
+            staticHorizontalSections
+        } else {
+            emptyList()
+        }
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
@@ -392,7 +465,11 @@ fun LibraryScreen(
         val managerContainer = remember(maxWidth, maxHeight) {
             resolveDownloadManagerContainer(maxWidth, maxHeight)
         }
-        val managerClearance = downloadManagerGridBottomClearance()
+        val managerClearance = if (downloadManagementState.isManaging) {
+            downloadManagerGridBottomClearance()
+        } else {
+            0.dp
+        }
 
         NuvioScreen(
             modifier = Modifier.fillMaxSize(),
@@ -412,102 +489,64 @@ fun LibraryScreen(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         NuvioScreenHeader(
-                            title = if (
-                                sourceMode == LibraryViewMode.Cloud ||
-                                sourceMode == LibraryViewMode.Downloaded
-                            ) {
-                                stringResource(Res.string.library_title)
-                            } else {
-                                when (uiState.sourceMode) {
-                                    LibrarySourceMode.LOCAL -> stringResource(Res.string.library_title)
-                                    LibrarySourceMode.TRAKT -> stringResource(Res.string.library_trakt_title)
-                                    LibrarySourceMode.SIMKL -> stringResource(Res.string.library_simkl_title)
-                                }
-                            },
+                            title = stringResource(Res.string.library_title),
                             modifier = Modifier.padding(horizontal = 16.dp),
+                            actionsLayout = NuvioScreenHeaderActionsLayout.Adaptive,
                             actions = {
-                                if (onDownloadsClick != null) {
-                                    IconButton(onClick = onDownloadsClick) {
-                                        Icon(
-                                            imageVector = Icons.Rounded.Download,
-                                            contentDescription = stringResource(
-                                                Res.string.downloads_activity_title,
-                                            ),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                                if (sourceMode == LibraryViewMode.Downloaded) {
-                                    Box(modifier = Modifier.width(DownloadManagerToolbarSlotWidth)) {
-                                        TextButton(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            enabled = downloadedItems.isNotEmpty() || downloadManagementState.isManaging,
-                                            contentPadding = PaddingValues(horizontal = 4.dp),
-                                            onClick = {
-                                                downloadManagementState = reduceDownloadLibraryManagement(
-                                                    downloadManagementState,
-                                                    if (downloadManagementState.isManaging) {
-                                                        DownloadLibraryManagementEvent.Done
-                                                    } else {
-                                                        DownloadLibraryManagementEvent.EnterManage
-                                                    },
-                                                )
-                                            },
-                                        ) {
-                                            Text(
-                                                if (downloadManagementState.isManaging) {
-                                                    stringResource(Res.string.action_done)
-                                                } else {
-                                                    stringResource(Res.string.downloads_manage)
-                                                },
-                                                maxLines = 1,
-                                            )
-                                        }
-                                    }
-                                }
-                                if (sourceMode != LibraryViewMode.Cloud) {
-                                    val targetLayout = if (displaySettings.layoutMode == LibraryLayoutMode.HORIZONTAL) {
-                                        LibraryLayoutMode.VERTICAL
-                                    } else {
-                                        LibraryLayoutMode.HORIZONTAL
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            LibraryDisplaySettingsRepository.setLayoutMode(targetLayout)
-                                        },
-                                    ) {
-                                        Crossfade(
-                                            targetState = targetLayout,
-                                            animationSpec = tween(durationMillis = 140),
-                                            label = "libraryLayoutAction",
-                                        ) { animatedTargetLayout ->
-                                            Icon(
-                                                imageVector = if (animatedTargetLayout == LibraryLayoutMode.VERTICAL) {
-                                                    Icons.Rounded.GridView
-                                                } else {
-                                                    Icons.Rounded.ViewAgenda
-                                                },
-                                                contentDescription = if (animatedTargetLayout == LibraryLayoutMode.VERTICAL) {
-                                                    stringResource(Res.string.library_layout_show_vertical)
-                                                } else {
-                                                    stringResource(Res.string.library_layout_show_horizontal)
-                                                },
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            )
-                                        }
-                                    }
-                                }
+                                RootConnectionControl(
+                                    condition = networkCondition,
+                                    state = reconnectControlState,
+                                    onRetry = onNetworkRetry,
+                                    showStatusGraphic = true,
+                                )
+                            },
+                            compactActions = {
+                                RootConnectionControl(
+                                    condition = networkCondition,
+                                    state = reconnectControlState,
+                                    onRetry = onNetworkRetry,
+                                    showStatusGraphic = false,
+                                )
                             },
                         )
-                        LibrarySourceSwitch(
+                        AdaptiveLibraryHeaderRow(
                             selectedMode = sourceMode,
-                            onModeSelected = { mode ->
-                                sourceModeName = mode.name
-                            },
+                            availableModes = availableLibraryViewModes(
+                                hasCloudLibraryProvider = cloudSettings.hasCloudLibraryProvider,
+                            ),
+                            layoutMode = displaySettings.layoutMode,
+                            hasDownloadedItems = downloadedItems.isNotEmpty(),
+                            managementState = downloadManagementState,
+                            onModeSelected = { mode -> sourceModeName = mode.name },
+                            onManagementStateChange = { downloadManagementState = it },
+                            onDownloadsClick = onDownloadsClick,
                             modifier = Modifier.padding(horizontal = 16.dp),
                         )
                         Spacer(modifier = Modifier.height(6.dp))
                     }
+                }
+            }
+
+            if (sourceMode != LibraryViewMode.Cloud && unfilteredTitleSections.isNotEmpty()) {
+                item(key = "library-title-controls") {
+                    LibrarySavedControls(
+                        layoutMode = displaySettings.layoutMode,
+                        sourceMode = titleSourceMode,
+                        sortOption = effectiveSortOption,
+                        watchedFilter = displaySettings.watchedFilter,
+                        availableGenres = availableGenreOptions,
+                        selectedGenreKey = effectiveGenreKey,
+                        verticalProjection = verticalProjection,
+                        onSectionSelected = { sectionKey ->
+                            selectedLibrarySectionKey = sectionKey
+                            selectedLibraryType = null
+                        },
+                        onTypeSelected = { type -> selectedLibraryType = type },
+                        onSortSelected = LibraryDisplaySettingsRepository::setSortOption,
+                        onWatchedFilterSelected = LibraryDisplaySettingsRepository::setWatchedFilter,
+                        onGenreSelected = { genreKey -> selectedLibraryGenreKey = genreKey },
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
                 }
             }
 
@@ -520,13 +559,19 @@ fun LibraryScreen(
                             message = stringResource(Res.string.offline_library_empty_message),
                         )
                     }
+                } else if (sortedSections.isEmpty()) {
+                    item {
+                        LibraryFilterEmptyState(
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                    }
                 } else {
                     when (displaySettings.layoutMode) {
                         LibraryLayoutMode.HORIZONTAL -> librarySections(
-                            displaySections = downloadedHorizontalSections,
+                            displaySections = staticHorizontalSections,
                             watchedKeys = watchedUiState.watchedKeys,
                             fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
-                            sortOption = downloadedSortOption,
+                            sortOption = effectiveSortOption,
                             onPosterClick = { item ->
                                 val target = item.downloadMenuTarget(completedDownloadLibrary)
                                 if (downloadManagementState.isManaging && target != null) {
@@ -561,9 +606,10 @@ fun LibraryScreen(
                             onPosterMenuClick = { item ->
                                 downloadMenuTarget = item.downloadMenuTarget(completedDownloadLibrary)
                             },
+                            availability = { NuvioPosterAvailability.Downloaded },
                         )
                         LibraryLayoutMode.VERTICAL -> libraryVerticalContent(
-                            projection = downloadedVerticalProjection,
+                            projection = verticalProjection,
                             columns = gridColumns,
                             watchedKeys = watchedUiState.watchedKeys,
                             fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
@@ -599,6 +645,7 @@ fun LibraryScreen(
                             onPosterMenuClick = { item ->
                                 downloadMenuTarget = item.downloadMenuTarget(completedDownloadLibrary)
                             },
+                            availability = { NuvioPosterAvailability.Downloaded },
                         )
                     }
                 }
@@ -639,7 +686,8 @@ fun LibraryScreen(
                 )
             } else {
                 when {
-                    !uiState.isLoaded || (uiState.isLoading && uiState.sections.isEmpty()) -> {
+                    (!uiState.isLoaded || (uiState.isLoading && uiState.sections.isEmpty())) &&
+                        unfilteredTitleSections.isEmpty() -> {
                         if (displaySettings.layoutMode == LibraryLayoutMode.VERTICAL) {
                             libraryVerticalSkeletonItems(gridColumns)
                         } else {
@@ -651,7 +699,7 @@ fun LibraryScreen(
                         }
                     }
 
-                    !uiState.errorMessage.isNullOrBlank() && uiState.sections.isEmpty() -> {
+                    !uiState.errorMessage.isNullOrBlank() && unfilteredTitleSections.isEmpty() -> {
                         item {
                             if (networkStatusUiState.isOfflineLike) {
                                 NuvioNetworkOfflineCard(
@@ -675,7 +723,7 @@ fun LibraryScreen(
                         }
                     }
 
-                    uiState.sections.isEmpty() -> {
+                    unfilteredTitleSections.isEmpty() -> {
                         item {
                             if (networkStatusUiState.isOfflineLike && isRemoteSource) {
                                 NuvioNetworkOfflineCard(
@@ -702,44 +750,35 @@ fun LibraryScreen(
                     }
 
                     else -> {
-                        item(
-                            key = "library-saved-controls:${uiState.sourceMode}:" +
-                                "${displaySettings.layoutMode}:$effectiveSortOption",
-                        ) {
-                            LibrarySavedControls(
-                                layoutMode = displaySettings.layoutMode,
-                                sourceMode = uiState.sourceMode,
-                                sortOption = effectiveSortOption,
-                                verticalProjection = verticalProjection,
-                                onSectionSelected = { sectionKey ->
-                                    selectedLibrarySectionKey = sectionKey
-                                    selectedLibraryType = null
-                                },
-                                onTypeSelected = { type -> selectedLibraryType = type },
-                                onSortSelected = LibraryDisplaySettingsRepository::setSortOption,
-                                modifier = libraryContentTransitionModifier()
-                                    .padding(horizontal = 16.dp),
-                            )
-                        }
-                        when (displaySettings.layoutMode) {
-                            LibraryLayoutMode.HORIZONTAL -> librarySections(
-                                displaySections = librarySectionsDisplay,
-                                watchedKeys = watchedUiState.watchedKeys,
-                                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
-                                sortOption = effectiveSortOption,
-                                onPosterClick = onPosterClick,
-                                onSectionViewAllClick = onSectionViewAllClick,
-                                onPosterLongClick = onPosterLongClick,
-                                onDisintegrated = disintegration::onExited,
-                            )
-                            LibraryLayoutMode.VERTICAL -> libraryVerticalContent(
-                                projection = verticalProjection,
-                                columns = gridColumns,
-                                watchedKeys = watchedUiState.watchedKeys,
-                                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
-                                onPosterClick = onPosterClick,
-                                onPosterLongClick = onPosterLongClick,
-                            )
+                        if (sortedSections.isEmpty()) {
+                            item {
+                                LibraryFilterEmptyState(
+                                    modifier = Modifier.padding(horizontal = 16.dp),
+                                )
+                            }
+                        } else {
+                            when (displaySettings.layoutMode) {
+                                LibraryLayoutMode.HORIZONTAL -> librarySections(
+                                    displaySections = librarySectionsDisplay,
+                                    watchedKeys = watchedUiState.watchedKeys,
+                                    fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                                    sortOption = effectiveSortOption,
+                                    onPosterClick = onTitlePosterClick,
+                                    onSectionViewAllClick = onSectionViewAllClick,
+                                    onPosterLongClick = onPosterLongClick,
+                                    onDisintegrated = disintegration::onExited,
+                                    availability = titlePosterAvailability,
+                                )
+                                LibraryLayoutMode.VERTICAL -> libraryVerticalContent(
+                                    projection = verticalProjection,
+                                    columns = gridColumns,
+                                    watchedKeys = watchedUiState.watchedKeys,
+                                    fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+                                    onPosterClick = onTitlePosterClick,
+                                    onPosterLongClick = onPosterLongClick,
+                                    availability = titlePosterAvailability,
+                                )
+                            }
                         }
                     }
                 }
@@ -946,30 +985,304 @@ private fun LazyListScope.cloudLibrarySkeletonItems() {
 @Composable
 private fun LibrarySourceSwitch(
     selectedMode: LibraryViewMode,
+    availableModes: List<LibraryViewMode>,
     onModeSelected: (LibraryViewMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
+        modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        LibraryChip(
-            label = stringResource(Res.string.library_source_saved),
-            selected = selectedMode == LibraryViewMode.Saved,
-            onClick = { onModeSelected(LibraryViewMode.Saved) },
+        availableModes.forEach { mode ->
+            LibraryChip(
+                label = libraryViewModeLabel(mode),
+                selected = selectedMode == mode,
+                onClick = { onModeSelected(mode) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun LibraryViewDropdown(
+    selectedMode: LibraryViewMode,
+    availableModes: List<LibraryViewMode>,
+    onModeSelected: (LibraryViewMode) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    NuvioDropdownChip(
+        title = stringResource(Res.string.library_filter_view),
+        label = libraryViewModeLabel(selectedMode),
+        selectedKey = selectedMode.name,
+        options = availableModes.map { mode ->
+            NuvioDropdownOption(key = mode.name, label = libraryViewModeLabel(mode))
+        },
+        enabled = availableModes.size > 1,
+        onSelected = { option ->
+            availableModes.firstOrNull { mode -> mode.name == option.key }?.let(onModeSelected)
+        },
+        modifier = modifier,
+    )
+}
+
+@Composable
+private fun libraryViewModeLabel(mode: LibraryViewMode): String = when (mode) {
+    LibraryViewMode.All -> stringResource(Res.string.library_source_all_titles)
+    LibraryViewMode.Downloaded -> stringResource(Res.string.offline_downloaded_title)
+    LibraryViewMode.Cloud -> stringResource(Res.string.library_source_cloud_files)
+}
+
+internal enum class LibraryHeaderPresentation {
+    InlineChoices,
+    InlineDropdown,
+    StackedDropdown,
+}
+
+internal fun resolveLibraryHeaderPresentation(
+    availableWidthPx: Int,
+    inlineChoicesWidthPx: Int,
+    dropdownWidthPx: Int,
+    actionsWidthPx: Int,
+    spacingPx: Int,
+): LibraryHeaderPresentation {
+    val actionSpacing = if (actionsWidthPx == 0) 0 else spacingPx
+    return when {
+        inlineChoicesWidthPx + actionSpacing + actionsWidthPx <= availableWidthPx ->
+            LibraryHeaderPresentation.InlineChoices
+        dropdownWidthPx + actionSpacing + actionsWidthPx <= availableWidthPx ->
+            LibraryHeaderPresentation.InlineDropdown
+        else -> LibraryHeaderPresentation.StackedDropdown
+    }
+}
+
+private enum class LibraryHeaderSlot {
+    InlineChoices,
+    Dropdown,
+    Actions,
+}
+
+@Composable
+private fun AdaptiveLibraryHeaderRow(
+    selectedMode: LibraryViewMode,
+    availableModes: List<LibraryViewMode>,
+    layoutMode: LibraryLayoutMode,
+    hasDownloadedItems: Boolean,
+    managementState: DownloadLibraryManagementState,
+    onModeSelected: (LibraryViewMode) -> Unit,
+    onManagementStateChange: (DownloadLibraryManagementState) -> Unit,
+    onDownloadsClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    SubcomposeLayout(modifier = modifier.fillMaxWidth()) { constraints ->
+        val looseConstraints = constraints.copy(
+            minWidth = 0,
+            minHeight = 0,
+            maxWidth = Constraints.Infinity,
         )
-        LibraryChip(
-            label = stringResource(Res.string.offline_downloaded_title),
-            selected = selectedMode == LibraryViewMode.Downloaded,
-            onClick = { onModeSelected(LibraryViewMode.Downloaded) },
+        val inlineChoices = subcompose(LibraryHeaderSlot.InlineChoices) {
+            LibrarySourceSwitch(
+                selectedMode = selectedMode,
+                availableModes = availableModes,
+                onModeSelected = onModeSelected,
+            )
+        }.single().measure(looseConstraints)
+        val dropdown = subcompose(LibraryHeaderSlot.Dropdown) {
+            LibraryViewDropdown(
+                selectedMode = selectedMode,
+                availableModes = availableModes,
+                onModeSelected = onModeSelected,
+            )
+        }.single().measure(looseConstraints)
+        val actions = subcompose(LibraryHeaderSlot.Actions) {
+            LibraryHeaderActions(
+                sourceMode = selectedMode,
+                layoutMode = layoutMode,
+                hasDownloadedItems = hasDownloadedItems,
+                managementState = managementState,
+                onManagementStateChange = onManagementStateChange,
+                onDownloadsClick = onDownloadsClick,
+            )
+        }.single().measure(looseConstraints)
+        val spacingPx = 12.dp.roundToPx()
+        val presentation = resolveLibraryHeaderPresentation(
+            availableWidthPx = constraints.maxWidth,
+            inlineChoicesWidthPx = inlineChoices.width,
+            dropdownWidthPx = dropdown.width,
+            actionsWidthPx = actions.width,
+            spacingPx = spacingPx,
         )
-        LibraryChip(
-            label = stringResource(Res.string.library_source_cloud),
-            selected = selectedMode == LibraryViewMode.Cloud,
-            onClick = { onModeSelected(LibraryViewMode.Cloud) },
-        )
+        val controls = when (presentation) {
+            LibraryHeaderPresentation.InlineChoices -> inlineChoices
+            LibraryHeaderPresentation.InlineDropdown,
+            LibraryHeaderPresentation.StackedDropdown,
+            -> dropdown
+        }
+        val isStacked = presentation == LibraryHeaderPresentation.StackedDropdown
+        val height = if (isStacked) {
+            controls.height + 4.dp.roundToPx() + actions.height
+        } else {
+            maxOf(controls.height, actions.height)
+        }
+
+        layout(constraints.maxWidth, height) {
+            controls.placeRelative(
+                x = 0,
+                y = if (isStacked) 0 else (height - controls.height) / 2,
+            )
+            actions.placeRelative(
+                x = (constraints.maxWidth - actions.width).coerceAtLeast(0),
+                y = if (isStacked) {
+                    controls.height + 4.dp.roundToPx()
+                } else {
+                    (height - actions.height) / 2
+                },
+            )
+        }
+    }
+}
+
+internal enum class LibraryHeaderAction {
+    ManageDownloads,
+    DownloadActivity,
+    ViewMode,
+}
+
+internal fun libraryHeaderActionOrder(
+    sourceMode: LibraryViewMode,
+    hasDownloadActivity: Boolean,
+): List<LibraryHeaderAction> = buildList {
+    if (sourceMode == LibraryViewMode.Downloaded) add(LibraryHeaderAction.ManageDownloads)
+    if (hasDownloadActivity) add(LibraryHeaderAction.DownloadActivity)
+    if (sourceMode != LibraryViewMode.Cloud) add(LibraryHeaderAction.ViewMode)
+}
+
+internal enum class LibraryManageActionLabel {
+    Select,
+    Close,
+}
+
+internal enum class LibraryHeaderActionColorFamily {
+    Muted,
+}
+
+internal data class LibraryManageActionPresentation(
+    val label: LibraryManageActionLabel,
+    val enabled: Boolean,
+    val colorFamily: LibraryHeaderActionColorFamily = LibraryHeaderActionColorFamily.Muted,
+)
+
+internal fun libraryManageActionPresentation(
+    isManaging: Boolean,
+    hasDownloadedItems: Boolean,
+): LibraryManageActionPresentation = LibraryManageActionPresentation(
+    label = if (isManaging) LibraryManageActionLabel.Close else LibraryManageActionLabel.Select,
+    enabled = hasDownloadedItems || isManaging,
+)
+
+@Composable
+private fun LibraryHeaderActions(
+    sourceMode: LibraryViewMode,
+    layoutMode: LibraryLayoutMode,
+    hasDownloadedItems: Boolean,
+    managementState: DownloadLibraryManagementState,
+    onManagementStateChange: (DownloadLibraryManagementState) -> Unit,
+    onDownloadsClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val mutedColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val actions = libraryHeaderActionOrder(
+        sourceMode = sourceMode,
+        hasDownloadActivity = onDownloadsClick != null,
+    )
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        actions.forEach { action ->
+            when (action) {
+                LibraryHeaderAction.ManageDownloads -> {
+                    val presentation = libraryManageActionPresentation(
+                        isManaging = managementState.isManaging,
+                        hasDownloadedItems = hasDownloadedItems,
+                    )
+                    if (presentation.label == LibraryManageActionLabel.Close) {
+                        Box(
+                            modifier = Modifier.width(NuvioTokens.Space.s48),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            NuvioQuietActionButton(
+                                icon = Icons.Rounded.Close,
+                                contentDescription = stringResource(Res.string.downloads_exit_selection),
+                                style = NuvioQuietActionStyle.Selected,
+                                onClick = {
+                                    onManagementStateChange(
+                                        reduceDownloadLibraryManagement(
+                                            managementState,
+                                            DownloadLibraryManagementEvent.Done,
+                                        ),
+                                    )
+                                },
+                            )
+                        }
+                    } else {
+                        NuvioQuietActionButton(
+                            label = stringResource(Res.string.downloads_select),
+                            enabled = presentation.enabled,
+                            onClick = {
+                                onManagementStateChange(
+                                    reduceDownloadLibraryManagement(
+                                        managementState,
+                                        DownloadLibraryManagementEvent.EnterManage,
+                                    ),
+                                )
+                            },
+                        )
+                    }
+                }
+
+                LibraryHeaderAction.DownloadActivity -> {
+                    IconButton(onClick = requireNotNull(onDownloadsClick)) {
+                        Icon(
+                            imageVector = Icons.Rounded.Download,
+                            contentDescription = stringResource(Res.string.downloads_activity_title),
+                            tint = mutedColor,
+                        )
+                    }
+                }
+
+                LibraryHeaderAction.ViewMode -> {
+                    val targetLayout = if (layoutMode == LibraryLayoutMode.HORIZONTAL) {
+                        LibraryLayoutMode.VERTICAL
+                    } else {
+                        LibraryLayoutMode.HORIZONTAL
+                    }
+                    IconButton(
+                        onClick = { LibraryDisplaySettingsRepository.setLayoutMode(targetLayout) },
+                    ) {
+                        Crossfade(
+                            targetState = targetLayout,
+                            animationSpec = tween(durationMillis = 140),
+                            label = "libraryLayoutAction",
+                        ) { animatedTargetLayout ->
+                            Icon(
+                                imageVector = if (animatedTargetLayout == LibraryLayoutMode.VERTICAL) {
+                                    Icons.Rounded.GridView
+                                } else {
+                                    Icons.Rounded.ViewAgenda
+                                },
+                                contentDescription = if (animatedTargetLayout == LibraryLayoutMode.VERTICAL) {
+                                    stringResource(Res.string.library_layout_show_vertical)
+                                } else {
+                                    stringResource(Res.string.library_layout_show_horizontal)
+                                },
+                                tint = mutedColor,
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1487,10 +1800,81 @@ private fun CloudSkeletonBlock(
     )
 }
 
-private enum class LibraryViewMode {
-    Saved,
+internal enum class LibraryViewMode {
+    All,
     Downloaded,
     Cloud,
+}
+
+internal fun availableLibraryViewModes(
+    hasCloudLibraryProvider: Boolean,
+): List<LibraryViewMode> = buildList {
+    add(LibraryViewMode.All)
+    add(LibraryViewMode.Downloaded)
+    if (hasCloudLibraryProvider) add(LibraryViewMode.Cloud)
+}
+
+internal fun libraryPosterAvailability(
+    isOfflineLike: Boolean,
+    isDownloaded: Boolean,
+): NuvioPosterAvailability = when {
+    isDownloaded -> NuvioPosterAvailability.Downloaded
+    isOfflineLike -> NuvioPosterAvailability.InternetRequired
+    else -> NuvioPosterAvailability.None
+}
+
+internal fun shouldOpenLibraryTitle(
+    isOfflineLike: Boolean,
+    isDownloaded: Boolean,
+): Boolean = !isOfflineLike || isDownloaded
+
+internal fun buildTitleLibrarySections(
+    items: List<LibraryItem>,
+    movieTitle: String,
+    seriesTitle: String,
+): List<LibrarySection> = items
+    .groupBy { item -> item.type.canonicalLibraryContentType() }
+    .map { (type, groupedItems) ->
+        LibrarySection(
+            type = type,
+            displayTitle = when (type) {
+                "movie" -> movieTitle
+                "series" -> seriesTitle
+                else -> type.toLibraryDisplayTitle()
+            },
+            items = groupedItems,
+        )
+    }
+    .sortedBy(LibrarySection::displayTitle)
+
+private fun staticLibraryDisplaySections(
+    sections: List<LibrarySection>,
+    keyPrefix: String,
+): List<LibraryDisplaySection> = sections.map { section ->
+    LibraryDisplaySection(
+        source = section,
+        type = "$keyPrefix:${section.type}",
+        displayTitle = section.displayTitle,
+        previewEntries = section.items.map { item ->
+            LibraryDisplayEntry(
+                globalKey = "$keyPrefix|${item.type}|${item.id}",
+                item = item,
+                section = section,
+                exiting = false,
+            )
+        },
+    )
+}
+
+@Composable
+private fun LibraryFilterEmptyState(
+    modifier: Modifier = Modifier,
+) {
+    HomeEmptyStateCard(
+        modifier = modifier,
+        title = stringResource(Res.string.library_filter_empty_title),
+        message = stringResource(Res.string.library_filter_empty_message),
+    )
 }
 
 @Composable
@@ -1551,6 +1935,7 @@ private fun LazyListScope.librarySections(
     onSectionViewAllClick: ((LibrarySection, LibrarySortOption) -> Unit)?,
     onPosterLongClick: ((LibraryItem, LibrarySection) -> Unit)?,
     onDisintegrated: (String) -> Unit,
+    availability: (LibraryItem) -> NuvioPosterAvailability = { NuvioPosterAvailability.None },
     posterSelectionState: (LibraryItem) -> NuvioPosterSelectionState = { NuvioPosterSelectionState.None },
     selectionContentDescription: ((LibraryItem) -> String?)? = null,
     menuContentDescription: ((LibraryItem) -> String?)? = null,
@@ -1587,6 +1972,7 @@ private fun LazyListScope.librarySections(
                         item = posterItem,
                         fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                     ),
+                    availability = availability(item),
                     onClick = if (entry.exiting) null else onPosterClick?.let { { it(item) } },
                     onLongClick = if (entry.exiting || entrySource == null) {
                         null

@@ -61,10 +61,10 @@ internal fun CatalogDestination(
         onPosterLongClick = { meta: MetaPreview ->
             onPosterLongClick(
                 if (target is CatalogTarget.Library) {
-                    PosterActionTarget(
-                        preview = meta,
-                        libraryItem = meta.toLibraryItem(savedAtEpochMs = 0L),
-                        libraryListKey = target.sectionType,
+                    libraryPosterActionTarget(
+                        item = meta.toLibraryItem(savedAtEpochMs = 0L),
+                        displaySectionKey = target.sectionType,
+                        membershipListKey = target.membershipListKey,
                     )
                 } else {
                     PosterActionTarget(preview = meta)

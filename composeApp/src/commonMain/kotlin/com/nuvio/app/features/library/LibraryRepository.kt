@@ -514,6 +514,26 @@ object LibraryRepository {
         )
     }
 
+    internal suspend fun removeFromActiveLibrarySource(
+        item: LibraryItem,
+        confirmedRemovalProviders: Set<TrackingProviderId> = emptySet(),
+    ): TrackingMembershipApplyResult {
+        ensureLoaded()
+        val provider = activeLibraryProvider()
+        if (provider == null) {
+            remove(item.id, item.type)
+            return TrackingMembershipApplyResult()
+        }
+        val currentMembership = provider.membership(item)
+        return applyMembershipChanges(
+            item = item,
+            desiredMembership = currentMembership.mapValues { false },
+            confirmedRemovalProviders = confirmedRemovalProviders,
+            targetProviderIds = setOf(provider.providerId),
+            updateLocal = false,
+        )
+    }
+
     private fun pushToServer(
         snapshot: LibraryLocalSnapshot,
         delayMs: Long = pushDebounceMs,
@@ -581,6 +601,8 @@ object LibraryRepository {
 
     private fun publish() {
         val localSnapshot = localState.snapshot()
+        val localItems = localSnapshot.items
+            .sortedByDescending { it.savedAtEpochMs }
         val sourceMode = effectiveLibrarySourceMode()
         activeLibraryProvider(sourceMode)?.let { provider ->
             val providerSnapshot = provider.snapshot()
@@ -588,6 +610,7 @@ object LibraryRepository {
                 sourceMode = sourceMode,
                 items = providerSnapshot.items,
                 sections = providerSnapshot.sections,
+                localItems = localItems,
                 isLoaded = providerSnapshot.hasLoaded,
                 isLoading = providerSnapshot.isLoading,
                 errorMessage = providerSnapshot.errorMessage,
@@ -598,8 +621,7 @@ object LibraryRepository {
             return
         }
 
-        val items = localSnapshot.items
-            .sortedByDescending { it.savedAtEpochMs }
+        val items = localItems
         val sections = items
             .groupBy { it.type }
             .map { (type, typeItems) ->
@@ -615,6 +637,7 @@ object LibraryRepository {
             sourceMode = LibrarySourceMode.LOCAL,
             items = items,
             sections = sections,
+            localItems = localItems,
             isLoaded = localSnapshot.hasLoaded,
             isLoading = localSnapshot.isLoading,
             errorMessage = null,

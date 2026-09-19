@@ -115,6 +115,7 @@ internal fun TabletPageHeader(
     title: String,
     showBack: Boolean,
     onBack: () -> Unit,
+    hideBackWhenNativeNavigationVisible: Boolean = true,
 ) {
     val tokens = MaterialTheme.nuvio
     Box(
@@ -140,6 +141,7 @@ internal fun TabletPageHeader(
                     contentColor = tokens.colors.textPrimary,
                     buttonSize = NuvioTokens.Space.s36,
                     iconSize = tokens.icons.md,
+                    hideWhenNativeNavigationVisible = hideBackWhenNativeNavigationVisible,
                 )
             }
             Text(

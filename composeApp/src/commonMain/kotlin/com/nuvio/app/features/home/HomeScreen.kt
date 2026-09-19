@@ -1,11 +1,18 @@
 package com.nuvio.app.features.home
 
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,7 +34,9 @@ import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
+import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioShelfSection
+import com.nuvio.app.core.ui.nuvioConsumePointerEvents
 import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.core.ui.rememberHeroStretchState
 import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
@@ -113,6 +122,9 @@ import kotlinx.coroutines.yield
 import com.nuvio.app.features.home.components.continueWatchingHeroViewportReserveHeight
 import com.nuvio.app.features.home.components.homeSectionHorizontalPaddingForWidth
 import com.nuvio.app.features.home.components.rememberContinueWatchingLayout
+import com.nuvio.app.ReconnectControlState
+import com.nuvio.app.RootConnectionControl
+import com.nuvio.app.core.ui.NuvioScreenHeaderActionsLayout
 import kotlinx.coroutines.CancellationException
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.stringResource
@@ -120,6 +132,10 @@ import org.jetbrains.compose.resources.stringResource
 @Composable
 fun HomeScreen(
     modifier: Modifier = Modifier,
+    topPadding: Dp? = null,
+    networkCondition: NetworkCondition = NetworkCondition.Unknown,
+    reconnectControlState: ReconnectControlState = ReconnectControlState.Hidden,
+    onNetworkRetry: () -> Unit = {},
     animateCollectionGifs: Boolean = true,
     scrollToTopRequests: Flow<Unit> = emptyFlow(),
     presentationResetGeneration: Long = 0L,
@@ -162,10 +178,10 @@ fun HomeScreen(
     val effectiveWatchProgressSource = watchProgressUiState.source
     val cloudLibraryUiState by CloudLibraryRepository.uiState.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
-    val homePresentation = remember(networkStatusUiState.condition) {
-        homePresentationFor(networkStatusUiState)
-    }
     val networkRecoveryUiState by NetworkRecoveryCoordinator.uiState.collectAsStateWithLifecycle()
+    val homePresentation = remember(networkStatusUiState, networkRecoveryUiState) {
+        homePresentationFor(networkStatusUiState, networkRecoveryUiState)
+    }
     val downloadsUiState by remember {
         DownloadsRepository.ensureLoaded()
         DownloadsRepository.uiState
@@ -483,25 +499,17 @@ fun HomeScreen(
     val locallyPlayableContinueWatchingItems = remember(
         activeProfileId,
         allContinueWatchingItems,
-        networkStatusUiState.condition,
+        homePresentation.mode,
         downloadsUiState.completedItems,
         offlineLibraryUiState.titles,
     ) {
-        if (homePresentation.mode == HomePresentationMode.Online) {
-            resolveHomeContinueWatchingArtwork(
-                items = allContinueWatchingItems,
-                offlineTitles = offlineLibraryUiState.titles,
-                profileId = activeProfileId,
-                allowRemote = true,
-            )
-        } else {
-            resolveHomeContinueWatchingForOffline(
-                items = allContinueWatchingItems,
-                downloads = downloadsUiState.completedItems,
-                offlineTitles = offlineLibraryUiState.titles,
-                profileId = activeProfileId,
-            )
-        }
+        resolveHomeContinueWatchingForPresentation(
+            mode = homePresentation.mode,
+            items = allContinueWatchingItems,
+            downloads = downloadsUiState.completedItems,
+            offlineTitles = offlineLibraryUiState.titles,
+            profileId = activeProfileId,
+        )
     }
     val (continueWatchingItems, upcomingItems) = remember(
         locallyPlayableContinueWatchingItems,
@@ -957,9 +965,50 @@ fun HomeScreen(
         NuvioScreen(
             modifier = Modifier.fillMaxSize().then(heroStretchModifier),
             horizontalPadding = 0.dp,
-            topPadding = if (showHeroSlot) 0.dp else null,
+            topPadding = when {
+                homePresentation.mode == HomePresentationMode.Offline -> topPadding
+                showHeroSlot -> 0.dp
+                else -> null
+            },
             listState = homeListState,
         ) {
+            if (homePresentation.mode == HomePresentationMode.Offline) {
+                stickyHeader(key = "offline-home-header") {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Box(
+                            modifier = Modifier
+                                .matchParentSize()
+                                .background(MaterialTheme.colorScheme.background)
+                                .nuvioConsumePointerEvents(),
+                        )
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            NuvioScreenHeader(
+                                title = stringResource(Res.string.home_offline_mode),
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                actionsLayout = NuvioScreenHeaderActionsLayout.Adaptive,
+                                actions = {
+                                    RootConnectionControl(
+                                        condition = networkCondition,
+                                        state = reconnectControlState,
+                                        onRetry = onNetworkRetry,
+                                        showStatusGraphic = true,
+                                    )
+                                },
+                                compactActions = {
+                                    RootConnectionControl(
+                                        condition = networkCondition,
+                                        state = reconnectControlState,
+                                        onRetry = onNetworkRetry,
+                                        showStatusGraphic = false,
+                                    )
+                                },
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
+                    }
+                }
+            }
+
             if (showHeroSlot) {
                 item {
                     when {
@@ -1689,6 +1738,27 @@ internal fun resolveHomeContinueWatchingArtwork(
             episodeNumber = item.episodeNumber,
         ),
         allowRemote = allowRemote,
+    )
+}
+
+internal fun resolveHomeContinueWatchingForPresentation(
+    mode: HomePresentationMode,
+    items: List<ContinueWatchingItem>,
+    downloads: List<DownloadItem>,
+    offlineTitles: List<OfflineTitle>,
+    profileId: Int,
+): List<ContinueWatchingItem> = when (mode) {
+    HomePresentationMode.Online -> resolveHomeContinueWatchingArtwork(
+        items = items,
+        offlineTitles = offlineTitles,
+        profileId = profileId,
+        allowRemote = true,
+    )
+    HomePresentationMode.Offline -> resolveHomeContinueWatchingForOffline(
+        items = items,
+        downloads = downloads,
+        offlineTitles = offlineTitles,
+        profileId = profileId,
     )
 }
 

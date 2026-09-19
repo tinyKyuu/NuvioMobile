@@ -39,4 +39,16 @@ class TrackingAuthConfigurationTest {
             ),
         )
     }
+
+    @Test
+    fun `case-only redirect mismatch makes configuration unavailable`() {
+        assertEquals(
+            TrackingAuthConfigurationStatus.UNSUPPORTED_REDIRECT_URI,
+            trackingAuthConfigurationStatus(
+                requiredValues = listOf("client"),
+                redirectUri = "com.tinykyuu.nuvio://auth/Simkl",
+                supportedRedirectUri = "com.tinykyuu.nuvio://auth/simkl",
+            ),
+        )
+    }
 }

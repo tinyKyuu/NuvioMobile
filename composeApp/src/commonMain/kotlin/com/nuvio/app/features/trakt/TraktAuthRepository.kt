@@ -8,6 +8,8 @@ import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.tracking.TrackingAuthProvider
 import com.nuvio.app.features.tracking.TrackingCapability
 import com.nuvio.app.features.tracking.TrackingAuthConfigurationStatus
+import com.nuvio.app.features.tracking.TrackingAuthProfileSession
+import com.nuvio.app.features.tracking.TrackingAuthProfileSessionGuard
 import com.nuvio.app.features.tracking.TrackingProviderDescriptor
 import com.nuvio.app.features.tracking.TrackingProviderId
 import com.nuvio.app.features.tracking.TrackingProviderRegistry
@@ -28,7 +30,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlin.random.Random
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.StringResource
@@ -76,8 +77,8 @@ object TraktAuthRepository : TrackingAuthProvider {
     }
 
     private var hasLoaded = false
-    private var currentProfileId: Int = 1
-    private var profileGeneration: Long = 0L
+    private val profileSessions = TrackingAuthProfileSessionGuard(ProfileRepository.activeProfileId)
+    private val currentProfileId: Int get() = profileSessions.profileId
     private var authState = TraktAuthState()
 
     override fun ensureLoaded() {
@@ -100,8 +101,7 @@ object TraktAuthRepository : TrackingAuthProvider {
     override fun clearLocalState() {
         TraktWatchedShowSnapshotRepository.clear()
         hasLoaded = false
-        currentProfileId = 1
-        profileGeneration += 1L
+        profileSessions.invalidate()
         authState = TraktAuthState()
         publish()
     }
@@ -132,7 +132,7 @@ object TraktAuthRepository : TrackingAuthProvider {
             return null
         }
 
-        val oauthState = generateOauthState()
+        val oauthState = generateTraktOauthState()
         authState = authState.copy(
             pendingAuthorizationState = oauthState,
             pendingAuthorizationStartedAtMillis = TraktPlatformClock.nowEpochMs(),
@@ -149,6 +149,19 @@ object TraktAuthRepository : TrackingAuthProvider {
     fun pendingAuthorizationUrl(profileId: Int = ProfileRepository.activeProfileId): String? {
         ensureLoaded(profileId)
         val oauthState = authState.pendingAuthorizationState ?: return null
+        if (isTraktAuthorizationExpired(
+                startedAtEpochMs = authState.pendingAuthorizationStartedAtMillis,
+                nowEpochMs = TraktPlatformClock.nowEpochMs(),
+            )
+        ) {
+            clearPendingAuthorization()
+            persist(profileId)
+            publish(
+                statusMessage = null,
+                errorMessage = localizedString(Res.string.trakt_authorization_expired_reconnect),
+            )
+            return null
+        }
         return buildAuthorizationUrl(oauthState)
     }
 
@@ -170,11 +183,12 @@ object TraktAuthRepository : TrackingAuthProvider {
     fun onAuthCallbackReceived(callbackUrl: String) {
         val profileId = ProfileRepository.activeProfileId
         ensureLoaded(profileId)
+        val session = profileSessions.capture()
         val callback = parseTraktAuthCallback(callbackUrl, TraktConfig.REDIRECT_URI)
         if (callback == TraktAuthCallback.NotTrakt) return
 
         scope.launch {
-            completeAuthorizationFromCallback(callback, profileId)
+            completeAuthorizationFromCallback(callback, session)
         }
     }
 
@@ -205,6 +219,7 @@ object TraktAuthRepository : TrackingAuthProvider {
 
     suspend fun refreshUserSettings(profileId: Int = currentProfileId): String? {
         ensureLoaded(profileId)
+        val session = profileSessions.capture()
         val headers = authorizedHeaders(profileId) ?: return null
         val response = runCatching {
             httpGetTextWithHeaders(
@@ -215,6 +230,8 @@ object TraktAuthRepository : TrackingAuthProvider {
             if (error is CancellationException) throw error
             log.w { "Failed to fetch Trakt user settings: ${error.message}" }
         }.getOrNull() ?: return null
+
+        if (!profileSessions.isCurrent(session)) return null
 
         val parsed = runCatching {
             json.decodeFromString<TraktUserSettingsResponse>(response)
@@ -238,8 +255,10 @@ object TraktAuthRepository : TrackingAuthProvider {
 
     private suspend fun completeAuthorizationFromCallback(
         callback: TraktAuthCallback,
-        profileId: Int = currentProfileId,
+        session: TrackingAuthProfileSession,
     ) {
+        if (!profileSessions.isCurrent(session)) return
+        val profileId = session.profileId
         publish(isLoading = true, errorMessage = null)
 
         if (callback == TraktAuthCallback.Invalid || callback == TraktAuthCallback.NotTrakt) {
@@ -253,9 +272,21 @@ object TraktAuthRepository : TrackingAuthProvider {
         }
 
         val expectedState = authState.pendingAuthorizationState
-        if (!isTraktCallbackStateValid(callback.state, expectedState)) {
+        if (isTraktAuthorizationExpired(
+                startedAtEpochMs = authState.pendingAuthorizationStartedAtMillis,
+                nowEpochMs = TraktPlatformClock.nowEpochMs(),
+            )
+        ) {
             clearPendingAuthorization()
             persist(profileId)
+            publish(
+                isLoading = false,
+                statusMessage = null,
+                errorMessage = localizedString(Res.string.trakt_authorization_expired_reconnect),
+            )
+            return
+        }
+        if (!isTraktCallbackStateValid(callback.state, expectedState)) {
             publish(
                 isLoading = false,
                 errorMessage = localizedString(Res.string.trakt_invalid_callback_state),
@@ -274,14 +305,24 @@ object TraktAuthRepository : TrackingAuthProvider {
                 )
             }
             is TraktAuthCallback.AuthorizationCode ->
-                exchangeAuthorizationCode(callback.code, profileId)
+                exchangeAuthorizationCode(
+                    code = callback.code,
+                    session = session,
+                    expectedState = expectedState.orEmpty(),
+                )
             TraktAuthCallback.Invalid,
             TraktAuthCallback.NotTrakt,
             -> Unit
         }
     }
 
-    private suspend fun exchangeAuthorizationCode(code: String, profileId: Int = currentProfileId) {
+    private suspend fun exchangeAuthorizationCode(
+        code: String,
+        session: TrackingAuthProfileSession,
+        expectedState: String,
+    ) {
+        if (!profileSessions.isCurrent(session)) return
+        val profileId = session.profileId
         val body = json.encodeToString(
             TraktAuthorizationCodeRequest(
                 code = code,
@@ -302,6 +343,11 @@ object TraktAuthRepository : TrackingAuthProvider {
             log.w { "Failed to exchange Trakt auth code: ${error.message}" }
         }.getOrNull()
 
+        if (!isCurrentAuthorization(session, expectedState)) {
+            response?.let(::revokeReturnedGrantAsync)
+            return
+        }
+
         if (response == null) {
             clearPendingAuthorization()
             persist(profileId)
@@ -312,6 +358,11 @@ object TraktAuthRepository : TrackingAuthProvider {
         val parsed = runCatching {
             json.decodeFromString<TraktTokenResponse>(response)
         }.getOrNull()
+
+        if (!isCurrentAuthorization(session, expectedState)) {
+            parsed?.accessToken?.takeIf(String::isNotBlank)?.let(::revokeGrantAsync)
+            return
+        }
 
         if (parsed == null) {
             clearPendingAuthorization()
@@ -331,6 +382,7 @@ object TraktAuthRepository : TrackingAuthProvider {
         )
         persist(profileId)
         refreshUserSettings(profileId)
+        if (!profileSessions.isCurrent(session)) return
         publish(
             isLoading = false,
             statusMessage = localizedString(Res.string.trakt_connected_status),
@@ -339,28 +391,21 @@ object TraktAuthRepository : TrackingAuthProvider {
     }
 
     private suspend fun disconnect(profileId: Int = currentProfileId) {
+        ensureLoaded(profileId)
+        val session = profileSessions.capture()
         publish(isLoading = true, errorMessage = null)
 
         val token = authState.accessToken?.takeIf { it.isNotBlank() }
         if (!token.isNullOrBlank() && hasRequiredCredentials()) {
-            val body = json.encodeToString(
-                TraktRevokeRequest(
-                    token = token,
-                    clientId = TraktConfig.CLIENT_ID,
-                    clientSecret = TraktConfig.CLIENT_SECRET,
-                ),
-            )
             runCatching {
-                httpPostJsonWithHeaders(
-                    url = "$BASE_URL/oauth/revoke",
-                    body = body,
-                    headers = emptyMap(),
-                )
+                revokeGrant(token)
             }.onFailure { error ->
                 if (error is CancellationException) throw error
                 log.w { "Failed to revoke Trakt token: ${error.message}" }
             }
         }
+
+        if (!profileSessions.isCurrent(session)) return
 
         authState = TraktAuthState()
         persist(profileId)
@@ -372,6 +417,8 @@ object TraktAuthRepository : TrackingAuthProvider {
     }
 
     private suspend fun refreshTokenIfNeeded(force: Boolean, profileId: Int = currentProfileId): Boolean = refreshMutex.withLock {
+        ensureLoaded(profileId)
+        val session = profileSessions.capture()
         if (!hasRequiredCredentials()) return@withLock false
         val refreshToken = authState.refreshToken?.takeIf { it.isNotBlank() }
             ?: return@withLock false
@@ -404,7 +451,11 @@ object TraktAuthRepository : TrackingAuthProvider {
             log.w { "Trakt token refresh transport failure: ${error.message}" }
         }.getOrNull() ?: return@withLock false
 
-        if (ProfileRepository.activeProfileId != profileId || authState.refreshToken != refreshToken) {
+        if (!profileSessions.isCurrent(session) ||
+            ProfileRepository.activeProfileId != profileId ||
+            authState.refreshToken != refreshToken
+        ) {
+            if (response.status in 200..299) revokeReturnedGrantAsync(response.body)
             return@withLock false
         }
 
@@ -426,6 +477,11 @@ object TraktAuthRepository : TrackingAuthProvider {
         val parsed = runCatching {
             json.decodeFromString<TraktTokenResponse>(response.body)
         }.getOrNull() ?: return@withLock false
+
+        if (!profileSessions.isCurrent(session) || authState.refreshToken != refreshToken) {
+            parsed.accessToken.takeIf(String::isNotBlank)?.let(::revokeGrantAsync)
+            return@withLock false
+        }
 
         authState = authState.copy(
             accessToken = parsed.accessToken,
@@ -450,8 +506,7 @@ object TraktAuthRepository : TrackingAuthProvider {
     }
 
     private fun loadFromDisk(profileId: Int) {
-        currentProfileId = profileId
-        profileGeneration += 1L
+        profileSessions.moveTo(profileId)
         hasLoaded = true
         val payload = TraktAuthStorage.loadPayload(profileId).orEmpty().trim()
         authState = if (payload.isBlank()) {
@@ -462,6 +517,15 @@ object TraktAuthRepository : TrackingAuthProvider {
                     log.w { "Failed to parse Trakt auth payload: ${it.message}" }
                     TraktAuthState()
                 }
+        }
+        if (!authState.pendingAuthorizationState.isNullOrBlank() &&
+            isTraktAuthorizationExpired(
+                startedAtEpochMs = authState.pendingAuthorizationStartedAtMillis,
+                nowEpochMs = TraktPlatformClock.nowEpochMs(),
+            )
+        ) {
+            clearPendingAuthorization()
+            persist(profileId)
         }
         publish(statusMessage = null, errorMessage = null)
     }
@@ -508,18 +572,52 @@ object TraktAuthRepository : TrackingAuthProvider {
         TraktAuthStorage.savePayload(profileId, json.encodeToString(authState))
     }
 
+    private fun isCurrentAuthorization(
+        session: TrackingAuthProfileSession,
+        expectedState: String,
+    ): Boolean = profileSessions.isCurrent(session) &&
+        authState.pendingAuthorizationState == expectedState
+
+    private fun revokeReturnedGrantAsync(responseBody: String) {
+        runCatching { json.decodeFromString<TraktTokenResponse>(responseBody) }
+            .getOrNull()
+            ?.accessToken
+            ?.takeIf(String::isNotBlank)
+            ?.let(::revokeGrantAsync)
+    }
+
+    private fun revokeGrantAsync(token: String) {
+        if (!hasRequiredCredentials()) return
+        scope.launch {
+            runCatching { revokeGrant(token) }
+                .onFailure { error ->
+                    if (error is CancellationException) throw error
+                    log.w { "Failed to revoke a stale Trakt grant: ${error.message}" }
+                }
+        }
+    }
+
+    private suspend fun revokeGrant(token: String) {
+        val body = json.encodeToString(
+            TraktRevokeRequest(
+                token = token,
+                clientId = TraktConfig.CLIENT_ID,
+                clientSecret = TraktConfig.CLIENT_SECRET,
+            ),
+        )
+        httpPostJsonWithHeaders(
+            url = "$BASE_URL/oauth/revoke",
+            body = body,
+            headers = emptyMap(),
+        )
+    }
+
     private fun buildAuthorizationUrl(state: String): String {
         val responseType = "code"
         val encodedClientId = TraktConfig.CLIENT_ID.encodeURLParameter()
         val encodedRedirectUri = TraktConfig.REDIRECT_URI.encodeURLParameter()
         val encodedState = state.encodeURLParameter()
         return "$AUTHORIZE_URL?response_type=$responseType&client_id=$encodedClientId&redirect_uri=$encodedRedirectUri&state=$encodedState"
-    }
-
-    private fun generateOauthState(): String {
-        val nowPart = TraktPlatformClock.nowEpochMs().toString(16)
-        val randomPart = Random.nextLong().toULong().toString(16)
-        return "$nowPart$randomPart"
     }
 
     private fun isTokenExpiredOrExpiring(state: TraktAuthState): Boolean {

@@ -223,11 +223,11 @@ abstract class VerifyTrackingConfigurationTask : DefaultTask() {
         val problems = buildList {
             if (traktClientId.get().isBlank()) add("Trakt client ID is missing")
             if (traktClientSecret.get().isBlank()) add("Trakt client secret is missing")
-            if (!traktRedirectUri.get().equals("nuvio://auth/trakt", ignoreCase = true)) {
+            if (traktRedirectUri.get() != "nuvio://auth/trakt") {
                 add("Trakt redirect URI must be nuvio://auth/trakt")
             }
             if (simklClientId.get().isBlank()) add("Simkl client ID is missing")
-            if (!simklRedirectUri.get().equals("com.tinykyuu.nuvio://auth/simkl", ignoreCase = true)) {
+            if (simklRedirectUri.get() != "com.tinykyuu.nuvio://auth/simkl") {
                 add("Simkl redirect URI must be com.tinykyuu.nuvio://auth/simkl")
             }
         }

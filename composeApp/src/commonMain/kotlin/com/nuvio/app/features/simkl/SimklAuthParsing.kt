@@ -9,8 +9,8 @@ internal fun parseSimklAuthCallback(
     callbackUrl: String,
     redirectUri: String,
 ): SimklAuthCallback {
-    if (!callbackUrl.equals(redirectUri, ignoreCase = true) &&
-        !callbackUrl.startsWith("$redirectUri?", ignoreCase = true)
+    if (callbackUrl != redirectUri &&
+        !callbackUrl.startsWith("$redirectUri?")
     ) {
         return SimklAuthCallback.NotSimkl
     }

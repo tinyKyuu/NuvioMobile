@@ -28,8 +28,8 @@ internal fun parseTraktAuthCallback(
     callbackUrl: String,
     redirectUri: String,
 ): TraktAuthCallback {
-    if (!callbackUrl.equals(redirectUri, ignoreCase = true) &&
-        !callbackUrl.startsWith("$redirectUri?", ignoreCase = true)
+    if (callbackUrl != redirectUri &&
+        !callbackUrl.startsWith("$redirectUri?")
     ) {
         return TraktAuthCallback.NotTrakt
     }
@@ -56,3 +56,12 @@ internal fun isTraktCallbackStateValid(
     callbackState: String,
     expectedState: String?,
 ): Boolean = !expectedState.isNullOrBlank() && callbackState == expectedState
+
+internal const val TRAKT_AUTHORIZATION_TIMEOUT_MS = 10L * 60L * 1_000L
+
+internal fun isTraktAuthorizationExpired(
+    startedAtEpochMs: Long?,
+    nowEpochMs: Long,
+): Boolean = startedAtEpochMs == null ||
+    nowEpochMs < startedAtEpochMs ||
+    nowEpochMs - startedAtEpochMs >= TRAKT_AUTHORIZATION_TIMEOUT_MS

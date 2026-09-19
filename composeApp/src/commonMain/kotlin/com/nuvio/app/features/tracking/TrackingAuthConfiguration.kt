@@ -13,7 +13,7 @@ internal fun trackingAuthConfigurationStatus(
 ): TrackingAuthConfigurationStatus = when {
     requiredValues.any { it.isBlank() } ->
         TrackingAuthConfigurationStatus.MISSING_REQUIRED_VALUES
-    !redirectUri.equals(supportedRedirectUri, ignoreCase = true) ->
+    redirectUri != supportedRedirectUri ->
         TrackingAuthConfigurationStatus.UNSUPPORTED_REDIRECT_URI
     else -> TrackingAuthConfigurationStatus.READY
 }

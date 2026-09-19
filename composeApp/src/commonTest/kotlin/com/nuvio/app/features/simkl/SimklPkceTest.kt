@@ -68,6 +68,12 @@ class SimklPkceTest {
                 "com.tinykyuu.nuvio://auth/simkl",
             ),
         )
+        assertIs<SimklAuthCallback.NotSimkl>(
+            parseSimklAuthCallback(
+                "com.tinykyuu.nuvio://auth/Simkl?code=a&state=b&iss=https%3A%2F%2Fsimkl.com",
+                "com.tinykyuu.nuvio://auth/simkl",
+            ),
+        )
         assertEquals(
             SimklAuthCallback.AuthorizationCode(code = "a", state = "b", issuer = SIMKL_ISSUER),
             parseSimklAuthCallback(

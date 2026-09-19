@@ -2,7 +2,10 @@ package com.nuvio.app.features.trakt
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertTrue
 
 class TraktAuthRepositoryTest {
 
@@ -39,6 +42,12 @@ class TraktAuthRepositoryTest {
         assertIs<TraktAuthCallback.Invalid>(
             parseTraktAuthCallback(
                 callbackUrl = "nuvio://auth/trakt?code=code",
+                redirectUri = "nuvio://auth/trakt",
+            ),
+        )
+        assertIs<TraktAuthCallback.NotTrakt>(
+            parseTraktAuthCallback(
+                callbackUrl = "nuvio://auth/Trakt?code=code&state=state",
                 redirectUri = "nuvio://auth/trakt",
             ),
         )
@@ -80,5 +89,29 @@ class TraktAuthRepositoryTest {
                 traktTokenRefreshResponseAction(status),
             )
         }
+    }
+
+    @Test
+    fun `oauth state uses a deterministic 256-bit entropy seam`() {
+        val state = createTraktOauthState(ByteArray(32) { it.toByte() })
+
+        assertEquals(
+            "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+            state,
+        )
+        assertEquals(64, state.length)
+        assertTrue(state.all { it in '0'..'9' || it in 'a'..'f' })
+        assertFalse(state.contains('-'))
+        assertFailsWith<IllegalArgumentException> {
+            createTraktOauthState(ByteArray(31))
+        }
+    }
+
+    @Test
+    fun `pending authorization expires after ten minutes`() {
+        assertFalse(isTraktAuthorizationExpired(1_000L, 600_999L))
+        assertTrue(isTraktAuthorizationExpired(1_000L, 601_000L))
+        assertTrue(isTraktAuthorizationExpired(null, 1_000L))
+        assertTrue(isTraktAuthorizationExpired(2_000L, 1_000L))
     }
 }

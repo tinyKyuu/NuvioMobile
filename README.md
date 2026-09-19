@@ -236,6 +236,10 @@ cannot be promoted to external TestFlight testing or released on the App Store.
 See [Internal TestFlight notes](./Docs/distribution/ios-internal-testflight.md) for the current
 archive checks and local signing setup.
 
+Trakt and Simkl sign-in require private build configuration. See
+[Tracking provider build configuration](./Docs/distribution/tracking-providers.md)
+for the supported redirects, local placeholders, and verification command.
+
 ## Reporting problems
 
 Report fork behavior in this repository first. Include the commit or build,

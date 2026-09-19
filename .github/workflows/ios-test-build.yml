@@ -65,6 +65,10 @@ jobs:
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
           sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
 
+      - name: Verify tracking provider configuration
+        if: env.RELEASE_PROPERTIES_BASE64 != ''
+        run: ./gradlew :composeApp:verifyTrackingConfiguration
+
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh
 

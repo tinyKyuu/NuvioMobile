@@ -181,6 +181,9 @@ jobs:
             fi
           done
 
+      - name: Verify tracking provider configuration
+        run: ./gradlew :composeApp:verifyTrackingConfiguration
+
       - name: Build full release APKs
         run: ./gradlew :androidApp:assembleFullRelease --stacktrace
 
@@ -235,6 +238,9 @@ jobs:
         run: |
           printf '%s' "${RELEASE_PROPERTIES_BASE64}" | base64 --decode > local.properties
           sed -i '' -E '/^[[:space:]]*(sdk\.dir|NUVIO_RELEASE_STORE_FILE)[[:space:]]*=/d' local.properties
+
+      - name: Verify tracking provider configuration
+        run: ./gradlew :composeApp:verifyTrackingConfiguration
 
       - name: Prepare iOS dependencies
         run: ./scripts/prepare-ios-dependencies.sh

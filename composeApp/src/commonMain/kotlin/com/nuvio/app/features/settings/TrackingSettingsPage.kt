@@ -45,6 +45,19 @@ import com.nuvio.app.features.watchprogress.WatchProgressSourceCoordinator
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_retry
+import nuvio.composeapp.generated.resources.settings_simkl_sign_in_unavailable
+import nuvio.composeapp.generated.resources.settings_trakt_sign_in_unavailable
+import nuvio.composeapp.generated.resources.settings_tracking_anime_id_dialog_subtitle
+import nuvio.composeapp.generated.resources.settings_tracking_anime_id_dialog_title
+import nuvio.composeapp.generated.resources.settings_tracking_anime_id_imdb
+import nuvio.composeapp.generated.resources.settings_tracking_anime_id_imdb_description
+import nuvio.composeapp.generated.resources.settings_tracking_anime_id_kitsu
+import nuvio.composeapp.generated.resources.settings_tracking_anime_id_kitsu_description
+import nuvio.composeapp.generated.resources.settings_tracking_anime_id_mal
+import nuvio.composeapp.generated.resources.settings_tracking_anime_id_mal_description
+import nuvio.composeapp.generated.resources.settings_tracking_anime_id_subtitle
+import nuvio.composeapp.generated.resources.settings_tracking_anime_id_title
+import nuvio.composeapp.generated.resources.settings_tracking_anime_section
 import nuvio.composeapp.generated.resources.settings_tracking_connect_first
 import nuvio.composeapp.generated.resources.settings_tracking_data_sources
 import nuvio.composeapp.generated.resources.settings_tracking_nuvio_library_description
@@ -59,17 +72,6 @@ import nuvio.composeapp.generated.resources.settings_tracking_trakt_library_desc
 import nuvio.composeapp.generated.resources.settings_tracking_trakt_progress_description
 import nuvio.composeapp.generated.resources.settings_tracking_trakt_recommendations_description
 import nuvio.composeapp.generated.resources.settings_tracking_viewing_discovery
-import nuvio.composeapp.generated.resources.settings_tracking_anime_id_dialog_subtitle
-import nuvio.composeapp.generated.resources.settings_tracking_anime_id_dialog_title
-import nuvio.composeapp.generated.resources.settings_tracking_anime_id_imdb
-import nuvio.composeapp.generated.resources.settings_tracking_anime_id_imdb_description
-import nuvio.composeapp.generated.resources.settings_tracking_anime_id_kitsu
-import nuvio.composeapp.generated.resources.settings_tracking_anime_id_kitsu_description
-import nuvio.composeapp.generated.resources.settings_tracking_anime_id_mal
-import nuvio.composeapp.generated.resources.settings_tracking_anime_id_mal_description
-import nuvio.composeapp.generated.resources.settings_tracking_anime_id_subtitle
-import nuvio.composeapp.generated.resources.settings_tracking_anime_id_title
-import nuvio.composeapp.generated.resources.settings_tracking_anime_section
 import nuvio.composeapp.generated.resources.settings_trakt_comments
 import nuvio.composeapp.generated.resources.settings_trakt_comments_description
 import nuvio.composeapp.generated.resources.tracking_source_simkl
@@ -130,6 +132,8 @@ internal fun LazyListScope.trackingSettingsContent(
                 settingsUiState = settingsUiState,
                 traktConnected = traktUiState.mode == TraktConnectionMode.CONNECTED,
                 simklConnected = simklUiState.mode == SimklConnectionMode.CONNECTED,
+                traktConfigured = traktUiState.credentialsConfigured,
+                simklConfigured = simklUiState.credentialsConfigured,
             )
         }
     }
@@ -171,12 +175,26 @@ private enum class TrackingDataPicker {
     WATCH_PROGRESS,
 }
 
+internal fun librarySourceDisplayOrder(): List<LibrarySourceMode> = listOf(
+    LibrarySourceMode.LOCAL,
+    LibrarySourceMode.SIMKL,
+    LibrarySourceMode.TRAKT,
+)
+
+internal fun watchProgressSourceDisplayOrder(): List<WatchProgressSource> = listOf(
+    WatchProgressSource.NUVIO_SYNC,
+    WatchProgressSource.SIMKL,
+    WatchProgressSource.TRAKT,
+)
+
 @Composable
 private fun TrackingDataSources(
     isTablet: Boolean,
     settingsUiState: TrackingSettingsUiState,
     traktConnected: Boolean,
     simklConnected: Boolean,
+    traktConfigured: Boolean,
+    simklConfigured: Boolean,
 ) {
     var activePickerName by rememberSaveable { mutableStateOf<String?>(null) }
     val activePicker = activePickerName?.let(TrackingDataPicker::valueOf)
@@ -253,7 +271,12 @@ private fun TrackingDataSources(
             title = stringResource(Res.string.trakt_library_source_dialog_title),
             subtitle = stringResource(Res.string.trakt_library_source_dialog_subtitle),
             selectedValue = effectiveLibrarySource,
-            options = librarySourceOptions(traktConnected, simklConnected),
+            options = librarySourceOptions(
+                traktConnected = traktConnected,
+                simklConnected = simklConnected,
+                traktConfigured = traktConfigured,
+                simklConfigured = simklConfigured,
+            ),
             onSelected = TrackingSettingsRepository::setLibrarySourceMode,
             onDismiss = { activePickerName = null },
         )
@@ -262,7 +285,12 @@ private fun TrackingDataSources(
             title = stringResource(Res.string.trakt_watch_progress_dialog_title),
             subtitle = stringResource(Res.string.tracking_watch_progress_dialog_subtitle),
             selectedValue = effectiveProgressSource,
-            options = watchProgressSourceOptions(traktConnected, simklConnected),
+            options = watchProgressSourceOptions(
+                traktConnected = traktConnected,
+                simklConnected = simklConnected,
+                traktConfigured = traktConfigured,
+                simklConfigured = simklConfigured,
+            ),
             onSelected = { source ->
                 scope.launch {
                     WatchProgressSourceCoordinator.selectSource(
@@ -440,60 +468,82 @@ private fun TrackingInlineErrorRow(
 private fun librarySourceOptions(
     traktConnected: Boolean,
     simklConnected: Boolean,
+    traktConfigured: Boolean,
+    simklConfigured: Boolean,
 ): List<TrackingPickerOption<LibrarySourceMode>> {
     val traktAvailable = isTrackingBrandAvailable(TrackingBrand.TRAKT, traktConnected, simklConnected)
     val simklAvailable = isTrackingBrandAvailable(TrackingBrand.SIMKL, traktConnected, simklConnected)
-    return listOf(
-        TrackingPickerOption(
+    val optionsBySource = mapOf(
+        LibrarySourceMode.LOCAL to TrackingPickerOption(
             value = LibrarySourceMode.LOCAL,
             title = stringResource(Res.string.trakt_library_source_nuvio),
             description = stringResource(Res.string.settings_tracking_nuvio_library_description),
         ),
-        TrackingPickerOption(
-            value = LibrarySourceMode.TRAKT,
-            title = stringResource(Res.string.trakt_library_source_trakt),
-            description = stringResource(Res.string.settings_tracking_trakt_library_description),
-            enabled = traktAvailable,
-            unavailableReason = trackingUnavailableReason(TrackingBrand.TRAKT, traktAvailable),
-        ),
-        TrackingPickerOption(
+        LibrarySourceMode.SIMKL to TrackingPickerOption(
             value = LibrarySourceMode.SIMKL,
             title = stringResource(Res.string.tracking_source_simkl),
             description = stringResource(Res.string.settings_tracking_simkl_library_description),
             enabled = simklAvailable,
-            unavailableReason = trackingUnavailableReason(TrackingBrand.SIMKL, simklAvailable),
+            unavailableReason = trackingUnavailableReason(
+                brand = TrackingBrand.SIMKL,
+                connected = simklAvailable,
+                configured = simklConfigured,
+            ),
+        ),
+        LibrarySourceMode.TRAKT to TrackingPickerOption(
+            value = LibrarySourceMode.TRAKT,
+            title = stringResource(Res.string.trakt_library_source_trakt),
+            description = stringResource(Res.string.settings_tracking_trakt_library_description),
+            enabled = traktAvailable,
+            unavailableReason = trackingUnavailableReason(
+                brand = TrackingBrand.TRAKT,
+                connected = traktAvailable,
+                configured = traktConfigured,
+            ),
         ),
     )
+    return librarySourceDisplayOrder().map(optionsBySource::getValue)
 }
 
 @Composable
 private fun watchProgressSourceOptions(
     traktConnected: Boolean,
     simklConnected: Boolean,
+    traktConfigured: Boolean,
+    simklConfigured: Boolean,
 ): List<TrackingPickerOption<WatchProgressSource>> {
     val traktAvailable = isTrackingBrandAvailable(TrackingBrand.TRAKT, traktConnected, simklConnected)
     val simklAvailable = isTrackingBrandAvailable(TrackingBrand.SIMKL, traktConnected, simklConnected)
-    return listOf(
-        TrackingPickerOption(
+    val optionsBySource = mapOf(
+        WatchProgressSource.NUVIO_SYNC to TrackingPickerOption(
             value = WatchProgressSource.NUVIO_SYNC,
             title = stringResource(Res.string.trakt_watch_progress_source_nuvio),
             description = stringResource(Res.string.settings_tracking_nuvio_progress_description),
         ),
-        TrackingPickerOption(
-            value = WatchProgressSource.TRAKT,
-            title = stringResource(Res.string.trakt_watch_progress_source_trakt),
-            description = stringResource(Res.string.settings_tracking_trakt_progress_description),
-            enabled = traktAvailable,
-            unavailableReason = trackingUnavailableReason(TrackingBrand.TRAKT, traktAvailable),
-        ),
-        TrackingPickerOption(
+        WatchProgressSource.SIMKL to TrackingPickerOption(
             value = WatchProgressSource.SIMKL,
             title = stringResource(Res.string.tracking_source_simkl),
             description = stringResource(Res.string.settings_tracking_simkl_progress_description),
             enabled = simklAvailable,
-            unavailableReason = trackingUnavailableReason(TrackingBrand.SIMKL, simklAvailable),
+            unavailableReason = trackingUnavailableReason(
+                brand = TrackingBrand.SIMKL,
+                connected = simklAvailable,
+                configured = simklConfigured,
+            ),
+        ),
+        WatchProgressSource.TRAKT to TrackingPickerOption(
+            value = WatchProgressSource.TRAKT,
+            title = stringResource(Res.string.trakt_watch_progress_source_trakt),
+            description = stringResource(Res.string.settings_tracking_trakt_progress_description),
+            enabled = traktAvailable,
+            unavailableReason = trackingUnavailableReason(
+                brand = TrackingBrand.TRAKT,
+                connected = traktAvailable,
+                configured = traktConfigured,
+            ),
         ),
     )
+    return watchProgressSourceDisplayOrder().map(optionsBySource::getValue)
 }
 
 @Composable
@@ -531,8 +581,17 @@ private fun recommendationsSourceOptions(
 private fun trackingUnavailableReason(
     brand: TrackingBrand,
     connected: Boolean,
+    configured: Boolean = true,
 ): String? = if (connected) {
     null
+} else if (!configured) {
+    when (brand) {
+        TrackingBrand.TRAKT -> stringResource(Res.string.settings_trakt_sign_in_unavailable)
+        TrackingBrand.SIMKL -> stringResource(Res.string.settings_simkl_sign_in_unavailable)
+        TrackingBrand.NUVIO,
+        TrackingBrand.TMDB,
+        -> null
+    }
 } else {
     stringResource(Res.string.settings_tracking_connect_first, brand.displayName)
 }

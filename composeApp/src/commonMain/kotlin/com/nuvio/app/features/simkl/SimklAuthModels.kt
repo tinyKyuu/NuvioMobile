@@ -12,9 +12,12 @@ enum class SimklAuthError {
     MISSING_CLIENT_ID,
     INVALID_CALLBACK,
     INVALID_CALLBACK_STATE,
+    INVALID_CALLBACK_ISSUER,
+    AUTHORIZATION_DENIED,
     AUTHORIZATION_EXPIRED,
     TOKEN_EXCHANGE_FAILED,
     INVALID_TOKEN_RESPONSE,
+    INSUFFICIENT_SCOPE,
     AUTHORIZATION_REVOKED,
 }
 
@@ -36,6 +39,8 @@ internal data class SimklStoredAuthState(
     val hasFetchedUserSettings: Boolean = false,
     val settingsActivityWatermark: String? = null,
     val tokenExpiresAtEpochMs: Long? = null,
+    val refreshTokenExpiresAtEpochMs: Long? = null,
+    val grantedScope: String? = null,
     val pendingAuthorizationState: String? = null,
     val pendingAuthorizationStartedAtEpochMs: Long? = null,
 ) {
@@ -65,6 +70,13 @@ internal sealed interface SimklAuthCallback {
     data class AuthorizationCode(
         val code: String,
         val state: String,
+        val issuer: String,
+    ) : SimklAuthCallback
+
+    data class AuthorizationError(
+        val error: String,
+        val state: String,
+        val issuer: String,
     ) : SimklAuthCallback
 
     data object Invalid : SimklAuthCallback

@@ -1,10 +1,8 @@
 package com.nuvio.app.core.ui
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -127,6 +125,7 @@ fun NuvioNavigationBar(
     maxWidth: Dp? = null,
     horizontalPadding: Dp? = null,
     visualStyle: NuvioNavigationBarVisualStyle = NuvioNavigationBarVisualStyle.Standard,
+    travelingSelectionIndicatorEnabled: Boolean = false,
     selectedIndex: Int? = null,
     itemCount: Int = 0,
     content: @Composable NuvioNavigationBarScope.() -> Unit,
@@ -163,6 +162,8 @@ fun NuvioNavigationBar(
                 alpha = if (hazeState != null) tokens.opacity.overlayMedium else tokens.opacity.overlayHeavy,
             )
     }
+    val usesTravelingSelectionIndicator =
+        travelingSelectionIndicatorEnabled && selectedIndex != null && itemCount > 0
 
     // Outer container — no background, just safe padding
     Box(
@@ -203,14 +204,10 @@ fun NuvioNavigationBar(
             )
 
         Box(modifier = pillModifier) {
-            if (
-                visualStyle == NuvioNavigationBarVisualStyle.IosTablet &&
-                selectedIndex != null &&
-                itemCount > 0
-            ) {
-                IosTabletSelectionIndicator(
+            if (usesTravelingSelectionIndicator) {
+                TravelingSelectionIndicator(
                     modifier = Modifier.matchParentSize(),
-                    selectedIndex = selectedIndex,
+                    selectedIndex = selectedIndex!!,
                     itemCount = itemCount,
                 )
             }
@@ -227,7 +224,7 @@ fun NuvioNavigationBar(
                 NuvioNavigationBarScopeImpl(
                     rowScope = this,
                     labelFraction = labelFraction,
-                    usesSharedSelectionIndicator = visualStyle == NuvioNavigationBarVisualStyle.IosTablet,
+                    usesTravelingSelectionIndicator = usesTravelingSelectionIndicator,
                 ).content()
             }
         }
@@ -256,7 +253,7 @@ internal fun sharedSelectionIndicatorOffset(
 ): Dp = slotWidth * selectedIndex.coerceIn(0, (itemCount - 1).coerceAtLeast(0))
 
 @Composable
-private fun IosTabletSelectionIndicator(
+private fun TravelingSelectionIndicator(
     modifier: Modifier,
     selectedIndex: Int,
     itemCount: Int,
@@ -278,11 +275,11 @@ private fun IosTabletSelectionIndicator(
         )
         val animatedOffset by animateDpAsState(
             targetValue = targetOffset,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioLowBouncy,
-                stiffness = Spring.StiffnessMediumLow,
+            animationSpec = tween(
+                durationMillis = NuvioTokens.Motion.slowMillis,
+                easing = NuvioTokens.Motion.emphasized,
             ),
-            label = "ios_tablet_nav_indicator_offset",
+            label = "tablet_nav_indicator_offset",
         )
         Box(
             modifier = Modifier
@@ -339,7 +336,7 @@ interface NuvioNavigationBarScope {
 private class NuvioNavigationBarScopeImpl(
     private val rowScope: androidx.compose.foundation.layout.RowScope,
     private val labelFraction: Float,
-    private val usesSharedSelectionIndicator: Boolean,
+    private val usesTravelingSelectionIndicator: Boolean,
 ) : NuvioNavigationBarScope {
 
     @Composable
@@ -360,7 +357,7 @@ private class NuvioNavigationBarScopeImpl(
         )
         // Selected item gets a pill-shaped highlight using accent at low opacity
         val selectedBgColor by animateColorAsState(
-            targetValue = if (selected && !usesSharedSelectionIndicator) {
+            targetValue = if (selected && !usesTravelingSelectionIndicator) {
                 tokens.colors.accent.copy(alpha = NuvioTokens.Opacity.selected)
             } else {
                 Color.Transparent
@@ -368,10 +365,10 @@ private class NuvioNavigationBarScopeImpl(
             label = "nav_bg_color",
         )
         val selectedScale by animateFloatAsState(
-            targetValue = if (selected && usesSharedSelectionIndicator) 1.08f else 1f,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessMedium,
+            targetValue = if (selected && usesTravelingSelectionIndicator) 1.12f else 1f,
+            animationSpec = tween(
+                durationMillis = NuvioTokens.Motion.slowMillis,
+                easing = NuvioTokens.Motion.emphasized,
             ),
             label = "nav_selection_scale",
         )
@@ -431,7 +428,7 @@ private class NuvioNavigationBarScopeImpl(
             label = "nav_icon_color",
         )
         val selectedBgColor by animateColorAsState(
-            targetValue = if (selected && !usesSharedSelectionIndicator) {
+            targetValue = if (selected && !usesTravelingSelectionIndicator) {
                 tokens.colors.accent.copy(alpha = NuvioTokens.Opacity.selected)
             } else {
                 Color.Transparent
@@ -439,10 +436,10 @@ private class NuvioNavigationBarScopeImpl(
             label = "nav_bg_color",
         )
         val selectedScale by animateFloatAsState(
-            targetValue = if (selected && usesSharedSelectionIndicator) 1.08f else 1f,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessMedium,
+            targetValue = if (selected && usesTravelingSelectionIndicator) 1.12f else 1f,
+            animationSpec = tween(
+                durationMillis = NuvioTokens.Motion.slowMillis,
+                easing = NuvioTokens.Motion.emphasized,
             ),
             label = "nav_selection_scale",
         )
@@ -496,7 +493,7 @@ private class NuvioNavigationBarScopeImpl(
     ) {
         val tokens = MaterialTheme.nuvio
         val selectedBgColor by animateColorAsState(
-            targetValue = if (selected && !usesSharedSelectionIndicator) {
+            targetValue = if (selected && !usesTravelingSelectionIndicator) {
                 tokens.colors.accent.copy(alpha = NuvioTokens.Opacity.selected)
             } else {
                 Color.Transparent
@@ -508,10 +505,10 @@ private class NuvioNavigationBarScopeImpl(
             label = "nav_icon_color",
         )
         val selectedScale by animateFloatAsState(
-            targetValue = if (selected && usesSharedSelectionIndicator) 1.08f else 1f,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessMedium,
+            targetValue = if (selected && usesTravelingSelectionIndicator) 1.12f else 1f,
+            animationSpec = tween(
+                durationMillis = NuvioTokens.Motion.slowMillis,
+                easing = NuvioTokens.Motion.emphasized,
             ),
             label = "nav_selection_scale",
         )

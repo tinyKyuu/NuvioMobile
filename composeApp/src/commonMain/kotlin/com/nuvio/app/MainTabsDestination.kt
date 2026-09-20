@@ -105,6 +105,10 @@ internal fun MainTabsDestination(
         )
         val usesClassicComposeNavigation = !useNativeBottomTabs && effectiveNavBarStyle == NavBarStyle.CLASSIC
         val usesFloatingComposeNavigation = !useNativeBottomTabs && !usesClassicComposeNavigation
+        val usesTravelingDockSelection = usesTravelingDockSelectionIndicator(
+            isTabletLayout = isTabletLayout,
+            usesFloatingComposeNavigation = usesFloatingComposeNavigation,
+        )
         val isImeVisible = rememberReliableImeVisibility(
             windowInsetsVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0,
         )
@@ -235,6 +239,7 @@ internal fun MainTabsDestination(
                         } else {
                             NuvioNavigationBarVisualStyle.Standard
                         },
+                        travelingSelectionIndicatorEnabled = usesTravelingDockSelection,
                         selectedIndex = selectedTab.ordinal,
                         itemCount = AppScreenTab.entries.size,
                     ) {
@@ -307,6 +312,11 @@ internal fun effectiveRootNavigationStyle(
 } else {
     storedStyle
 }
+
+internal fun usesTravelingDockSelectionIndicator(
+    isTabletLayout: Boolean,
+    usesFloatingComposeNavigation: Boolean,
+): Boolean = isTabletLayout && usesFloatingComposeNavigation
 
 internal class RootNavigationSuppressionState {
     private var libraryDownloadManagementActive by mutableStateOf(false)

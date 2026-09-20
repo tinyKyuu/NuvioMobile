@@ -222,6 +222,28 @@ class MainTabsDestinationTest {
     }
 
     @Test
+    fun `traveling selector is shared by floating tablet docks only`() {
+        assertTrue(
+            usesTravelingDockSelectionIndicator(
+                isTabletLayout = true,
+                usesFloatingComposeNavigation = true,
+            ),
+        )
+        assertFalse(
+            usesTravelingDockSelectionIndicator(
+                isTabletLayout = false,
+                usesFloatingComposeNavigation = true,
+            ),
+        )
+        assertFalse(
+            usesTravelingDockSelectionIndicator(
+                isTabletLayout = true,
+                usesFloatingComposeNavigation = false,
+            ),
+        )
+    }
+
+    @Test
     fun `tablet sticky root headers avoid a second status bar inset`() {
         assertEquals(10.dp, rootListTopPaddingForStickyHeader(true, 10.dp))
         assertEquals(null, rootListTopPaddingForStickyHeader(false, 10.dp))

@@ -1,9 +1,14 @@
 package com.nuvio.app
 
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.uikit.OnFocusBehavior
 import androidx.compose.ui.window.ComposeUIViewController
 import com.nuvio.app.core.ui.NativeProfileSwitcherController
+import com.nuvio.app.core.ui.NativeRootContentLayout
+import com.nuvio.app.core.ui.LocalNativeRootContentInsets
 import com.nuvio.app.navigation.AppRoute
 import platform.UIKit.UIColor
 import platform.UIKit.UIViewController
@@ -21,6 +26,7 @@ fun MainViewController(
     useNativeTabBar: Boolean,
     useTabletFloatingTabBar: Boolean,
     hostOwnsRootDock: Boolean,
+    rootContentLayout: NativeRootContentLayout,
     onNavigate: (AppRoute, Boolean) -> Unit,
     onGoBack: () -> Unit,
     onReplace: (AppRoute) -> Unit,
@@ -31,22 +37,25 @@ fun MainViewController(
 ): UIViewController {
     val initialTab = AppScreenTab.fromName(initialTabName)
     return nuvioComposeViewController {
-        App(
-            initialTab = initialTab,
-            useNativeNavigation = true,
-            useNativeTabBar = useNativeTabBar,
-            useTabletFloatingTabBar = useTabletFloatingTabBar,
-            hostOwnsRootDock = hostOwnsRootDock,
-            ownsAppRuntime = initialTab == AppScreenTab.Home,
-            bypassAppGate = true,
-            onNavigate = onNavigate,
-            onGoBack = onGoBack,
-            onReplace = onReplace,
-            onActivate = { tab -> onActivate(tab.name) },
-            onTabTitles = onTabTitles,
-            onRootNavigationSuppressedChange = onRootNavigationSuppressedChange,
-            appGateController = appGateController,
-        )
+        val insets by rootContentLayout.insets.collectAsState()
+        CompositionLocalProvider(LocalNativeRootContentInsets provides insets) {
+            App(
+                initialTab = initialTab,
+                useNativeNavigation = true,
+                useNativeTabBar = useNativeTabBar,
+                useTabletFloatingTabBar = useTabletFloatingTabBar,
+                hostOwnsRootDock = hostOwnsRootDock,
+                ownsAppRuntime = initialTab == AppScreenTab.Home,
+                bypassAppGate = true,
+                onNavigate = onNavigate,
+                onGoBack = onGoBack,
+                onReplace = onReplace,
+                onActivate = { tab -> onActivate(tab.name) },
+                onTabTitles = onTabTitles,
+                onRootNavigationSuppressedChange = onRootNavigationSuppressedChange,
+                appGateController = appGateController,
+            )
+        }
     }
 }
 

@@ -198,6 +198,7 @@ internal expect fun publishNativeTabBarVisible(visible: Boolean)
 internal expect fun publishNativeSelectedTab(tabName: String)
 
 internal expect fun publishNativeTabAccentColor(hexColor: String)
+internal expect fun publishNativeBackgroundColor(hexColor: String)
 
 internal expect fun publishNativeTabTitles(
     home: String,

@@ -95,16 +95,17 @@ fun NuvioScreen(
 ) {
     val tokens = MaterialTheme.nuvio
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val rootInsets = LocalNativeRootContentInsets.current
     LazyColumn(
         state = listState,
         modifier = modifier
             .fillMaxSize()
             .background(tokens.colors.background),
         contentPadding = PaddingValues(
-            start = horizontalPadding,
+            start = horizontalPadding + rootInsets.start.dp,
             top = topPadding ?: tokens.spacing.screenTop + statusBarTop + nuvioPlatformExtraTopPadding +
                 LocalNuvioTopNavigationOverlayPadding.current,
-            end = horizontalPadding,
+            end = horizontalPadding + rootInsets.end.dp,
             bottom = nuvioSafeBottomPadding(tokens.spacing.screenBottom),
         ),
         verticalArrangement = Arrangement.spacedBy(tokens.spacing.listGap),

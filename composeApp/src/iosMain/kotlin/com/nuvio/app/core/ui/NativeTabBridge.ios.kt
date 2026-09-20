@@ -42,6 +42,13 @@ internal actual fun publishNativeTabAccentColor(hexColor: String) {
     notifyNativeTabChromeChanged()
 }
 
+internal actual fun publishNativeBackgroundColor(hexColor: String) {
+    val key = "NuvioNativeBackgroundColor"
+    if (NSUserDefaults.standardUserDefaults.stringForKey(key) == hexColor) return
+    NSUserDefaults.standardUserDefaults.setObject(hexColor, forKey = key)
+    notifyNativeTabChromeChanged()
+}
+
 internal actual fun publishNativeTabTitles(
     home: String,
     search: String,

@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import com.nuvio.app.core.ui.LocalNativeRootContentInsets
+import com.nuvio.app.core.ui.nativeRootControlsPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -461,9 +463,11 @@ fun LibraryScreen(
     }
 
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val gridColumns = remember(maxWidth) { posterGridColumnCountForWidth(maxWidth) }
-        val managerContainer = remember(maxWidth, maxHeight) {
-            resolveDownloadManagerContainer(maxWidth, maxHeight)
+        val rootInsets = LocalNativeRootContentInsets.current
+        val usableWidth = maxWidth - rootInsets.start.dp - rootInsets.end.dp
+        val gridColumns = remember(usableWidth) { posterGridColumnCountForWidth(usableWidth) }
+        val managerContainer = remember(usableWidth, maxHeight) {
+            resolveDownloadManagerContainer(usableWidth, maxHeight)
         }
         val managerClearance = if (downloadManagementState.isManaging) {
             downloadManagerGridBottomClearance()
@@ -786,15 +790,17 @@ fun LibraryScreen(
         }
 
         if (sourceMode == LibraryViewMode.Downloaded) {
-            DownloadLibraryManagementHost(
-                items = downloadsUiState.completedItems,
-                state = downloadManagementState,
-                container = managerContainer,
-                menuTarget = downloadMenuTarget,
-                onMenuDismiss = { downloadMenuTarget = null },
-                onStateChange = { downloadManagementState = it },
-                onPlay = { item -> onPlayDownloaded?.invoke(item) },
-            )
+            Box(Modifier.fillMaxSize().nativeRootControlsPadding()) {
+                DownloadLibraryManagementHost(
+                    items = downloadsUiState.completedItems,
+                    state = downloadManagementState,
+                    container = managerContainer,
+                    menuTarget = downloadMenuTarget,
+                    onMenuDismiss = { downloadMenuTarget = null },
+                    onStateChange = { downloadManagementState = it },
+                    onPlay = { item -> onPlayDownloaded?.invoke(item) },
+                )
+            }
         }
     }
 }

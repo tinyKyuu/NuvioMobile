@@ -33,6 +33,7 @@ import com.nuvio.app.core.network.NetworkRecoveryPhase
 import com.nuvio.app.core.network.NetworkRecoveryUiState
 import com.nuvio.app.core.network.NetworkStatusUiState
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
+import com.nuvio.app.core.ui.LocalNativeRootContentInsets
 import com.nuvio.app.core.ui.LocalNuvioNavBarScrollState
 import com.nuvio.app.core.ui.LocalNuvioTopNavigationOverlayPadding
 import com.nuvio.app.core.ui.NuvioClassicNavigationBar
@@ -83,7 +84,9 @@ internal fun MainTabsDestination(
     PlatformBackHandler(enabled = true, onBack = onBack)
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isTabletLayout = useTabletFloatingTabBar || maxWidth >= 768.dp
+        val rootInsets = LocalNativeRootContentInsets.current
+        val usableWidth = maxWidth - rootInsets.start.dp - rootInsets.end.dp
+        val isTabletLayout = useTabletFloatingTabBar || usableWidth >= 768.dp
         val useNativeBottomTabs = if (useNativeNavigation) {
             useNativeTabBar
         } else {
@@ -208,7 +211,10 @@ internal fun MainTabsDestination(
         ) { innerPadding ->
             Box(modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(
-                    LocalNuvioBottomNavigationOverlayPadding provides navigationOverlayPadding.bottom,
+                    LocalNuvioBottomNavigationOverlayPadding provides when {
+                        hostOwnsRootDock && !rootNavigationSuppressed -> rootInsets.bottomDock.dp
+                        else -> navigationOverlayPadding.bottom
+                    },
                     LocalNuvioTopNavigationOverlayPadding provides navigationOverlayPadding.top,
                     LocalNuvioNavBarScrollState provides navBarScrollState,
                 ) {

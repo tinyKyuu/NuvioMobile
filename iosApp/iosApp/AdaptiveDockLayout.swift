@@ -7,12 +7,12 @@ struct AdaptiveDockLayout: Equatable {
     let isVertical: Bool
     let itemSize: CGSize
 
-    init(window: CGSize, itemHeight: CGFloat = 56, sideItemWidth: CGFloat = 76) {
+    init(window: CGSize, itemHeight: CGFloat = 52, sideItemWidth: CGFloat = 64) {
         let verticalItemHeight = max(itemHeight, sideItemWidth)
         isVertical = window.width >= 900 && window.width > window.height &&
             window.height >= verticalItemHeight * 4 + 40
         itemSize = CGSize(
-            width: isVertical ? sideItemWidth : max(44, (min(560, window.width - 32) - 8) / 4),
+            width: isVertical ? sideItemWidth : max(44, (min(400, window.width - 32) - 8) / 4),
             // A side endpoint must be at least as tall as it is wide so its
             // capsule radius remains concentric with the outside capsule.
             height: isVertical ? verticalItemHeight : itemHeight

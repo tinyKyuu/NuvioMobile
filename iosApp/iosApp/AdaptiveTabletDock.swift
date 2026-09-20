@@ -1,6 +1,17 @@
 import SwiftUI
 import UIKit
 
+private struct RootDockContentInsetsKey: EnvironmentKey {
+    static let defaultValue = EdgeInsets()
+}
+
+extension EnvironmentValues {
+    var rootDockContentInsets: EdgeInsets {
+        get { self[RootDockContentInsetsKey.self] }
+        set { self[RootDockContentInsetsKey.self] = newValue }
+    }
+}
+
 @available(iOS 16.0, *)
 struct AdaptiveTabletRoot<Content: View>: View {
     @ObservedObject var appCoordinator: AppNavigationCoordinator
@@ -8,8 +19,8 @@ struct AdaptiveTabletRoot<Content: View>: View {
     @ObservedObject var iconStore: NativeTabIconStore
     let selection: Binding<NuvioAppTab>
     @ViewBuilder let content: Content
-    @ScaledMetric(relativeTo: .caption) private var itemHeight = 56.0
-    @ScaledMetric(relativeTo: .caption) private var sideItemWidth = 76.0
+    @ScaledMetric(relativeTo: .caption) private var itemHeight = 52.0
+    @ScaledMetric(relativeTo: .caption) private var sideItemWidth = 64.0
 
     var body: some View {
         GeometryReader { geometry in
@@ -21,11 +32,13 @@ struct AdaptiveTabletRoot<Content: View>: View {
             let atRoot = appCoordinator.isMainContentVisible && selectedCoordinator.path.isEmpty
             let visible = atRoot && !appCoordinator.isRootTabBarSuppressed
 
-            // Keep this content and dock at the same structural identity when
-            // the window changes shape. Padding reserves real content space.
+            // Reserve scrollable content clearance, not an empty viewport strip.
             content
-                .padding(.trailing, atRoot ? layout.reservedWidth : 0)
-                .padding(.bottom, atRoot && !appCoordinator.isRootTabContentSuppressed ? layout.reservedHeight : 0)
+                .environment(\.rootDockContentInsets, EdgeInsets(
+                    top: 0, leading: 0,
+                    bottom: atRoot && !appCoordinator.isRootTabContentSuppressed ? layout.reservedHeight : 0,
+                    trailing: atRoot ? layout.reservedWidth : 0
+                ))
                 .overlay(alignment: layout.isVertical ? .trailing : .bottom) {
                     AdaptiveTabletDock(
                         layout: layout,
@@ -42,7 +55,7 @@ struct AdaptiveTabletRoot<Content: View>: View {
         // Compose still handles its own IME insets. The dock's parent must not
         // move above the keyboard or switch axes when the keyboard opens.
         .ignoresSafeArea(.keyboard)
-        .background(Color(uiColor: nuvioBackgroundColor).ignoresSafeArea())
+        .background(Color(uiColor: iconStore.backgroundColor).ignoresSafeArea())
     }
 }
 

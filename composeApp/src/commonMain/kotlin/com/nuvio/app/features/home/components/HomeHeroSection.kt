@@ -1,5 +1,9 @@
 package com.nuvio.app.features.home.components
 
+import com.nuvio.app.core.ui.LocalNativeRootContentInsets
+import com.nuvio.app.core.ui.nativeRootShelfBleed
+import com.nuvio.app.core.ui.nativeRootControlsPadding
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -152,6 +156,7 @@ fun HomeHeroSection(
 
     BoxWithConstraints(
         modifier = modifier
+            .nativeRootShelfBleed()
             .fillMaxWidth()
             .homeHeroPagerGesture(
                 pagerState = pagerState,
@@ -161,7 +166,7 @@ fun HomeHeroSection(
             .clip(RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp)),
     ) {
         val layout = homeHeroLayout(
-            maxWidthDp = maxWidth.value,
+            maxWidthDp = maxWidth.value - LocalNativeRootContentInsets.current.start - LocalNativeRootContentInsets.current.end,
             viewportHeightDp = viewportHeight?.value,
             mobileBelowSectionHeightHintDp = mobileBelowSectionHeightHint?.value,
         )
@@ -281,6 +286,7 @@ fun HomeHeroSection(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
+                        .nativeRootControlsPadding()
                         .padding(
                             horizontal = layout.contentHorizontalPadding,
                             vertical = layout.contentVerticalPadding,

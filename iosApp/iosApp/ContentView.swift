@@ -185,6 +185,7 @@ struct RouteWrapper: Hashable, Identifiable {
 @MainActor
 final class TabNavigationCoordinator: ObservableObject {
     @Published var path: [RouteWrapper] = []
+    let rootContentLayout = NativeRootContentLayout()
 
     func push(_ route: AppRoute, launchSingleTop: Bool) {
         if launchSingleTop,
@@ -367,6 +368,7 @@ final class NativeTabIconStore: ObservableObject {
     private static let profileBackgroundKey = "NuvioNativeProfileAvatarBackgroundColor"
 
     @Published private(set) var revision = 0
+    @Published private(set) var backgroundColor = nuvioBackgroundColor
     @Published private(set) var accentColor = UIColor(
         red: 0.96,
         green: 0.96,
@@ -423,6 +425,8 @@ final class NativeTabIconStore: ObservableObject {
         let defaults = UserDefaults.standard
         accentColor = UIColor(hexString: defaults.string(forKey: Self.accentKey))
             ?? UIColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 1)
+        backgroundColor = UIColor(hexString: defaults.string(forKey: "NuvioNativeBackgroundColor"))
+            ?? nuvioBackgroundColor
 
         let nextURL = defaults.string(forKey: Self.profileURLKey)
         guard nextURL != profileAvatarURL else {
@@ -683,13 +687,16 @@ struct NativeNavComposeView: UIViewControllerRepresentable {
     let usesTabletFloatingTabBar: Bool
     let coordinator: TabNavigationCoordinator
     let appCoordinator: AppNavigationCoordinator
+    var contentInsets = EdgeInsets()
 
     func makeUIViewController(context: Context) -> UIViewController {
+        updateContentInsets()
         let controller = MainViewControllerKt.MainViewController(
             initialTabName: tab.rawValue,
             useNativeTabBar: usesNativeTabBar,
             useTabletFloatingTabBar: usesTabletFloatingTabBar,
             hostOwnsRootDock: UIDevice.current.userInterfaceIdiom == .pad,
+            rootContentLayout: coordinator.rootContentLayout,
             onNavigate: { route, launchSingleTop in
                 appCoordinator.push(
                     route,
@@ -729,7 +736,16 @@ struct NativeNavComposeView: UIViewControllerRepresentable {
         )
     }
 
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        updateContentInsets()
+    }
+
+    private func updateContentInsets() {
+        coordinator.rootContentLayout.update(
+            start: Double(contentInsets.leading), end: Double(contentInsets.trailing),
+            bottomDock: Double(contentInsets.bottom)
+        )
+    }
 }
 
 @available(iOS 16.0, *)
@@ -799,6 +815,7 @@ struct DetailComposeView: UIViewControllerRepresentable {
 
 @available(iOS 16.0, *)
 struct TabContentView: View {
+    @Environment(\.rootDockContentInsets) private var dockInsets
     let tab: NuvioAppTab
     let usesNativeTabBar: Bool
     let usesTabletFloatingTabBar: Bool
@@ -812,16 +829,24 @@ struct TabContentView: View {
                 set: { coordinator.setPath($0) }
             )
         ) {
-            NativeNavComposeView(
-                tab: tab,
-                usesNativeTabBar: usesNativeTabBar,
-                usesTabletFloatingTabBar: usesTabletFloatingTabBar,
-                coordinator: coordinator,
-                appCoordinator: appCoordinator
-            )
-            // Native bars may occupy either horizontal edge, including Duo.
-            // Compose owns vertical insets; retain the host's side safe areas.
-            .ignoresSafeArea(.all, edges: .vertical)
+            GeometryReader { geometry in
+                NativeNavComposeView(
+                    tab: tab,
+                    usesNativeTabBar: usesNativeTabBar,
+                    usesTabletFloatingTabBar: usesTabletFloatingTabBar,
+                    coordinator: coordinator,
+                    appCoordinator: appCoordinator,
+                    contentInsets: EdgeInsets(
+                        top: 0,
+                        leading: geometry.safeAreaInsets.leading + dockInsets.leading,
+                        bottom: dockInsets.bottom,
+                        trailing: geometry.safeAreaInsets.trailing + dockInsets.trailing
+                    )
+                )
+                // Draw through the safe area. Compose applies these same insets
+                // to controls and grids, while poster shelves may bleed behind bars.
+                .ignoresSafeArea(.all)
+            }
             .navigationTitle(appCoordinator.title(for: tab))
             .navigationBarHidden(true)
             .navigationDestination(for: RouteWrapper.self) { wrapper in
@@ -1395,6 +1420,7 @@ struct NativeNavContentView: View {
                 .zIndex(1)
         }
         .background(RootKeyboardObserver(onVisibilityChanged: appCoordinator.setKeyboardVisible))
+        .background(Color(uiColor: iconStore.backgroundColor).ignoresSafeArea())
         .ignoresSafeArea(.keyboard)
     }
 }

@@ -32,6 +32,7 @@ import androidx.compose.material3.TooltipBox
 import androidx.compose.material3.TooltipDefaults
 import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +56,7 @@ import androidx.compose.ui.zIndex
 import com.nuvio.app.core.network.NetworkCondition
 import com.nuvio.app.core.network.titleForEmptyState
 import com.nuvio.app.core.ui.DisintegrationRequest
+import com.nuvio.app.core.ui.LocalNativeRootContentInsets
 import com.nuvio.app.core.ui.NuvioLoadingIndicator
 import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.nuvio
@@ -242,27 +244,33 @@ internal fun AppTabHost(
                 }
 
                 AppScreenTab.Settings -> {
-                    SettingsScreen(
-                        modifier = Modifier.fillMaxSize(),
-                        rootActionRequests = requests.settingsRootActionRequests,
-                        requestedPageName = state.requestedSettingsPageName,
-                        onRequestedPageConsumed = actions.onRequestedSettingsPageConsumed,
-                        rootActionsEnabled = state.rootActionsEnabled,
-                        onNavigatePage = actions.onSettingsPageClick,
-                        onSwitchProfile = actions.onSwitchProfile,
-                        onHomescreenClick = actions.onHomescreenSettingsClick,
-                        onMetaScreenClick = actions.onMetaScreenSettingsClick,
-                        onContinueWatchingClick = actions.onContinueWatchingSettingsClick,
-                        onDownloadsClick = actions.onDownloadsSettingsClick,
-                        onAddonsClick = actions.onAddonsSettingsClick,
-                        onPluginsClick = actions.onPluginsSettingsClick,
-                        onAccountClick = actions.onAccountSettingsClick,
-                        onSupportersContributorsClick = actions.onSupportersContributorsSettingsClick,
-                        onLicensesAttributionsClick = actions.onLicensesAttributionsSettingsClick,
-                        onCheckForUpdatesClick = actions.onCheckForUpdatesClick,
-                        onTestUpdateBannerClick = actions.onTestUpdateBannerClick,
-                        onCollectionsClick = actions.onCollectionsSettingsClick,
-                    )
+                    val rootInsets = LocalNativeRootContentInsets.current
+                    CompositionLocalProvider(
+                        LocalNativeRootContentInsets provides rootInsets.copy(start = 0f, end = 0f),
+                    ) {
+                        SettingsScreen(
+                            modifier = Modifier.fillMaxSize()
+                                .padding(start = rootInsets.start.dp, end = rootInsets.end.dp),
+                            rootActionRequests = requests.settingsRootActionRequests,
+                            requestedPageName = state.requestedSettingsPageName,
+                            onRequestedPageConsumed = actions.onRequestedSettingsPageConsumed,
+                            rootActionsEnabled = state.rootActionsEnabled,
+                            onNavigatePage = actions.onSettingsPageClick,
+                            onSwitchProfile = actions.onSwitchProfile,
+                            onHomescreenClick = actions.onHomescreenSettingsClick,
+                            onMetaScreenClick = actions.onMetaScreenSettingsClick,
+                            onContinueWatchingClick = actions.onContinueWatchingSettingsClick,
+                            onDownloadsClick = actions.onDownloadsSettingsClick,
+                            onAddonsClick = actions.onAddonsSettingsClick,
+                            onPluginsClick = actions.onPluginsSettingsClick,
+                            onAccountClick = actions.onAccountSettingsClick,
+                            onSupportersContributorsClick = actions.onSupportersContributorsSettingsClick,
+                            onLicensesAttributionsClick = actions.onLicensesAttributionsSettingsClick,
+                            onCheckForUpdatesClick = actions.onCheckForUpdatesClick,
+                            onTestUpdateBannerClick = actions.onTestUpdateBannerClick,
+                            onCollectionsClick = actions.onCollectionsSettingsClick,
+                        )
+                    }
                 }
             }
         }

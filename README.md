@@ -102,7 +102,7 @@ for provenance, pull requests, test evidence, and remaining validation work.
 | Feature | Where | Platforms | Status |
 | --- | --- | --- | --- |
 | Catalog and Continue Watching posters share one size setting. Automatic is stored on the device and chooses a phone or tablet size, Extra Large is available, and Continue Watching defaults to Poster. | Home, catalogs, and Settings | iOS, iPadOS, and Android | Merged |
-| Tablet root navigation uses the shared Compose dock with stable labels and a traveling glass selection capsule with selected-item emphasis on iPad and the floating Android tablet styles. Android tablets retain Adaptive, Expanded, Compact, and the intentionally separate Classic choice; measured width fallback drops Settings first, then all labels only when required. Keyboard and Download activity transitions restore the dock reliably, with iPad keyboard dismissal returning it directly to the physical bottom safe area. | App navigation | iPadOS and Android tablets | [In testing](https://github.com/tinyKyuu/NuvioMobile/pull/34) |
+| iPad root navigation uses one persistent native dock with a traveling selector, Liquid Glass on iPadOS 26+, a bottom layout for portrait/narrow windows, and a reserved right-side strip for wide landscape windows. The dock hides for the software keyboard and Downloads management. iPhone keeps Apple's native tab navigation. Android tablets retain their shared Compose dock and Adaptive, Expanded, Compact, and Classic choices. Exact native-animation parity and the remaining device/window checks are not yet accepted. | App navigation | iOS, iPadOS, and Android tablets | [In testing](https://github.com/tinyKyuu/NuvioMobile/pull/34) |
 
 ### Library
 

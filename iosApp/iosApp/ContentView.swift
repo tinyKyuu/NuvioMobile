@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 import ComposeApp
 
-private let nuvioBackgroundColor = UIColor(
+let nuvioBackgroundColor = UIColor(
     red: 0.051,
     green: 0.051,
     blue: 0.051,
@@ -547,7 +547,10 @@ final class AppNavigationCoordinator: ObservableObject {
     @Published private(set) var localizedSwitchProfileTitle = ""
     @Published private(set) var localizedAddProfileTitle = ""
     @Published var isProfileSwitcherPresented = false
-    @Published private(set) var isRootTabBarSuppressed = false
+    @Published private var rootDockVisibility = RootDockVisibility<NuvioAppTab>()
+
+    var isRootTabBarSuppressed: Bool { rootDockVisibility.isSuppressed(for: selectedTab) }
+    var isRootTabContentSuppressed: Bool { rootDockVisibility.isTabSuppressed(selectedTab) }
 
     let homeCoordinator = TabNavigationCoordinator()
     let searchCoordinator = TabNavigationCoordinator()
@@ -619,6 +622,7 @@ final class AppNavigationCoordinator: ObservableObject {
         if !mounted {
             isMainContentVisible = false
             selectedTab = .home
+            rootDockVisibility = RootDockVisibility()
         }
     }
 
@@ -626,8 +630,12 @@ final class AppNavigationCoordinator: ObservableObject {
         isMainContentVisible = visible
     }
 
-    func setRootTabBarSuppressed(_ suppressed: Bool) {
-        isRootTabBarSuppressed = suppressed
+    func setRootTabBarSuppressed(_ suppressed: Bool, for tab: NuvioAppTab) {
+        rootDockVisibility.setSuppressed(suppressed, for: tab)
+    }
+
+    func setKeyboardVisible(_ visible: Bool) {
+        rootDockVisibility.keyboardVisible = visible
     }
 
     func openProfileManagement() {
@@ -681,6 +689,7 @@ struct NativeNavComposeView: UIViewControllerRepresentable {
             initialTabName: tab.rawValue,
             useNativeTabBar: usesNativeTabBar,
             useTabletFloatingTabBar: usesTabletFloatingTabBar,
+            hostOwnsRootDock: UIDevice.current.userInterfaceIdiom == .pad,
             onNavigate: { route, launchSingleTop in
                 appCoordinator.push(
                     route,
@@ -708,7 +717,7 @@ struct NativeNavComposeView: UIViewControllerRepresentable {
                 )
             },
             onRootNavigationSuppressedChange: { suppressed in
-                appCoordinator.setRootTabBarSuppressed(suppressed.boolValue)
+                appCoordinator.setRootTabBarSuppressed(suppressed.boolValue, for: tab)
             },
             appGateController: appCoordinator.appGateController
         )
@@ -810,7 +819,9 @@ struct TabContentView: View {
                 coordinator: coordinator,
                 appCoordinator: appCoordinator
             )
-            .ignoresSafeArea(.all)
+            // Native bars may occupy either horizontal edge, including Duo.
+            // Compose owns vertical insets; retain the host's side safe areas.
+            .ignoresSafeArea(.all, edges: .vertical)
             .navigationTitle(appCoordinator.title(for: tab))
             .navigationBarHidden(true)
             .navigationDestination(for: RouteWrapper.self) { wrapper in
@@ -895,14 +906,14 @@ private struct DetailDestinationView: View {
                     coordinator: coordinator,
                     appCoordinator: appCoordinator
                 )
-                .ignoresSafeArea(.all, edges: [.horizontal, .bottom])
+                .ignoresSafeArea(.all, edges: .bottom)
             } else {
                 DetailComposeView(
                     route: wrapper.route,
                     coordinator: coordinator,
                     appCoordinator: appCoordinator
                 )
-                .ignoresSafeArea(.all)
+                .ignoresSafeArea(.all, edges: wrapper.route is PlayerRoute ? .all : .vertical)
             }
 
             if showsReadabilityFade {
@@ -1083,7 +1094,7 @@ private struct NativeProfileAvatarView: View {
 }
 
 @available(iOS 26.0, *)
-private struct NativeProfileSwitcherView: View {
+struct NativeProfileSwitcherView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: NativeProfileSwitcherViewModel
     let title: String
@@ -1222,7 +1233,9 @@ struct NativeNavContentView: View {
     }
 
     private var usesTabletFloatingTabBar: Bool {
-        UIDevice.current.userInterfaceIdiom == .pad
+        // Tablet content now responds to the actual available width. The
+        // persistent SwiftUI host owns the iPad dock, not each Compose tab.
+        false
     }
 
     private var tabSelection: Binding<NuvioAppTab> {
@@ -1354,7 +1367,16 @@ struct NativeNavContentView: View {
         ZStack {
             Group {
                 if appCoordinator.isMainContentMounted {
-                    if #available(iOS 26.0, *), usesNativeTabBar {
+                    if UIDevice.current.userInterfaceIdiom == .pad {
+                        AdaptiveTabletRoot(
+                            appCoordinator: appCoordinator,
+                            selectedCoordinator: appCoordinator.coordinator(for: appCoordinator.selectedTab),
+                            iconStore: iconStore,
+                            selection: tabSelection
+                        ) {
+                            legacyTabs
+                        }
+                    } else if #available(iOS 26.0, *), usesNativeTabBar {
                         nativeTabs
                     } else {
                         legacyTabs
@@ -1367,11 +1389,13 @@ struct NativeNavContentView: View {
             .zIndex(0)
 
             AppGateComposeView(appCoordinator: appCoordinator)
-                .ignoresSafeArea(.all)
+                .ignoresSafeArea(.all, edges: .vertical)
                 .allowsHitTesting(!appCoordinator.isAppReady)
                 .accessibilityHidden(appCoordinator.isAppReady)
                 .zIndex(1)
         }
+        .background(RootKeyboardObserver(onVisibilityChanged: appCoordinator.setKeyboardVisible))
+        .ignoresSafeArea(.keyboard)
     }
 }
 

@@ -23,6 +23,21 @@ import kotlin.test.assertTrue
 class MainTabsDestinationTest {
 
     @Test
+    fun `persistent Apple host disables every per-controller dock without duplicate clearance`() {
+        for (nativeTabs in listOf(false, true)) {
+            assertFalse(usesComposeRootNavigation(nativeTabs, hostOwnsRootDock = true))
+            for (style in NavBarStyle.entries) {
+                assertEquals(
+                    RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp),
+                    rootNavigationOverlayPadding(nativeTabs, style, hostOwnsRootDock = true),
+                )
+            }
+        }
+        assertTrue(usesComposeRootNavigation(false, hostOwnsRootDock = false))
+        assertFalse(usesComposeRootNavigation(true, hostOwnsRootDock = false))
+    }
+
+    @Test
     fun `tablet floating navigation reserves only bottom overlay space`() {
         val padding = rootNavigationOverlayPadding(
             useNativeBottomTabs = false,

@@ -78,6 +78,7 @@ internal fun MainTabsDestination(
     onAddProfileRequested: () -> Unit,
     onNetworkRetry: () -> Unit,
     onRootNavigationSuppressedChange: ((Boolean) -> Unit)? = null,
+    hostOwnsRootDock: Boolean = false,
 ) {
     PlatformBackHandler(enabled = true, onBack = onBack)
 
@@ -103,8 +104,9 @@ internal fun MainTabsDestination(
             isIosPlatform = isIos,
             storedStyle = navBarStyleSetting,
         )
-        val usesClassicComposeNavigation = !useNativeBottomTabs && effectiveNavBarStyle == NavBarStyle.CLASSIC
-        val usesFloatingComposeNavigation = !useNativeBottomTabs && !usesClassicComposeNavigation
+        val usesComposeNavigation = usesComposeRootNavigation(useNativeBottomTabs, hostOwnsRootDock)
+        val usesClassicComposeNavigation = usesComposeNavigation && effectiveNavBarStyle == NavBarStyle.CLASSIC
+        val usesFloatingComposeNavigation = usesComposeNavigation && !usesClassicComposeNavigation
         val usesTravelingDockSelection = usesTravelingDockSelectionIndicator(
             isTabletLayout = isTabletLayout,
             usesFloatingComposeNavigation = usesFloatingComposeNavigation,
@@ -118,13 +120,16 @@ internal fun MainTabsDestination(
         }
         val rootNavigationSuppressed = suppressionState.isSuppressed(
             selectedTab = selectedTab,
-            imeVisible = isImeVisible,
+            // The persistent Apple host observes the keyboard once for the
+            // whole window. Per-tab callbacks report only tab-owned state.
+            imeVisible = isImeVisible && !hostOwnsRootDock,
         )
         val customNavigationVisible = !rootNavigationSuppressed
         val navigationOverlayPadding = rootNavigationOverlayPadding(
             useNativeBottomTabs = useNativeBottomTabs,
             navBarStyle = effectiveNavBarStyle,
             navigationVisible = !rootNavigationSuppressed,
+            hostOwnsRootDock = hostOwnsRootDock,
         )
         var previousSelectedTab by remember { mutableStateOf(selectedTab) }
         val homeLabel = stringResource(Res.string.compose_nav_home)
@@ -296,12 +301,19 @@ internal fun rootNavigationOverlayPadding(
     useNativeBottomTabs: Boolean,
     navBarStyle: NavBarStyle,
     navigationVisible: Boolean = true,
+    hostOwnsRootDock: Boolean = false,
 ): RootNavigationOverlayPadding = when {
+    hostOwnsRootDock -> RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp)
     !navigationVisible -> RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp)
     useNativeBottomTabs -> RootNavigationOverlayPadding(top = 0.dp, bottom = 49.dp)
     navBarStyle != NavBarStyle.CLASSIC -> RootNavigationOverlayPadding(top = 0.dp, bottom = 72.dp)
     else -> RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp)
 }
+
+internal fun usesComposeRootNavigation(
+    useNativeBottomTabs: Boolean,
+    hostOwnsRootDock: Boolean,
+): Boolean = !useNativeBottomTabs && !hostOwnsRootDock
 
 internal fun effectiveRootNavigationStyle(
     isTabletLayout: Boolean,

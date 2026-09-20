@@ -9,6 +9,7 @@ internal actual fun publishNativeTabBarVisible(visible: Boolean) = Unit
 internal actual fun publishNativeSelectedTab(tabName: String) = Unit
 
 internal actual fun publishNativeTabAccentColor(hexColor: String) = Unit
+internal actual fun publishNativeBackgroundColor(hexColor: String) = Unit
 
 internal actual fun publishNativeTabTitles(
     home: String,

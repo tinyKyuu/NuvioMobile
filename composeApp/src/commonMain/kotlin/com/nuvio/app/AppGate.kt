@@ -73,6 +73,7 @@ internal fun AppGate(
     nativeProfileSwitcherController: NativeProfileSwitcherController?,
     appGateController: AppGateController?,
     onRootNavigationSuppressedChange: ((Boolean) -> Unit)?,
+    hostOwnsRootDock: Boolean = false,
 ) {
     if (bypassAppGate) {
         MainAppContent(
@@ -81,6 +82,7 @@ internal fun AppGate(
             useNativeNavigation = useNativeNavigation,
             useNativeTabBar = useNativeTabBar,
             useTabletFloatingTabBar = useTabletFloatingTabBar,
+            hostOwnsRootDock = hostOwnsRootDock,
             ownsAppRuntime = ownsAppRuntime,
             showLaunchOverlay = appGateController == null,
             onNavigate = onNavigate,
@@ -459,6 +461,7 @@ internal fun AppGate(
                             useNativeNavigation = useNativeNavigation,
                             useNativeTabBar = useNativeTabBar,
                             useTabletFloatingTabBar = useTabletFloatingTabBar,
+                            hostOwnsRootDock = hostOwnsRootDock,
                             ownsAppRuntime = ownsAppRuntime,
                             showLaunchOverlay = !profileSelectionLoading,
                             onNavigate = onNavigate,

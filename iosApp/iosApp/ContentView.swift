@@ -3,7 +3,7 @@ import SwiftUI
 import UIKit
 import ComposeApp
 
-private let nuvioBackgroundColor = UIColor(
+let nuvioBackgroundColor = UIColor(
     red: 0.051,
     green: 0.051,
     blue: 0.051,
@@ -185,6 +185,7 @@ struct RouteWrapper: Hashable, Identifiable {
 @MainActor
 final class TabNavigationCoordinator: ObservableObject {
     @Published var path: [RouteWrapper] = []
+    let rootContentLayout = NativeRootContentLayout()
 
     func push(_ route: AppRoute, launchSingleTop: Bool) {
         if launchSingleTop,
@@ -367,6 +368,7 @@ final class NativeTabIconStore: ObservableObject {
     private static let profileBackgroundKey = "NuvioNativeProfileAvatarBackgroundColor"
 
     @Published private(set) var revision = 0
+    @Published private(set) var backgroundColor = nuvioBackgroundColor
     @Published private(set) var accentColor = UIColor(
         red: 0.96,
         green: 0.96,
@@ -423,6 +425,8 @@ final class NativeTabIconStore: ObservableObject {
         let defaults = UserDefaults.standard
         accentColor = UIColor(hexString: defaults.string(forKey: Self.accentKey))
             ?? UIColor(red: 0.96, green: 0.96, blue: 0.96, alpha: 1)
+        backgroundColor = UIColor(hexString: defaults.string(forKey: "NuvioNativeBackgroundColor"))
+            ?? nuvioBackgroundColor
 
         let nextURL = defaults.string(forKey: Self.profileURLKey)
         guard nextURL != profileAvatarURL else {
@@ -547,7 +551,10 @@ final class AppNavigationCoordinator: ObservableObject {
     @Published private(set) var localizedSwitchProfileTitle = ""
     @Published private(set) var localizedAddProfileTitle = ""
     @Published var isProfileSwitcherPresented = false
-    @Published private(set) var isRootTabBarSuppressed = false
+    @Published private var rootDockVisibility = RootDockVisibility<NuvioAppTab>()
+
+    var isRootTabBarSuppressed: Bool { rootDockVisibility.isSuppressed(for: selectedTab) }
+    var isRootTabContentSuppressed: Bool { rootDockVisibility.isTabSuppressed(selectedTab) }
 
     let homeCoordinator = TabNavigationCoordinator()
     let searchCoordinator = TabNavigationCoordinator()
@@ -619,6 +626,7 @@ final class AppNavigationCoordinator: ObservableObject {
         if !mounted {
             isMainContentVisible = false
             selectedTab = .home
+            rootDockVisibility = RootDockVisibility()
         }
     }
 
@@ -626,8 +634,12 @@ final class AppNavigationCoordinator: ObservableObject {
         isMainContentVisible = visible
     }
 
-    func setRootTabBarSuppressed(_ suppressed: Bool) {
-        isRootTabBarSuppressed = suppressed
+    func setRootTabBarSuppressed(_ suppressed: Bool, for tab: NuvioAppTab) {
+        rootDockVisibility.setSuppressed(suppressed, for: tab)
+    }
+
+    func setKeyboardVisible(_ visible: Bool) {
+        rootDockVisibility.keyboardVisible = visible
     }
 
     func openProfileManagement() {
@@ -675,12 +687,16 @@ struct NativeNavComposeView: UIViewControllerRepresentable {
     let usesTabletFloatingTabBar: Bool
     let coordinator: TabNavigationCoordinator
     let appCoordinator: AppNavigationCoordinator
+    var contentInsets = EdgeInsets()
 
     func makeUIViewController(context: Context) -> UIViewController {
+        updateContentInsets()
         let controller = MainViewControllerKt.MainViewController(
             initialTabName: tab.rawValue,
             useNativeTabBar: usesNativeTabBar,
             useTabletFloatingTabBar: usesTabletFloatingTabBar,
+            hostOwnsRootDock: UIDevice.current.userInterfaceIdiom == .pad,
+            rootContentLayout: coordinator.rootContentLayout,
             onNavigate: { route, launchSingleTop in
                 appCoordinator.push(
                     route,
@@ -708,7 +724,7 @@ struct NativeNavComposeView: UIViewControllerRepresentable {
                 )
             },
             onRootNavigationSuppressedChange: { suppressed in
-                appCoordinator.setRootTabBarSuppressed(suppressed.boolValue)
+                appCoordinator.setRootTabBarSuppressed(suppressed.boolValue, for: tab)
             },
             appGateController: appCoordinator.appGateController
         )
@@ -720,7 +736,16 @@ struct NativeNavComposeView: UIViewControllerRepresentable {
         )
     }
 
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        updateContentInsets()
+    }
+
+    private func updateContentInsets() {
+        coordinator.rootContentLayout.update(
+            start: Double(contentInsets.leading), end: Double(contentInsets.trailing),
+            bottomDock: Double(contentInsets.bottom)
+        )
+    }
 }
 
 @available(iOS 16.0, *)
@@ -790,6 +815,7 @@ struct DetailComposeView: UIViewControllerRepresentable {
 
 @available(iOS 16.0, *)
 struct TabContentView: View {
+    @Environment(\.rootDockContentInsets) private var dockInsets
     let tab: NuvioAppTab
     let usesNativeTabBar: Bool
     let usesTabletFloatingTabBar: Bool
@@ -803,14 +829,24 @@ struct TabContentView: View {
                 set: { coordinator.setPath($0) }
             )
         ) {
-            NativeNavComposeView(
-                tab: tab,
-                usesNativeTabBar: usesNativeTabBar,
-                usesTabletFloatingTabBar: usesTabletFloatingTabBar,
-                coordinator: coordinator,
-                appCoordinator: appCoordinator
-            )
-            .ignoresSafeArea(.all)
+            GeometryReader { geometry in
+                NativeNavComposeView(
+                    tab: tab,
+                    usesNativeTabBar: usesNativeTabBar,
+                    usesTabletFloatingTabBar: usesTabletFloatingTabBar,
+                    coordinator: coordinator,
+                    appCoordinator: appCoordinator,
+                    contentInsets: EdgeInsets(
+                        top: 0,
+                        leading: geometry.safeAreaInsets.leading + dockInsets.leading,
+                        bottom: dockInsets.bottom,
+                        trailing: geometry.safeAreaInsets.trailing + dockInsets.trailing
+                    )
+                )
+                // Draw through the safe area. Compose applies these same insets
+                // to controls and grids, while poster shelves may bleed behind bars.
+                .ignoresSafeArea(.all)
+            }
             .navigationTitle(appCoordinator.title(for: tab))
             .navigationBarHidden(true)
             .navigationDestination(for: RouteWrapper.self) { wrapper in
@@ -895,14 +931,14 @@ private struct DetailDestinationView: View {
                     coordinator: coordinator,
                     appCoordinator: appCoordinator
                 )
-                .ignoresSafeArea(.all, edges: [.horizontal, .bottom])
+                .ignoresSafeArea(.all, edges: .bottom)
             } else {
                 DetailComposeView(
                     route: wrapper.route,
                     coordinator: coordinator,
                     appCoordinator: appCoordinator
                 )
-                .ignoresSafeArea(.all)
+                .ignoresSafeArea(.all, edges: wrapper.route is PlayerRoute ? .all : .vertical)
             }
 
             if showsReadabilityFade {
@@ -1083,7 +1119,7 @@ private struct NativeProfileAvatarView: View {
 }
 
 @available(iOS 26.0, *)
-private struct NativeProfileSwitcherView: View {
+struct NativeProfileSwitcherView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var model: NativeProfileSwitcherViewModel
     let title: String
@@ -1222,7 +1258,9 @@ struct NativeNavContentView: View {
     }
 
     private var usesTabletFloatingTabBar: Bool {
-        UIDevice.current.userInterfaceIdiom == .pad
+        // Tablet content now responds to the actual available width. The
+        // persistent SwiftUI host owns the iPad dock, not each Compose tab.
+        false
     }
 
     private var tabSelection: Binding<NuvioAppTab> {
@@ -1354,7 +1392,16 @@ struct NativeNavContentView: View {
         ZStack {
             Group {
                 if appCoordinator.isMainContentMounted {
-                    if #available(iOS 26.0, *), usesNativeTabBar {
+                    if UIDevice.current.userInterfaceIdiom == .pad {
+                        AdaptiveTabletRoot(
+                            appCoordinator: appCoordinator,
+                            selectedCoordinator: appCoordinator.coordinator(for: appCoordinator.selectedTab),
+                            iconStore: iconStore,
+                            selection: tabSelection
+                        ) {
+                            legacyTabs
+                        }
+                    } else if #available(iOS 26.0, *), usesNativeTabBar {
                         nativeTabs
                     } else {
                         legacyTabs
@@ -1367,11 +1414,14 @@ struct NativeNavContentView: View {
             .zIndex(0)
 
             AppGateComposeView(appCoordinator: appCoordinator)
-                .ignoresSafeArea(.all)
+                .ignoresSafeArea(.all, edges: .vertical)
                 .allowsHitTesting(!appCoordinator.isAppReady)
                 .accessibilityHidden(appCoordinator.isAppReady)
                 .zIndex(1)
         }
+        .background(RootKeyboardObserver(onVisibilityChanged: appCoordinator.setKeyboardVisible))
+        .background(Color(uiColor: iconStore.backgroundColor).ignoresSafeArea())
+        .ignoresSafeArea(.keyboard)
     }
 }
 

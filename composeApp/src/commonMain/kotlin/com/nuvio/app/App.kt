@@ -1,6 +1,11 @@
 package com.nuvio.app
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.graphics.toArgb
+import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.publishNativeBackgroundColor
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.tooling.preview.Preview
@@ -31,6 +36,7 @@ fun App(
     useNativeNavigation: Boolean = false,
     useNativeTabBar: Boolean = false,
     useTabletFloatingTabBar: Boolean = false,
+    hostOwnsRootDock: Boolean = false,
     ownsAppRuntime: Boolean = true,
     bypassAppGate: Boolean = false,
     onNavigate: ((AppRoute, launchSingleTop: Boolean) -> Unit)? = null,
@@ -50,6 +56,7 @@ fun App(
             useNativeNavigation = useNativeNavigation,
             useNativeTabBar = useNativeTabBar,
             useTabletFloatingTabBar = useTabletFloatingTabBar,
+            hostOwnsRootDock = hostOwnsRootDock,
             ownsAppRuntime = ownsAppRuntime,
             bypassAppGate = bypassAppGate,
             renderMainContent = true,
@@ -95,6 +102,9 @@ internal fun AppEnvironment(content: @Composable () -> Unit) {
     }.collectAsStateWithLifecycle()
 
     NuvioTheme(appTheme = selectedTheme, amoled = amoledEnabled) {
+        val backgroundHex = MaterialTheme.nuvio.colors.background.toArgb()
+            .toUInt().toString(16).takeLast(6).padStart(6, '0')
+        SideEffect { publishNativeBackgroundColor(backgroundHex) }
         content()
     }
 }

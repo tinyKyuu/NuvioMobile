@@ -45,6 +45,7 @@ import com.nuvio.app.core.network.NetworkRecoveryCoordinator
 import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioScreen
+import com.nuvio.app.core.ui.LocalNativeRootContentInsets
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.ReconnectControlState
@@ -197,11 +198,13 @@ fun SearchScreen(
     BoxWithConstraints(
         modifier = modifier.fillMaxSize(),
     ) {
-        val discoverColumns = remember(maxWidth) {
-            posterGridColumnCountForWidth(maxWidth)
+        val rootInsets = LocalNativeRootContentInsets.current
+        val usableWidth = maxWidth - rootInsets.start.dp - rootInsets.end.dp
+        val discoverColumns = remember(usableWidth) {
+            posterGridColumnCountForWidth(usableWidth)
         }
-        val homeSectionPadding = remember(maxWidth) {
-            homeSectionHorizontalPaddingForWidth(maxWidth.value)
+        val homeSectionPadding = remember(usableWidth) {
+            homeSectionHorizontalPaddingForWidth(usableWidth.value)
         }
         val headerTitle = when {
             query.isNotBlank() -> stringResource(Res.string.compose_nav_search)

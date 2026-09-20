@@ -98,9 +98,9 @@ fun <T> NuvioShelfSection(
             )
         }
         LazyRow(
-            modifier = rowModifier,
+            modifier = rowModifier.nativeRootShelfBleed(),
             state = state,
-            contentPadding = rowContentPadding,
+            contentPadding = rowContentPadding.withNativeRootShelfClearance(),
             horizontalArrangement = Arrangement.spacedBy(itemSpacing),
         ) {
             if (key != null) {

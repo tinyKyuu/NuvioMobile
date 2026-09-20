@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -23,6 +24,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -30,12 +33,16 @@ import com.nuvio.app.core.network.NetworkRecoveryPhase
 import com.nuvio.app.core.network.NetworkRecoveryUiState
 import com.nuvio.app.core.network.NetworkStatusUiState
 import com.nuvio.app.core.ui.LocalNuvioBottomNavigationOverlayPadding
+import com.nuvio.app.core.ui.LocalNativeRootContentInsets
 import com.nuvio.app.core.ui.LocalNuvioNavBarScrollState
 import com.nuvio.app.core.ui.LocalNuvioTopNavigationOverlayPadding
 import com.nuvio.app.core.ui.NuvioClassicNavigationBar
 import com.nuvio.app.core.ui.NuvioNavigationBar
+import com.nuvio.app.core.ui.NuvioNavigationBarVisualStyle
+import com.nuvio.app.core.ui.NuvioTokens
 import com.nuvio.app.core.ui.PlatformBackHandler
 import com.nuvio.app.core.ui.rememberNuvioNavBarScrollState
+import com.nuvio.app.core.ui.rememberReliableImeVisibility
 import com.nuvio.app.features.profiles.NuvioProfile
 import com.nuvio.app.features.profiles.ProfileSwitcherTab
 import com.nuvio.app.features.settings.NavBarStyle
@@ -72,11 +79,14 @@ internal fun MainTabsDestination(
     onAddProfileRequested: () -> Unit,
     onNetworkRetry: () -> Unit,
     onRootNavigationSuppressedChange: ((Boolean) -> Unit)? = null,
+    hostOwnsRootDock: Boolean = false,
 ) {
     PlatformBackHandler(enabled = true, onBack = onBack)
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val isTabletLayout = useTabletFloatingTabBar || maxWidth >= 768.dp
+        val rootInsets = LocalNativeRootContentInsets.current
+        val usableWidth = maxWidth - rootInsets.start.dp - rootInsets.end.dp
+        val isTabletLayout = useTabletFloatingTabBar || usableWidth >= 768.dp
         val useNativeBottomTabs = if (useNativeNavigation) {
             useNativeTabBar
         } else {
@@ -92,18 +102,64 @@ internal fun MainTabsDestination(
         val navBarScrollState = rememberNuvioNavBarScrollState()
         val navBarHazeState = rememberHazeState()
         val navBarStyleSetting by remember { ThemeSettingsRepository.navBarStyle }.collectAsStateWithLifecycle()
-        var libraryDownloadManagementActive by remember { mutableStateOf(false) }
-        val isImeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-        val rootNavigationSuppressed = isImeVisible ||
-            (selectedTab == AppScreenTab.Library && libraryDownloadManagementActive)
+        val effectiveNavBarStyle = effectiveRootNavigationStyle(
+            isTabletLayout = isTabletLayout,
+            isIosPlatform = isIos,
+            storedStyle = navBarStyleSetting,
+        )
+        val usesComposeNavigation = usesComposeRootNavigation(useNativeBottomTabs, hostOwnsRootDock)
+        val usesClassicComposeNavigation = usesComposeNavigation && effectiveNavBarStyle == NavBarStyle.CLASSIC
+        val usesFloatingComposeNavigation = usesComposeNavigation && !usesClassicComposeNavigation
+        val usesTravelingDockSelection = usesTravelingDockSelectionIndicator(
+            isTabletLayout = isTabletLayout,
+            usesFloatingComposeNavigation = usesFloatingComposeNavigation,
+        )
+        val isImeVisible = rememberReliableImeVisibility(
+            windowInsetsVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0,
+        )
+        val suppressionState = remember { RootNavigationSuppressionState() }
+        val onLibraryDownloadManagementActiveChange = remember(suppressionState) {
+            { active: Boolean -> suppressionState.onLibraryDownloadManagementActiveChanged(active) }
+        }
+        val rootNavigationSuppressed = suppressionState.isSuppressed(
+            selectedTab = selectedTab,
+            // The persistent Apple host observes the keyboard once for the
+            // whole window. Per-tab callbacks report only tab-owned state.
+            imeVisible = isImeVisible && !hostOwnsRootDock,
+        )
         val customNavigationVisible = !rootNavigationSuppressed
         val navigationOverlayPadding = rootNavigationOverlayPadding(
-            isTabletLayout = isTabletLayout,
             useNativeBottomTabs = useNativeBottomTabs,
-            navBarStyle = navBarStyleSetting,
+            navBarStyle = effectiveNavBarStyle,
             navigationVisible = !rootNavigationSuppressed,
+            hostOwnsRootDock = hostOwnsRootDock,
         )
+        var previousSelectedTab by remember { mutableStateOf(selectedTab) }
+        val homeLabel = stringResource(Res.string.compose_nav_home)
+        val searchLabel = stringResource(Res.string.compose_nav_search)
+        val libraryLabel = stringResource(Res.string.compose_nav_library)
+        val settingsLabel = stringResource(Res.string.compose_settings_page_root)
+        val tabletDockPresentation = if (isTabletLayout) {
+            tabletDockPresentationForLabels(
+                availableWidth = maxWidth,
+                labels = listOf(homeLabel, searchLabel, libraryLabel, settingsLabel),
+            )
+        } else {
+            TabletDockPresentation.Full
+        }
 
+        LaunchedEffect(selectedTab, effectiveNavBarStyle, isTabletLayout) {
+            if (previousSelectedTab != selectedTab) {
+                suppressionState.onTabChanged(previousSelectedTab, selectedTab)
+                previousSelectedTab = selectedTab
+            }
+            when (effectiveNavBarStyle) {
+                NavBarStyle.EXPANDED -> navBarScrollState.expand()
+                NavBarStyle.COMPACT -> navBarScrollState.collapse()
+                NavBarStyle.ADAPTIVE -> if (isTabletLayout) navBarScrollState.expand()
+                NavBarStyle.CLASSIC -> Unit
+            }
+        }
         LaunchedEffect(rootNavigationSuppressed, onRootNavigationSuppressedChange) {
             onRootNavigationSuppressedChange?.invoke(rootNavigationSuppressed)
         }
@@ -118,25 +174,25 @@ internal fun MainTabsDestination(
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0),
             bottomBar = {
-                if (customNavigationVisible && !isTabletLayout && !useNativeBottomTabs && navBarStyleSetting == NavBarStyle.CLASSIC) {
+                if (customNavigationVisible && usesClassicComposeNavigation) {
                     NuvioClassicNavigationBar {
                         NavItem(
                             selected = selectedTab == AppScreenTab.Home,
                             onClick = { onTabSelected(AppScreenTab.Home) },
                             icon = Icons.Filled.Home,
-                            contentDescription = stringResource(Res.string.compose_nav_home),
+                            contentDescription = homeLabel,
                         )
                         NavItem(
                             selected = selectedTab == AppScreenTab.Search,
                             onClick = { onTabSelected(AppScreenTab.Search) },
                             icon = Res.drawable.sidebar_search,
-                            contentDescription = stringResource(Res.string.compose_nav_search),
+                            contentDescription = searchLabel,
                         )
                         NavItem(
                             selected = selectedTab == AppScreenTab.Library,
                             onClick = { onTabSelected(AppScreenTab.Library) },
                             icon = Res.drawable.sidebar_library,
-                            contentDescription = stringResource(Res.string.compose_nav_library),
+                            contentDescription = libraryLabel,
                         )
                         NavItem(
                             selected = selectedTab == AppScreenTab.Settings,
@@ -155,7 +211,10 @@ internal fun MainTabsDestination(
         ) { innerPadding ->
             Box(modifier = Modifier.fillMaxSize()) {
                 CompositionLocalProvider(
-                    LocalNuvioBottomNavigationOverlayPadding provides navigationOverlayPadding.bottom,
+                    LocalNuvioBottomNavigationOverlayPadding provides when {
+                        hostOwnsRootDock && !rootNavigationSuppressed -> rootInsets.bottomDock.dp
+                        else -> navigationOverlayPadding.bottom
+                    },
                     LocalNuvioTopNavigationOverlayPadding provides navigationOverlayPadding.top,
                     LocalNuvioNavBarScrollState provides navBarScrollState,
                 ) {
@@ -168,63 +227,62 @@ internal fun MainTabsDestination(
                         networkCondition = networkStatus.condition,
                         reconnectControlState = tabConnectionState,
                         onNetworkRetry = onNetworkRetry,
-                        onLibraryDownloadManagementActiveChange = { active ->
-                            libraryDownloadManagementActive = active
-                        },
+                        onLibraryDownloadManagementActiveChange = onLibraryDownloadManagementActiveChange,
                         modifier = Modifier
                             .fillMaxSize()
-                            .then(if (navBarStyleSetting != NavBarStyle.CLASSIC) Modifier.hazeSource(state = navBarHazeState) else Modifier)
-                            .then(if (navBarStyleSetting == NavBarStyle.ADAPTIVE) Modifier.nestedScroll(navBarScrollState.nestedScrollConnection) else Modifier)
+                            .then(if (usesFloatingComposeNavigation) Modifier.hazeSource(state = navBarHazeState) else Modifier)
+                            .then(if (effectiveNavBarStyle == NavBarStyle.ADAPTIVE) Modifier.nestedScroll(navBarScrollState.nestedScrollConnection) else Modifier)
                             .padding(innerPadding),
                     )
                 }
 
-                if (customNavigationVisible && isTabletLayout && !useNativeBottomTabs) {
-                    TabletFloatingBottomDock(
-                        selectedTab = selectedTab,
-                        onTabSelected = onTabSelected,
-                        onProfileSelected = onProfileSelected,
-                        onAddProfileRequested = onAddProfileRequested,
-                        modifier = Modifier.align(Alignment.BottomCenter),
-                    )
-                }
-
-                if (customNavigationVisible && !isTabletLayout && !useNativeBottomTabs && navBarStyleSetting != NavBarStyle.CLASSIC) {
-                    when (navBarStyleSetting) {
-                        NavBarStyle.EXPANDED -> navBarScrollState.expand()
-                        NavBarStyle.COMPACT -> navBarScrollState.collapse()
-                        else -> {}
-                    }
+                if (customNavigationVisible && usesFloatingComposeNavigation) {
+                    val showPrimaryLabels = !isTabletLayout || tabletDockPresentation != TabletDockPresentation.Compact
+                    val showSettingsLabel = !isTabletLayout || tabletDockPresentation == TabletDockPresentation.Full
                     NuvioNavigationBar(
                         modifier = Modifier.align(Alignment.BottomCenter),
                         scrollState = navBarScrollState,
                         hazeState = navBarHazeState,
+                        maxWidth = if (isTabletLayout) TabletNavigationMaxWidth else null,
+                        horizontalPadding = if (isTabletLayout) TabletNavigationHorizontalPadding else null,
+                        visualStyle = if (isTabletLayout && isIos) {
+                            NuvioNavigationBarVisualStyle.IosTablet
+                        } else {
+                            NuvioNavigationBarVisualStyle.Standard
+                        },
+                        travelingSelectionIndicatorEnabled = usesTravelingDockSelection,
+                        selectedIndex = selectedTab.ordinal,
+                        itemCount = AppScreenTab.entries.size,
                     ) {
                         NavItem(
                             selected = selectedTab == AppScreenTab.Home,
                             onClick = { onTabSelected(AppScreenTab.Home) },
                             icon = Icons.Filled.Home,
-                            contentDescription = stringResource(Res.string.compose_nav_home),
-                            label = stringResource(Res.string.compose_nav_home),
+                            contentDescription = homeLabel,
+                            label = homeLabel.takeIf { showPrimaryLabels },
+                            reserveLabelSpace = showPrimaryLabels,
                         )
                         NavItem(
                             selected = selectedTab == AppScreenTab.Search,
                             onClick = { onTabSelected(AppScreenTab.Search) },
                             icon = Res.drawable.sidebar_search,
-                            contentDescription = stringResource(Res.string.compose_nav_search),
-                            label = stringResource(Res.string.compose_nav_search),
+                            contentDescription = searchLabel,
+                            label = searchLabel.takeIf { showPrimaryLabels },
+                            reserveLabelSpace = showPrimaryLabels,
                         )
                         NavItem(
                             selected = selectedTab == AppScreenTab.Library,
                             onClick = { onTabSelected(AppScreenTab.Library) },
                             icon = Res.drawable.sidebar_library,
-                            contentDescription = stringResource(Res.string.compose_nav_library),
-                            label = stringResource(Res.string.compose_nav_library),
+                            contentDescription = libraryLabel,
+                            label = libraryLabel.takeIf { showPrimaryLabels },
+                            reserveLabelSpace = showPrimaryLabels,
                         )
                         NavItem(
                             selected = selectedTab == AppScreenTab.Settings,
                             onClick = { onTabSelected(AppScreenTab.Settings) },
-                            label = stringResource(Res.string.compose_settings_page_root),
+                            label = settingsLabel.takeIf { showSettingsLabel },
+                            reserveLabelSpace = showPrimaryLabels,
                         ) {
                             ProfileSwitcherTab(
                                 selected = selectedTab == AppScreenTab.Settings,
@@ -246,16 +304,56 @@ internal data class RootNavigationOverlayPadding(
 )
 
 internal fun rootNavigationOverlayPadding(
-    isTabletLayout: Boolean,
     useNativeBottomTabs: Boolean,
     navBarStyle: NavBarStyle,
     navigationVisible: Boolean = true,
+    hostOwnsRootDock: Boolean = false,
 ): RootNavigationOverlayPadding = when {
+    hostOwnsRootDock -> RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp)
     !navigationVisible -> RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp)
     useNativeBottomTabs -> RootNavigationOverlayPadding(top = 0.dp, bottom = 49.dp)
-    isTabletLayout -> RootNavigationOverlayPadding(top = 0.dp, bottom = 72.dp)
     navBarStyle != NavBarStyle.CLASSIC -> RootNavigationOverlayPadding(top = 0.dp, bottom = 72.dp)
     else -> RootNavigationOverlayPadding(top = 0.dp, bottom = 0.dp)
+}
+
+internal fun usesComposeRootNavigation(
+    useNativeBottomTabs: Boolean,
+    hostOwnsRootDock: Boolean,
+): Boolean = !useNativeBottomTabs && !hostOwnsRootDock
+
+internal fun effectiveRootNavigationStyle(
+    isTabletLayout: Boolean,
+    isIosPlatform: Boolean,
+    storedStyle: NavBarStyle,
+): NavBarStyle = if (isTabletLayout && isIosPlatform) {
+    NavBarStyle.EXPANDED
+} else {
+    storedStyle
+}
+
+internal fun usesTravelingDockSelectionIndicator(
+    isTabletLayout: Boolean,
+    usesFloatingComposeNavigation: Boolean,
+): Boolean = isTabletLayout && usesFloatingComposeNavigation
+
+internal class RootNavigationSuppressionState {
+    private var libraryDownloadManagementActive by mutableStateOf(false)
+
+    fun onLibraryDownloadManagementActiveChanged(active: Boolean) {
+        libraryDownloadManagementActive = active
+    }
+
+    fun onTabChanged(previous: AppScreenTab, current: AppScreenTab) {
+        if (previous == AppScreenTab.Library && current != AppScreenTab.Library) {
+            libraryDownloadManagementActive = false
+        }
+    }
+
+    fun isSuppressed(
+        selectedTab: AppScreenTab,
+        imeVisible: Boolean,
+    ): Boolean = imeVisible ||
+        (selectedTab == AppScreenTab.Library && libraryDownloadManagementActive)
 }
 
 enum class ReconnectControlState {
@@ -321,6 +419,46 @@ internal enum class TabletDockPresentation {
     Full,
     SettingsCompact,
     Compact,
+}
+
+private val TabletNavigationMaxWidth = 560.dp
+private val TabletNavigationHorizontalPadding = NuvioTokens.Space.s16
+
+@Composable
+private fun tabletDockPresentationForLabels(
+    availableWidth: Dp,
+    labels: List<String>,
+): TabletDockPresentation {
+    val density = LocalDensity.current
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = MaterialTheme.typography.labelSmall.copy(
+        fontSize = NuvioTokens.Type.labelXs,
+        lineHeight = NuvioTokens.LineHeight.labelXs,
+    )
+    val compactItemWidthPx = with(density) { NuvioTokens.Space.s56.roundToPx() }
+    val labelPaddingPx = with(density) { (NuvioTokens.Space.s6 * 2).roundToPx() }
+    val barPaddingPx = with(density) { (NuvioTokens.Space.s6 * 2).roundToPx() }
+    fun labeledItemWidthPx(label: String): Int = maxOf(
+        compactItemWidthPx,
+        textMeasurer.measure(
+            text = AnnotatedString(label),
+            style = labelStyle,
+            maxLines = 1,
+        ).size.width + labelPaddingPx,
+    )
+    val primaryItemWidthPx = labels.take(3).maxOf(::labeledItemWidthPx)
+    val settingsItemWidthPx = labeledItemWidthPx(labels.last())
+    val settingsCompactWidthPx = barPaddingPx + maxOf(primaryItemWidthPx, compactItemWidthPx) * 4
+    val fullWidthPx = barPaddingPx + maxOf(primaryItemWidthPx, settingsItemWidthPx) * 4
+    val availableContentWidth = minOf(
+        availableWidth - TabletNavigationHorizontalPadding * 2,
+        TabletNavigationMaxWidth,
+    )
+    return tabletDockPresentationForMeasuredContent(
+        availableWidthPx = with(density) { availableContentWidth.coerceAtLeast(0.dp).roundToPx() },
+        fullWidthPx = fullWidthPx,
+        settingsCompactWidthPx = settingsCompactWidthPx,
+    )
 }
 
 internal fun tabletDockPresentationForMeasuredContent(
